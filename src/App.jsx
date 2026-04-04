@@ -12,7 +12,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // CONFIG
 // ---------------------------
 
-const POLYGON_KEY = "RBgXtvfJpX5Ol5zVecRpwqdNjYpAjJJr";
+const POLYGON_KEY = import.meta.env.VITE_POLYGON_API_KEY;
 const POLYGON_BASE = "https://api.polygon.io";
 const USE_MOCK = false; // true = mock data, false = live Polygon.io
 

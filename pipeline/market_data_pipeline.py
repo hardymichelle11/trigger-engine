@@ -58,8 +58,8 @@ from google.cloud import bigquery
 # Config
 # ----------------------------
 
-POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "RBgXtvfJpX5Ol5zVecRpwqdNjYpAjJJr")
-GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "supple-synapse-470605-c5")
+POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")
+GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 BQ_DATASET = os.environ.get("BQ_DATASET", "market_data")
 POLYGON_BASE = "https://api.polygon.io"
 
