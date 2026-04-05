@@ -30,3 +30,4 @@ sa-key*.json
 *.njsproj
 *.sln
 *.sw?
+__pycache__/

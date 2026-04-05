@@ -122,6 +122,8 @@ def ensure_tables(client: bigquery.Client) -> None:
           volume INT64,
           vwap FLOAT64,
           trades INT64,
+          range_pct FLOAT64,
+          momentum FLOAT64,
           source STRING,
           ingested_at TIMESTAMP NOT NULL
         )
@@ -141,6 +143,10 @@ def ensure_tables(client: bigquery.Client) -> None:
           volume INT64,
           vwap FLOAT64,
           trades INT64,
+          range_pct FLOAT64,
+          momentum FLOAT64,
+          gap FLOAT64,
+          prev_close FLOAT64,
           source STRING,
           ingested_at TIMESTAMP NOT NULL
         )
@@ -181,29 +187,75 @@ def ensure_tables(client: bigquery.Client) -> None:
 def _ts_ms_to_iso(ts_ms: int) -> str:
     return dt.datetime.fromtimestamp(ts_ms / 1000, tz=dt.timezone.utc).isoformat()
 
+# Exchange lookup cache (fetched once per symbol per session)
+_exchange_cache: Dict[str, str] = {}
+
+def get_exchange(symbol: str) -> str:
+    """Fetch primary exchange from Polygon ticker details, cached per session."""
+    if symbol in _exchange_cache:
+        return _exchange_cache[symbol]
+    try:
+        data = polygon_get(f"/v3/reference/tickers/{symbol}")
+        exchange = data.get("results", {}).get("primary_exchange", "")
+        _exchange_cache[symbol] = exchange
+        return exchange
+    except Exception:
+        _exchange_cache[symbol] = ""
+        return ""
+
+def _safe_div(a, b):
+    """Safe division, returns None if b is 0 or None."""
+    if not b:
+        return None
+    return a / b
+
 def fetch_agg_bars(symbol: str, multiplier: int, timespan: str, start_date: dt.date, end_date: dt.date, adjusted: bool = True) -> List[Dict[str, Any]]:
     path = f"/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date.isoformat()}/{end_date.isoformat()}"
     data = polygon_get(path, params={"adjusted": "true" if adjusted else "false", "sort": "asc", "limit": 50000})
     results = data.get("results", []) or []
     rows = []
     now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+    exchange = get_exchange(symbol)
+    prev_close = None
+
     for r in results:
         ts = _ts_ms_to_iso(r["t"])
-        rows.append({
+        o = r.get("o")
+        h = r.get("h")
+        l = r.get("l")
+        c = r.get("c")
+
+        # Computed columns
+        range_pct = _safe_div((h - l), o) if (h is not None and l is not None and o) else None
+        momentum = (c / o - 1) if (c is not None and o) else None
+        gap = (o / prev_close - 1) if (o is not None and prev_close) else None
+
+        row = {
             "symbol": symbol,
-            "exchange": None,
+            "exchange": exchange,
             "ts": ts,
             "bar_date": ts[:10],
-            "open": r.get("o"),
-            "high": r.get("h"),
-            "low": r.get("l"),
-            "close": r.get("c"),
+            "open": o,
+            "high": h,
+            "low": l,
+            "close": c,
             "volume": int(r.get("v", 0)) if r.get("v") is not None else None,
             "vwap": r.get("vw"),
             "trades": int(r.get("n", 0)) if r.get("n") is not None else None,
+            "range_pct": range_pct,
+            "momentum": momentum,
             "source": "polygon_aggs",
             "ingested_at": now_iso,
-        })
+        }
+
+        # gap and prev_close only on daily bars
+        if timespan == "day":
+            row["gap"] = gap
+            row["prev_close"] = prev_close
+
+        rows.append(row)
+        prev_close = c
+
     return rows
 
 def fetch_snapshot(symbol: str) -> Dict[str, Any]:
@@ -225,7 +277,7 @@ def fetch_snapshot(symbol: str) -> Dict[str, Any]:
 
     return {
         "symbol": symbol,
-        "exchange": None,
+        "exchange": get_exchange(symbol),
         "ts": ts.isoformat(),
         "quote_date": ts.date().isoformat(),
         "last_price": last_trade.get("p"),
