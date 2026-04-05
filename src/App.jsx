@@ -58,6 +58,18 @@ const SETUPS = {
     capital: 2000,
     tvLeader: "NASDAQ:JEPQ",
   },
+  BE_INFRA: {
+    kind: "infra_follower",
+    follower: { symbol: "BE", exchange: "NYSE", description: "Bloom Energy" },
+    aiLeaders: ["NBIS", "CRWV", "NVDA"],
+    infraDrivers: ["VRT", "ETN", "POWL"],
+    strategicPartners: ["BAM", "BEPC"],
+    capital: 1000,
+    lagThreshold: 0.0075,           // 0.75% lag vs cluster average
+    targetsPct: [0.04, 0.07, 0.10], // 4%, 7%, 10%
+    stopPct: 0.04,                   // 4% downside stop
+    tvFollower: "NYSE:BE",
+  },
 };
 
 const TICK_MS = 1400;
@@ -72,6 +84,9 @@ function getAllSymbols() {
     if (s.leader?.symbol) symbols.add(s.leader.symbol);
     if (s.follower?.symbol) symbols.add(s.follower.symbol);
     if (s.drivers) s.drivers.forEach((d) => symbols.add(d));
+    if (s.aiLeaders) s.aiLeaders.forEach((d) => symbols.add(d));
+    if (s.infraDrivers) s.infraDrivers.forEach((d) => symbols.add(d));
+    if (s.strategicPartners) s.strategicPartners.forEach((d) => symbols.add(d));
   });
   return Array.from(symbols);
 }
@@ -90,6 +105,11 @@ function randn() {
 function pctChange(feed) {
   if (!feed?.prevClose) return 0;
   return (feed.last - feed.prevClose) / feed.prevClose;
+}
+
+function avg(nums) {
+  if (!nums || !nums.length) return 0;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
 function getDistancePct(price, target) {
@@ -193,6 +213,12 @@ const MOCK_QUOTES = {
   CRWV:  { symbol: "CRWV",  name: "CoreWeave",               exchange: "NASDAQ", last: 42.50,  prevClose: 40.80,  high: 43.2, low: 40.1, volume: 8500000 },
   JEPI:  { symbol: "JEPI",  name: "JPMorgan Equity Premium Income ETF", exchange: "ARCA", last: 57.80, prevClose: 57.65, high: 57.95, low: 57.50, volume: 3200000 },
   JEPQ:  { symbol: "JEPQ",  name: "JPMorgan Nasdaq Equity Premium Income ETF", exchange: "NASDAQ", last: 52.10, prevClose: 51.90, high: 52.30, low: 51.70, volume: 2800000 },
+  BE:    { symbol: "BE",    name: "Bloom Energy",              exchange: "NYSE",   last: 20.50,  prevClose: 19.80,  high: 21.0, low: 19.5, volume: 6200000 },
+  VRT:   { symbol: "VRT",   name: "Vertiv Holdings",           exchange: "NYSE",   last: 82.30,  prevClose: 80.90,  high: 83.1, low: 80.2, volume: 4500000 },
+  ETN:   { symbol: "ETN",   name: "Eaton Corporation",         exchange: "NYSE",   last: 285.40, prevClose: 283.10, high: 286.5, low: 282.0, volume: 2100000 },
+  POWL:  { symbol: "POWL",  name: "Powell Industries",         exchange: "NASDAQ", last: 195.60, prevClose: 191.20, high: 197.0, low: 190.0, volume: 320000 },
+  BAM:   { symbol: "BAM",   name: "Brookfield Asset Management", exchange: "NYSE", last: 48.70,  prevClose: 48.30,  high: 49.1, low: 48.0, volume: 1100000 },
+  BEPC:  { symbol: "BEPC",  name: "Brookfield Renewable",     exchange: "NYSE",   last: 31.80,  prevClose: 31.50,  high: 32.0, low: 31.2, volume: 450000 },
 };
 
 function getMockQuote(symbol) {
@@ -465,6 +491,110 @@ function evaluateBasketSetup(setup, quotes, marketRegime, calibrated) {
 }
 
 // ---------------------------
+// BE INFRA MONTE CARLO
+// ---------------------------
+
+function runBEInfraMonteCarlo(bePrice, aiStrength, infraStrength, targetsPct, stopPct, N = 2000) {
+  const counts = targetsPct.map(() => 0);
+  let winCount = 0;
+
+  for (let i = 0; i < N; i++) {
+    let price = bePrice;
+    let stopHit = false;
+    const hits = targetsPct.map(() => false);
+
+    for (let step = 0; step < 12; step++) {
+      const clusterImpulse = 0.35 * aiStrength + 0.35 * infraStrength;
+      const drift = clusterImpulse / 12;
+      const noise = 0.015 * randn();
+      price *= 1 + drift + noise;
+
+      const stopLevel = bePrice * (1 - stopPct);
+      if (price <= stopLevel) { stopHit = true; break; }
+
+      targetsPct.forEach((pct, idx) => {
+        if (price >= bePrice * (1 + pct)) hits[idx] = true;
+      });
+    }
+
+    hits.forEach((hit, idx) => { if (hit) counts[idx]++; });
+    if (hits[0] && !stopHit) winCount++;
+  }
+
+  return { ladderProbs: counts.map(c => c / N), winProb: winCount / N };
+}
+
+// ---------------------------
+// INFRA FOLLOWER EVALUATOR (BE)
+// ---------------------------
+
+function evaluateInfraFollowerSetup(setup, quotes, marketRegime, calibrated) {
+  const be = quotes[setup.follower.symbol];
+  if (!be || !be.last) return { kind: "infra_follower", setup: "BE_INFRA", state: "NO TRADE", error: "Missing feed", score: 0 };
+
+  const aiFeeds = setup.aiLeaders.map(s => quotes[s]).filter(Boolean);
+  const infraFeeds = setup.infraDrivers.map(s => quotes[s]).filter(Boolean);
+  const partnerFeeds = (setup.strategicPartners || []).map(s => quotes[s]).filter(Boolean);
+
+  const aiChanges = aiFeeds.filter(f => f.prevClose > 0).map(f => pctChange(f));
+  const infraChanges = infraFeeds.filter(f => f.prevClose > 0).map(f => pctChange(f));
+  const partnerChanges = partnerFeeds.filter(f => f.prevClose > 0).map(f => pctChange(f));
+
+  const aiStrength = avg(aiChanges);
+  const infraStrength = avg(infraChanges);
+  const partnerStrength = partnerChanges.length ? avg(partnerChanges) : 0;
+  const beMove = pctChange(be);
+
+  const clusterStrength = avg([aiStrength, infraStrength, partnerStrength].filter(x => Number.isFinite(x)));
+  const lagAmount = clusterStrength - beMove;
+  const lagging = lagAmount >= (setup.lagThreshold || 0.0075);
+
+  const beTargets = (setup.targetsPct || [0.04, 0.07, 0.10]).map(p => be.last * (1 + p));
+  const beStop = be.last * (1 - (setup.stopPct || 0.04));
+
+  let score = 0;
+  if (aiStrength > 0.01) score += 25;
+  else if (aiStrength > 0.003) score += 10;
+  if (infraStrength > 0.01) score += 25;
+  else if (infraStrength > 0.003) score += 10;
+  if (lagging) score += 25;
+  else if (lagAmount > 0) score += 10;
+  if (marketRegime.state === "RISK-ON") score += 15;
+  if (marketRegime.state === "RISK-OFF") score -= 20;
+  score = Math.max(0, Math.min(100, score));
+
+  const sim = runBEInfraMonteCarlo(be.last, aiStrength, infraStrength, setup.targetsPct || [0.04, 0.07, 0.10], setup.stopPct || 0.04);
+  const kelly = computeKellyLite(sim.winProb);
+
+  let state = "NO TRADE";
+  if (score >= 70 && marketRegime.state !== "RISK-OFF") state = "GO";
+  else if (score >= 50) state = "WATCH";
+
+  return {
+    kind: "infra_follower",
+    setup: "BE_INFRA",
+    state,
+    score,
+    leaderPrice: be.last,
+    change: beMove,
+    aiStrength,
+    infraStrength,
+    partnerStrength,
+    clusterStrength,
+    lagAmount,
+    lagging,
+    targets: beTargets,
+    stop: beStop,
+    ladderProbs: sim.ladderProbs,
+    winProb: sim.winProb,
+    suggestedSize: setup.capital * kelly,
+    aiLeaders: setup.aiLeaders,
+    infraDrivers: setup.infraDrivers,
+    marketRegime: marketRegime.state,
+  };
+}
+
+// ---------------------------
 // MASTER RUNNER
 // ---------------------------
 
@@ -476,6 +606,7 @@ function runAllSetups(quotes, calibrated) {
     if (setup.kind === "pair") results.push(evaluatePairSetup(setup, quotes, regime, calibrated));
     else if (setup.kind === "standalone") results.push(evaluateStandaloneSetup(setup, quotes, regime, calibrated));
     else if (setup.kind === "basket") results.push(evaluateBasketSetup(setup, quotes, regime, calibrated));
+    else if (setup.kind === "infra_follower") results.push(evaluateInfraFollowerSetup(setup, quotes, regime));
   });
 
   return { refreshedAt: Date.now(), marketRegime: regime, results: results.sort((a, b) => b.score - a.score) };
@@ -637,8 +768,8 @@ function RegimePanel({ regime }) {
 
 function SetupCard({ result, isSelected, onSelect }) {
   const stateColor = result.state === "GO" ? GREEN : result.state === "WATCH" ? AMBER : "#9ca3af";
-  const kindLabel = { pair: "PAIR", standalone: "SOLO", basket: "BASKET" }[result.kind] || "?";
-  const kindColor = { pair: PURPLE, standalone: CYAN, basket: BLUE }[result.kind] || SLATE;
+  const kindLabel = { pair: "PAIR", standalone: "SOLO", basket: "BASKET", infra_follower: "INFRA" }[result.kind] || "?";
+  const kindColor = { pair: PURPLE, standalone: CYAN, basket: BLUE, infra_follower: AMBER }[result.kind] || SLATE;
 
   return (
     <div onClick={onSelect} style={{
@@ -770,6 +901,53 @@ function DetailPanel({ result, setupKey }) {
           </div>
         </div>
       )}
+
+      {/* Infra follower detail (BE) */}
+      {result.kind === "infra_follower" && (
+        <>
+          {result.ladderProbs && (
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 12, background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <ScoreRing score={result.score} />
+                <div style={{ fontSize: 9, color: "#9ca3af" }}>SCORE</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: result.state === "GO" ? GREEN : result.state === "WATCH" ? AMBER : RED, letterSpacing: "0.08em" }}>{result.state}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 10 }}>BE TOUCH LADDER (MC N=2000)</div>
+                {(result.targets || []).map((t, i) => (
+                  <LadderBar key={i} target={Number(t).toFixed(2)} prob={result.ladderProbs[i]} idx={i} />
+                ))}
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 10 }}>
+                  <div><span style={{ color: "#9ca3af" }}>Win prob </span><span style={{ color: GREEN, fontWeight: 700 }}>{(result.winProb * 100).toFixed(1)}%</span></div>
+                  <div><span style={{ color: "#9ca3af" }}>Kelly $ </span><span style={{ color: BLUE, fontWeight: 700 }}>${fmt(result.suggestedSize, 0)}</span></div>
+                  <div><span style={{ color: "#9ca3af" }}>Stop </span><span style={{ color: RED, fontWeight: 700 }}>${fmt(result.stop)}</span></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 10 }}>INFRA FOLLOWER ANALYSIS</div>
+            <Gate label="AI cluster strength > 1%" ok={result.aiStrength > 0.01} value={pctFmt(result.aiStrength)} />
+            <Gate label="Infra drivers strength > 1%" ok={result.infraStrength > 0.01} value={pctFmt(result.infraStrength)} />
+            <Gate label={`BE lagging cluster (>= ${((setup?.lagThreshold || 0.0075) * 100).toFixed(2)}%)`} ok={result.lagging} value={result.lagging ? `lag ${pctFmt(result.lagAmount)}` : pctFmt(result.lagAmount || 0)} />
+            {result.partnerStrength !== undefined && (
+              <Gate label="Strategic partners (BAM/BEPC)" ok={result.partnerStrength > 0} value={pctFmt(result.partnerStrength)} />
+            )}
+            <div style={{ borderTop: "1px solid #1e2530", marginTop: 8, paddingTop: 8 }}>
+              <Gate label="BE move" ok={result.change > 0} value={pctFmt(result.change)} />
+              <Gate label="Cluster strength" ok={result.clusterStrength > 0.005} value={pctFmt(result.clusterStrength)} />
+            </div>
+            <div style={{ borderTop: "1px solid #1e2530", marginTop: 8, paddingTop: 8 }}>
+              <Gate label="Market regime" ok={result.marketRegime !== "RISK-OFF"} value={result.marketRegime} />
+              <Gate label="SCORE >= 70 -> GO" ok={result.score >= 70} value={`${result.score} / 100`} />
+            </div>
+            <div style={{ marginTop: 10, fontSize: 9, color: "#b0b8c4" }}>
+              AI leaders: {(result.aiLeaders || []).join(", ")} | Infra: {(result.infraDrivers || []).join(", ")}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -778,7 +956,7 @@ function DetailPanel({ result, setupKey }) {
 // APP
 // =====================================================
 
-export default function App() {
+export default function App({ onOpenBuilder }) {
   const [engineOutput, setEngineOutput] = useState(null);
   const [selectedSetup, setSelectedSetup] = useState(null);
   const [alerts, setAlerts] = useState([]);
@@ -811,7 +989,7 @@ export default function App() {
       if (!selectedSetup && output.results.length > 0) {
         const topKey = Object.keys(SETUPS).find(k => {
           const s = SETUPS[k];
-          const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.leader.symbol;
+          const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.leader.symbol;
           return name === output.results[0].setup;
         });
         if (topKey) setSelectedSetup(topKey);
@@ -839,7 +1017,7 @@ export default function App() {
   const results = engineOutput?.results || [];
   const selectedResult = selectedSetup && results.find(r => {
     const s = SETUPS[selectedSetup];
-    const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.leader.symbol;
+    const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.leader.symbol;
     return r.setup === name;
   });
 
@@ -886,6 +1064,12 @@ export default function App() {
             style={{ padding: "11px 16px", background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 8, color: autoRefresh ? GREEN : "#9ca3af", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
             {autoRefresh ? "AUTO: ON" : "AUTO: OFF"}
           </button>
+          {onOpenBuilder && (
+            <button onClick={onOpenBuilder}
+              style={{ padding: "11px 16px", background: PURPLE + "18", border: `1px solid ${PURPLE}`, borderRadius: 8, color: PURPLE, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
+              SETUP BUILDER
+            </button>
+          )}
         </div>
         {lastRefresh && (
           <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 12, textAlign: "right" }}>
@@ -901,7 +1085,7 @@ export default function App() {
         {results.map(r => {
           const key = Object.keys(SETUPS).find(k => {
             const s = SETUPS[k];
-            const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.leader.symbol;
+            const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.leader.symbol;
             return name === r.setup;
           });
           return (

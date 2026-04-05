@@ -179,7 +179,7 @@ def ensure_tables(client: bigquery.Client) -> None:
 # ----------------------------
 
 def _ts_ms_to_iso(ts_ms: int) -> str:
-    return dt.datetime.utcfromtimestamp(ts_ms / 1000).replace(tzinfo=dt.timezone.utc).isoformat()
+    return dt.datetime.fromtimestamp(ts_ms / 1000, tz=dt.timezone.utc).isoformat()
 
 def fetch_agg_bars(symbol: str, multiplier: int, timespan: str, start_date: dt.date, end_date: dt.date, adjusted: bool = True) -> List[Dict[str, Any]]:
     path = f"/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date.isoformat()}/{end_date.isoformat()}"
@@ -253,12 +253,26 @@ def fetch_snapshot(symbol: str) -> Dict[str, Any]:
 # BigQuery writers
 # ----------------------------
 
-def load_json_rows(client: bigquery.Client, table_fqn: str, rows: List[Dict[str, Any]]) -> None:
+def load_json_rows(client: bigquery.Client, table_fqn: str, rows: List[Dict[str, Any]], batch_size: int = 5000) -> None:
     if not rows:
         return
-    errors = client.insert_rows_json(table_fqn, rows)
-    if errors:
-        raise RuntimeError(f"BigQuery insert errors for {table_fqn}: {errors}")
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        retries = 3
+        for attempt in range(retries):
+            try:
+                errors = client.insert_rows_json(table_fqn, batch)
+                if errors:
+                    raise RuntimeError(f"BigQuery insert errors for {table_fqn}: {errors}")
+                print(f"  Inserted {len(batch)} rows (batch {i // batch_size + 1})")
+                break
+            except Exception as e:
+                if attempt < retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    print(f"  Retry {attempt + 1}/{retries} after {wait}s: {e}")
+                    time.sleep(wait)
+                else:
+                    raise
 
 def overwrite_recent_window(client: bigquery.Client, table_name: str, rows: List[Dict[str, Any]], start_date: dt.date) -> None:
     table_fqn = f"{GCP_PROJECT}.{BQ_DATASET}.{table_name}"
