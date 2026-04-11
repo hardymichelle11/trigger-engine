@@ -1049,7 +1049,7 @@ export default function CreditVolScanner({ onBack }) {
         @keyframes glow    { 0%,100%{box-shadow:0 0 8px #22c55e33} 50%{box-shadow:0 0 22px #22c55e77} }
         @keyframes spin    { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
         ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-thumb{background:#1e2530;border-radius:2px}
-        @media (max-width: 1024px) { .cv-dashboard { grid-template-columns: 1fr !important; } .cv-left, .cv-right { display: none !important; } .cv-mobile-controls { display: flex !important; } }
+        @media (max-width: 1024px) { .cv-dashboard { grid-template-columns: 1fr !important; height: auto !important; } .cv-left { display: none !important; } .cv-right { border-left: none !important; } .cv-mobile-controls { display: flex !important; } }
         @media (min-width: 1025px) { .cv-mobile-controls { display: none !important; } }
       `}</style>
 
