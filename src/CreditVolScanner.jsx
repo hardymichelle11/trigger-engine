@@ -1028,8 +1028,14 @@ export default function CreditVolScanner({ onBack }) {
           </div>
         )}
 
+        {/* INCOME TRACKER (compact, will move to left panel in Pass 2) */}
+        <IncomeTracker />
+
         {/* REGIME */}
         <CreditRegimePanel market={market} tradingWindow={tradingWindow} />
+
+        {/* POSITION MANAGER (right after regime) */}
+        <PositionManager />
 
         {/* SCAN FILTERS */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
@@ -1140,11 +1146,7 @@ export default function CreditVolScanner({ onBack }) {
           </div>
         )}
 
-        {/* POSITION MANAGER */}
-        <PositionManager />
-
-        {/* INCOME TRACKER */}
-        <IncomeTracker />
+        {/* Position Manager + Income Tracker moved to top (after regime) */}
 
         {/* ALERT LOG */}
         {alertLog.length > 0 && (

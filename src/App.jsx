@@ -368,37 +368,38 @@ function SetupCard({ result, isSelected, onSelect }) {
     <div onClick={onSelect} style={{
       background: isSelected ? "#0d1520" : "#0d1117",
       border: `1px solid ${isSelected ? stateColor + "66" : "#1e2530"}`,
-      borderRadius: 8, padding: 10, cursor: "pointer",
+      borderRadius: 10, padding: 14, cursor: "pointer",
       transition: "all 0.15s",
     }}>
       {/* Row 1: type badge + symbol + score ring */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 7, fontWeight: 700, color: kindColor, background: kindColor + "22", padding: "1px 4px", borderRadius: 2, letterSpacing: "0.08em" }}>{kindLabel}</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{result.setup}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: kindColor, background: kindColor + "22", padding: "2px 6px", borderRadius: 3, letterSpacing: "0.08em" }}>{kindLabel}</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{result.setup}</span>
         </div>
-        <ScoreRing score={result.score} size={30} />
+        <ScoreRing score={result.score} size={40} />
       </div>
 
       {/* Row 2: state badge + price */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color: stateColor, letterSpacing: "0.06em" }}>{result.state}</span>
-        <span style={{ fontSize: 10, color: "#b0b8c4" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: stateColor, letterSpacing: "0.06em" }}>{result.state}</span>
+        <span style={{ fontSize: 11, color: "#b0b8c4" }}>
           ${fmt(result.leaderPrice)}
           {result.change !== undefined && (
-            <span style={{ color: result.change >= 0 ? GREEN : RED, marginLeft: 4 }}>{pctFmt(result.change)}</span>
+            <span style={{ color: result.change >= 0 ? GREEN : RED, marginLeft: 6 }}>{pctFmt(result.change)}</span>
           )}
         </span>
       </div>
 
-      {/* Row 3: compact metrics */}
-      <div style={{ display: "flex", gap: 8, fontSize: 9, color: SLATE }}>
-        {result.winProb !== undefined && <span style={{ color: GREEN }}>W:{(result.winProb * 100).toFixed(0)}%</span>}
-        {result.suggestedSize !== undefined && <span style={{ color: BLUE }}>K:${fmt(result.suggestedSize, 0)}</span>}
+      {/* Row 3: metrics */}
+      <div style={{ display: "flex", gap: 10, fontSize: 10, color: SLATE }}>
+        {result.winProb !== undefined && <span style={{ color: GREEN }}>Win: {(result.winProb * 100).toFixed(0)}%</span>}
+        {result.suggestedSize !== undefined && <span style={{ color: BLUE }}>Kelly: ${fmt(result.suggestedSize, 0)}</span>}
         {result.kind === "stack_reversal" && result.stage && result.stage !== "NO SIGNAL" && (
           <span style={{ color: result.stage === "EARLY" ? GREEN : result.stage === "MID" ? AMBER : RED }}>{result.stage}</span>
         )}
-        {result.kind === "infra_follower" && result.lagging && <span style={{ color: GREEN }}>LAG</span>}
+        {result.kind === "infra_follower" && result.lagging && <span style={{ color: GREEN }}>LAGGING</span>}
+        {result.kind === "pair" && <span>F: ${fmt(result.followerPrice)}</span>}
       </div>
 
       {result.error && <div style={{ fontSize: 9, color: RED, marginTop: 4 }}>{result.error}</div>}
@@ -881,7 +882,7 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
           {/* Compact regime for mobile */}
           <RegimePanel regime={regime} />
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
             {results.map(r => {
               const key = Object.keys(SETUPS).find(k => {
                 const s = SETUPS[k];
