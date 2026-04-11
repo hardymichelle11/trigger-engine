@@ -40,12 +40,10 @@ const CYAN   = "#2dd4bf";
 // --------------------------------------------------
 
 import { getPolygonKey } from "./lib/apiKeyManager.js";
-// API key loaded at runtime from localStorage — never in the bundle
-const POLYGON_KEY = getPolygonKey();
-const POLYGON_BASE = "https://api.polygon.io";
+import { buildPolygonUrl } from "./lib/polygonProxy.js";
 
 async function fetchSnapshot(symbol) {
-  const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${POLYGON_KEY}`;
+  const url = await buildPolygonUrl(`/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}`);
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
@@ -830,11 +828,11 @@ export default function CreditVolScanner({ onBack }) {
 
   // WebSocket lifecycle for credit-vol scanner symbols
   useEffect(() => {
-    if (!POLYGON_KEY) return;
+    if (!getPolygonKey()) return;
 
     const symbols = [...new Set([...HIGH_IV_VEHICLES, ...CREDIT_SIGNALS, ...TIER1_ETFS, ...MEGACAP_VEHICLES])];
     const socket = createPolygonSocket({
-      apiKey: POLYGON_KEY,
+      apiKey: getPolygonKey(),
       symbols,
       onMessage: (msg) => {
         updateFromWebSocket(msg);
@@ -865,7 +863,7 @@ export default function CreditVolScanner({ onBack }) {
       try {
         const tradeableSymbols = [...new Set([...HIGH_IV_VEHICLES, ...CREDIT_SIGNALS, ...TIER1_ETFS, ...MEGACAP_VEHICLES])];
         ivData = await getIvRankBatch(tradeableSymbols, {
-          apiKey: POLYGON_KEY,
+          apiKey: getPolygonKey(),
           atrExpansionMultiple: 1, // fallback params filled per-symbol in buildSetups
         });
       } catch {
@@ -906,11 +904,11 @@ export default function CreditVolScanner({ onBack }) {
 
   // Discovery scan — runs broader watchlist through same engine
   const runDiscovery = useCallback(async () => {
-    if (!POLYGON_KEY) return;
+    if (!getPolygonKey()) return;
     setDiscoveryLoading(true);
     try {
       const marketInputs = scannerState?.market?.indicators || { hyg: 80, kre: 70, lqd: 105, vix: 20, vixPrev: 20, atrExpansionMultiple: 1 };
-      const result = await runDiscoveryScan(marketInputs, POLYGON_KEY, { maxSymbols: 20 });
+      const result = await runDiscoveryScan(marketInputs, getPolygonKey(), { maxSymbols: 20 });
       setDiscoveryState(result);
     } catch (err) {
       console.warn("Discovery scan failed:", err.message);

@@ -18,10 +18,8 @@ import {
 // SELF-CALIBRATING MULTI-SETUP TRIGGER ENGINE
 // =====================================================
 
+import { buildPolygonUrl, isUsingProxy } from "./lib/polygonProxy.js";
 import { getPolygonKey } from "./lib/apiKeyManager.js";
-// API key loaded at runtime from localStorage — never in the bundle
-const POLYGON_KEY = getPolygonKey();
-const POLYGON_BASE = "https://api.polygon.io";
 const USE_MOCK = false;
 
 const TICK_MS = 1400;
@@ -78,7 +76,7 @@ function getMockQuotes() {
 // ---------------------------
 
 async function fetchPolygonSnapshot(symbol) {
-  const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${POLYGON_KEY}`;
+  const url = await buildPolygonUrl(`/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}`);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Polygon snap ${symbol}: ${res.status}`);
   const data = await res.json();
@@ -109,7 +107,7 @@ async function fetchPolygonSnapshot(symbol) {
 
 async function fetchPolygonVIX() {
   // VIX: use previous day aggs (index snapshots require higher tier)
-  const url = `${POLYGON_BASE}/v2/aggs/ticker/I:VIX/prev?adjusted=true&apiKey=${POLYGON_KEY}`;
+  const url = await buildPolygonUrl(`/v2/aggs/ticker/I:VIX/prev`, { adjusted: "true" });
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Polygon VIX: ${res.status}`);
   const data = await res.json();
@@ -698,7 +696,7 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
       // Fetch real slope from bars history (BQ > Polygon > cache)
       if (!USE_MOCK) {
         try {
-          calibrated.trendData = await getTrendBatch(trendSymbols, POLYGON_KEY, 60);
+          calibrated.trendData = await getTrendBatch(trendSymbols, getPolygonKey(), 60);
         } catch {
           calibrated.trendData = {};
         }
@@ -734,11 +732,11 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
 
   // WebSocket lifecycle
   useEffect(() => {
-    if (USE_MOCK || !POLYGON_KEY) return;
+    if (USE_MOCK || !getPolygonKey()) return;
 
     const symbols = getAllSymbols().filter(s => s !== "VIX"); // VIX uses index aggs, not WS
     const socket = createPolygonSocket({
-      apiKey: POLYGON_KEY,
+      apiKey: getPolygonKey(),
       symbols,
       onMessage: (msg) => {
         updateFromWebSocket(msg);

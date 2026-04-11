@@ -1,0 +1,9 @@
+name = "polygon-proxy"
+main = "polygon-proxy.js"
+compatibility_date = "2024-01-01"
+
+# Custom domain (set up in Cloudflare dashboard after deploy)
+# routes = [{ pattern = "api.aipicks.shop/*", zone_name = "aipicks.shop" }]
+
+# Environment variables (set POLYGON_API_KEY as a secret via dashboard or CLI):
+# npx wrangler secret put POLYGON_API_KEY

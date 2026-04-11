@@ -1,4 +1,4 @@
-import { StrictMode, useState, useCallback } from 'react'
+import { StrictMode, useState, useCallback, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
@@ -15,6 +15,7 @@ import {
 } from './lib/setupRegistry.js'
 import { validateSetup } from './lib/setupValidator.js'
 import { hasPolygonKey, setPolygonKey, clearApiKeys } from './lib/apiKeyManager.js'
+import { canAccessPolygon } from './lib/polygonProxy.js'
 
 // --------------------------------------------------
 // API KEY GATE — prompts for key before showing app
@@ -104,6 +105,15 @@ function ApiKeyGate({ onUnlock }) {
 
 function Root() {
   const [keyReady, setKeyReady] = useState(() => hasPolygonKey());
+  const [checkingProxy, setCheckingProxy] = useState(true);
+
+  // On mount: check if proxy is available — if so, skip key prompt entirely
+  useEffect(() => {
+    canAccessPolygon().then(ok => {
+      if (ok) setKeyReady(true);
+      setCheckingProxy(false);
+    });
+  }, []);
   const [page, setPage] = useState("scanner");
 
   // React owns the setup list. Registry is the mutation layer.
@@ -137,7 +147,15 @@ function Root() {
     return ok;
   }, []);
 
-  // --- API Key Gate ---
+  // --- Loading / API Key Gate ---
+  if (checkingProxy) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#060a0f", display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontFamily: "monospace", fontSize: 12 }}>
+        Connecting...
+      </div>
+    );
+  }
+
   if (!keyReady) {
     return <ApiKeyGate onUnlock={() => setKeyReady(true)} />;
   }
