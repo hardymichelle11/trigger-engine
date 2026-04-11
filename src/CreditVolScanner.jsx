@@ -951,253 +951,240 @@ export default function CreditVolScanner({ onBack }) {
   const detail = selectedCard ? allCards.find(c => c.symbol === selectedCard) : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#060a0f", color: "#e2e8f0", fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace", padding: 16 }}>
+    <div style={{ minHeight: "100vh", background: "#060a0f", color: "#e2e8f0", fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace" }}>
       <style>{`
         @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.35} }
         @keyframes glow    { 0%,100%{box-shadow:0 0 8px #22c55e33} 50%{box-shadow:0 0 22px #22c55e77} }
         @keyframes spin    { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
         ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-thumb{background:#1e2530;border-radius:2px}
+        @media (max-width: 1024px) { .cv-dashboard { grid-template-columns: 1fr !important; } .cv-left, .cv-right { display: none !important; } .cv-mobile-controls { display: flex !important; } }
+        @media (min-width: 1025px) { .cv-mobile-controls { display: none !important; } }
       `}</style>
 
-      <div style={{ maxWidth: 800, margin: "0 auto" }}>
-        {/* HEADER */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
-          <div>
-            <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.18em", marginBottom: 3 }}>CREDIT-VOLATILITY OPTIONS ENGINE</div>
-            <div style={{ fontSize: 19, fontWeight: 700, color: "#f1f5f9", letterSpacing: "-0.03em" }}>
-              PREMIUM SCANNER <span style={{ fontSize: 10, color: PURPLE, fontWeight: 400 }}>{cards.length} setups</span>
-            </div>
-            <div style={{ fontSize: 9, color: SLATE, marginTop: 2 }}>
-              Sell fear, not follow it — ${CONFIG.income.weeklyTarget}/week target
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {summary?.go > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: GREEN, background: GREEN + "22", padding: "4px 8px", borderRadius: 4, animation: "glow 1.4s infinite" }}>
-                {summary.go} GO
-              </span>
-            )}
-            {summary?.watch > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: AMBER, background: AMBER + "22", padding: "4px 8px", borderRadius: 4 }}>
-                {summary.watch} WATCH
-              </span>
-            )}
-          </div>
+      {/* HEADER BAR */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #1e2530" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", letterSpacing: "-0.02em" }}>PREMIUM SCANNER</div>
+          <span style={{ fontSize: 9, color: PURPLE }}>{cards.length} setups</span>
+          {summary?.go > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: GREEN, background: GREEN + "22", padding: "2px 6px", borderRadius: 3, animation: "glow 1.4s infinite" }}>{summary.go} GO</span>}
+          {summary?.watch > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: AMBER, background: AMBER + "22", padding: "2px 6px", borderRadius: 3 }}>{summary.watch} WATCH</span>}
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 9, color: SLATE }}>
+          {wsState === WS_STATE.CONNECTED && <span style={{ color: GREEN, fontWeight: 700 }}>{"\u25CF"} LIVE</span>}
+          {lastRefresh && <span>{lastRefresh.toLocaleTimeString()}</span>}
+          <span style={{ color: SLATE }}>${CONFIG.income.weeklyTarget}/wk</span>
+        </div>
+      </div>
 
-        {/* CONTROLS */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      {/* MOBILE CONTROLS */}
+      <div className="cv-mobile-controls" style={{ display: "none", flexWrap: "wrap", gap: 6, padding: "8px 12px", borderBottom: "1px solid #1e2530" }}>
+        <button onClick={refresh} disabled={refreshing} style={{ padding: "6px 12px", background: "#071a0f", border: `1px solid ${GREEN}`, borderRadius: 6, color: GREEN, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
+          {refreshing ? "\u21BB" : "\u21BB SCAN"}
+        </button>
+        <button onClick={() => setAutoRefresh(a => !a)} style={{ padding: "6px 10px", background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 6, color: autoRefresh ? GREEN : SLATE, fontSize: 9, fontWeight: 700, cursor: "pointer" }}>AUTO</button>
+        <button onClick={() => setAlertsEnabled(a => !a)} style={{ padding: "6px 10px", background: alertsEnabled ? AMBER + "18" : "transparent", border: `1px solid ${alertsEnabled ? AMBER : "#1e2530"}`, borderRadius: 6, color: alertsEnabled ? AMBER : SLATE, fontSize: 9, cursor: "pointer" }}>ALR</button>
+        {onBack && <button onClick={onBack} style={{ padding: "6px 10px", border: `1px solid ${PURPLE}44`, borderRadius: 6, color: PURPLE, fontSize: 9, cursor: "pointer", background: "transparent" }}>TE</button>}
+      </div>
+
+      {/* 3-COLUMN DASHBOARD */}
+      <div className="cv-dashboard" style={{ display: "grid", gridTemplateColumns: "180px 1fr 340px", height: "calc(100vh - 44px)" }}>
+
+        {/* LEFT: Controls + Income + Regime */}
+        <div className="cv-left" style={{ borderRight: "1px solid #1e2530", padding: 12, overflowY: "auto", background: "#0a0e14" }}>
           <button onClick={refresh} disabled={refreshing}
-            style={{ flex: 1, padding: 11, background: "#071a0f", border: `1px solid ${GREEN}`, borderRadius: 8, color: GREEN, fontSize: 12, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em", opacity: refreshing ? 0.5 : 1 }}>
-            {refreshing ? "\u21BB SCANNING..." : "\u21BB SCAN NOW"}
+            style={{ width: "100%", padding: 10, background: "#071a0f", border: `1px solid ${GREEN}`, borderRadius: 6, color: GREEN, fontSize: 11, fontWeight: 700, cursor: "pointer", marginBottom: 8, opacity: refreshing ? 0.5 : 1 }}>
+            {refreshing ? "\u21BB ..." : "\u21BB SCAN"}
           </button>
           <button onClick={() => setAutoRefresh(a => !a)}
-            style={{ padding: "11px 16px", background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 8, color: autoRefresh ? GREEN : SLATE, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
+            style={{ width: "100%", padding: 8, background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 6, color: autoRefresh ? GREEN : SLATE, fontSize: 9, fontWeight: 700, cursor: "pointer", marginBottom: 6 }}>
             {autoRefresh ? "AUTO: ON" : "AUTO: OFF"}
           </button>
           <button onClick={() => setAlertsEnabled(a => !a)}
-            style={{ padding: "11px 16px", background: alertsEnabled ? AMBER + "18" : "transparent", border: `1px solid ${alertsEnabled ? AMBER : "#1e2530"}`, borderRadius: 8, color: alertsEnabled ? AMBER : SLATE, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
-            {alertsEnabled ? `ALERTS: ON (${alertLog.length})` : "ALERTS: OFF"}
+            style={{ width: "100%", padding: 8, background: alertsEnabled ? AMBER + "18" : "transparent", border: `1px solid ${alertsEnabled ? AMBER : "#1e2530"}`, borderRadius: 6, color: alertsEnabled ? AMBER : SLATE, fontSize: 9, fontWeight: 700, cursor: "pointer", marginBottom: 6 }}>
+            {alertsEnabled ? `ALERTS: ON` : "ALERTS: OFF"}
           </button>
           {onBack && (
             <button onClick={onBack}
-              style={{ padding: "11px 16px", background: PURPLE + "18", border: `1px solid ${PURPLE}`, borderRadius: 8, color: PURPLE, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
+              style={{ width: "100%", padding: 8, background: PURPLE + "12", border: `1px solid ${PURPLE}44`, borderRadius: 6, color: PURPLE, fontSize: 9, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}>
               TRIGGER ENGINE
             </button>
           )}
-        </div>
-        {lastRefresh && (
-          <div style={{ fontSize: 9, color: SLATE, marginBottom: 12, textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            {wsState !== WS_STATE.DISCONNECTED && (
-              <span style={{
-                color: wsState === WS_STATE.CONNECTED ? GREEN : wsState === WS_STATE.RECONNECTING ? AMBER : SLATE,
-                fontWeight: 700,
-              }}>
-                {wsState === WS_STATE.CONNECTED ? "\u25CF LIVE" : wsState === WS_STATE.UNSUPPORTED ? "\u25CB WS N/A" : `\u25CB ${wsState}`}
-                {feedHealth && wsState === WS_STATE.CONNECTED && ` (${feedHealth.websocket}ws/${feedHealth.poll}poll)`}
-              </span>
-            )}
-            <span>
-              Last scan: {lastRefresh.toLocaleTimeString()} {autoRefresh && "\u00B7 auto every 60s"}
-            </span>
-          </div>
-        )}
-        {error && (
-          <div style={{ fontSize: 11, color: RED, marginBottom: 12, padding: 10, background: RED + "12", borderRadius: 6, border: `1px solid ${RED}33` }}>
-            {error}
-          </div>
-        )}
 
-        {/* INCOME TRACKER (compact, will move to left panel in Pass 2) */}
-        <IncomeTracker />
+          {/* Income Tracker (compact in left panel) */}
+          <IncomeTracker />
 
-        {/* REGIME */}
-        <CreditRegimePanel market={market} tradingWindow={tradingWindow} />
-
-        {/* POSITION MANAGER (right after regime) */}
-        <PositionManager />
-
-        {/* SCAN FILTERS */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-          {[
-            { key: "ALL",     label: "ALL",           color: SLATE },
-            { key: "PREMIUM", label: "PREMIUM ENGINE", color: GREEN },
-            { key: "WHEEL",   label: "WHEEL",          color: CYAN },
-            { key: "HIGH_IV", label: "HIGH IV",        color: PURPLE },
-            { key: "CREDIT",  label: "CREDIT",         color: BLUE },
-            { key: "ETF",     label: "ETF",            color: AMBER },
-            { key: "TRAPS",   label: "TRAPS",          color: RED },
-          ].map(f => (
-            <button key={f.key} onClick={() => setScanFilter(f.key)}
-              style={{
-                padding: "5px 10px", borderRadius: 6, fontSize: 9, fontWeight: 700,
-                letterSpacing: "0.06em", cursor: "pointer",
-                background: scanFilter === f.key ? f.color + "22" : "transparent",
-                border: `1px solid ${scanFilter === f.key ? f.color : "#1e2530"}`,
-                color: scanFilter === f.key ? f.color : SLATE,
-              }}>
-              {f.label}
-            </button>
-          ))}
-          <button onClick={() => { setDiscoveryMode(m => !m); if (!discoveryState) runDiscovery(); }}
-            disabled={discoveryLoading}
-            style={{
-              padding: "5px 10px", borderRadius: 6, fontSize: 9, fontWeight: 700,
-              letterSpacing: "0.06em", cursor: "pointer", marginLeft: 8,
-              background: discoveryMode ? "#f59e0b22" : "transparent",
-              border: `1px solid ${discoveryMode ? AMBER : "#1e2530"}`,
-              color: discoveryMode ? AMBER : SLATE,
-              opacity: discoveryLoading ? 0.5 : 1,
-            }}>
-            {discoveryLoading ? "SCANNING..." : discoveryMode ? `DISCOVERY (${discoveryState?.cards?.length || 0})` : "DISCOVERY"}
-          </button>
-        </div>
-
-        {/* SETUP CARDS */}
-        <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.12em", marginBottom: 8 }}>
-          {scanFilter === "ALL"
-            ? `SETUPS (${allCards.length} total) — ${allCards.filter(c => c.category === "HIGH_IV").length} high IV + ${allCards.filter(c => c.category === "CREDIT").length} credit + ${allCards.filter(c => c.category === "ETF").length} ETF`
-            : `${scanFilter} FILTER — ${cards.length} of ${allCards.length} setups`
-          }
-        </div>
-        {cards.map(card => (
-          <SetupCard key={card.symbol} card={card} isSelected={selectedCard === card.symbol}
-            onSelect={() => setSelectedCard(card.symbol)} />
-        ))}
-
-        {cards.length === 0 && !refreshing && (
-          <div style={{ textAlign: "center", padding: "32px 0", color: "#1e2530", fontSize: 11 }}>
-            Click Scan Now to begin
-          </div>
-        )}
-
-        {/* DISCOVERY RESULTS */}
-        {discoveryMode && discoveryState && discoveryState.cards.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={{ fontSize: 9, color: AMBER, letterSpacing: "0.12em" }}>
-                DISCOVERY — {discoveryState.cards.length} of {discoveryState.candidates} candidates scored
+          {/* Compact regime */}
+          {market && (
+            <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 8, padding: 10, marginTop: 10 }}>
+              <div style={{ fontSize: 8, color: SLATE, letterSpacing: "0.1em", marginBottom: 4 }}>REGIME</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: market.mode?.includes("RISK_ON") ? GREEN : market.mode?.includes("STRESS") ? RED : AMBER, marginBottom: 4 }}>
+                {market.mode?.replace(/_/g, " ") || "—"}
               </div>
-              <button onClick={runDiscovery} disabled={discoveryLoading}
-                style={{ padding: "3px 8px", borderRadius: 4, border: `1px solid ${AMBER}44`, background: "transparent", color: AMBER, fontSize: 9, cursor: "pointer" }}>
-                {discoveryLoading ? "..." : "RESCAN"}
-              </button>
+              <div style={{ fontSize: 9, color: SLATE }}>
+                HYG {market.indicators?.hyg?.toFixed(1)} · KRE {market.indicators?.kre?.toFixed(1)} · VIX {market.indicators?.vix?.toFixed(1)}
+              </div>
             </div>
-            {discoveryState.cards.slice(0, 10).map(card => (
-              <div key={card.symbol} style={{
-                background: "#0d1117", border: "1px solid #1e2530", borderRadius: 8, padding: 10, marginBottom: 6,
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>{card.symbol}</span>
-                  <span style={{ fontSize: 10, color: SLATE }}>${card.price}</span>
-                  {card.discoveryMeta && (
-                    <>
-                      <span style={{ fontSize: 8, color: SLATE, background: "#1e253044", padding: "1px 5px", borderRadius: 3 }}>
-                        #{card.discoveryMeta.histRank}
-                      </span>
-                      <span style={{ fontSize: 8, color: card.discoveryMeta.spreadQuality?.startsWith("A") ? GREEN : SLATE, background: "#1e253044", padding: "1px 5px", borderRadius: 3 }}>
-                        {card.discoveryMeta.spreadQuality}
-                      </span>
-                      <span style={{ fontSize: 8, color: card.discoveryMeta.wheelSuit === "High" ? GREEN : SLATE, background: "#1e253044", padding: "1px 5px", borderRadius: 3 }}>
-                        {card.discoveryMeta.wheelSuit}
-                      </span>
-                    </>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, fontFamily: "monospace", color: card.score >= 75 ? GREEN : card.score >= 55 ? AMBER : SLATE }}>{card.score}</span>
-                  <span style={{ fontSize: 9, color: card.signal === "GO" ? GREEN : card.signal === "WATCH" ? AMBER : RED, fontWeight: 700 }}>{card.signal}</span>
-                </div>
+          )}
+
+          {/* Calibration status */}
+          {(() => {
+            const calStats = getCalibrationStats();
+            if (calStats.total === 0) return null;
+            return (
+              <div style={{ marginTop: 10, fontSize: 8, color: SLATE }}>
+                <div>CAL: {calStats.total} obs</div>
+                <div>ATR: <span style={{ color: calStats.pctAtrPenalty > 0.7 ? RED : GREEN }}>{(calStats.pctAtrPenalty * 100).toFixed(0)}%</span> · Bonus: <span style={{ color: calStats.pctPositiveBonus < 0.1 ? RED : GREEN }}>{(calStats.pctPositiveBonus * 100).toFixed(0)}%</span></div>
               </div>
+            );
+          })()}
+
+          <div style={{ fontSize: 8, color: "#1e2530", marginTop: 10 }}>{ALL_SCAN_SYMBOLS.length} symbols</div>
+        </div>
+
+        {/* CENTER: Regime + Position Manager + Filters + Grid + Discovery */}
+        <div style={{ padding: 12, overflowY: "auto" }}>
+          {error && (
+            <div style={{ fontSize: 10, color: RED, marginBottom: 10, padding: 8, background: RED + "12", borderRadius: 6, border: `1px solid ${RED}33` }}>
+              {error}
+            </div>
+          )}
+
+          {/* Full regime panel */}
+          <CreditRegimePanel market={market} tradingWindow={tradingWindow} />
+
+          {/* Position Manager */}
+          <PositionManager />
+
+          {/* Scan filters */}
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+            {[
+              { key: "ALL", label: "ALL", color: SLATE },
+              { key: "PREMIUM", label: "PREMIUM", color: GREEN },
+              { key: "WHEEL", label: "WHEEL", color: CYAN },
+              { key: "HIGH_IV", label: "HIGH IV", color: PURPLE },
+              { key: "CREDIT", label: "CREDIT", color: BLUE },
+              { key: "ETF", label: "ETF", color: AMBER },
+              { key: "TRAPS", label: "TRAPS", color: RED },
+            ].map(f => (
+              <button key={f.key} onClick={() => setScanFilter(f.key)}
+                style={{
+                  padding: "4px 8px", borderRadius: 5, fontSize: 8, fontWeight: 700,
+                  letterSpacing: "0.05em", cursor: "pointer",
+                  background: scanFilter === f.key ? f.color + "22" : "transparent",
+                  border: `1px solid ${scanFilter === f.key ? f.color : "#1e2530"}`,
+                  color: scanFilter === f.key ? f.color : SLATE,
+                }}>
+                {f.label}
+              </button>
+            ))}
+            <button onClick={() => { setDiscoveryMode(m => !m); if (!discoveryState) runDiscovery(); }}
+              disabled={discoveryLoading}
+              style={{
+                padding: "4px 8px", borderRadius: 5, fontSize: 8, fontWeight: 700, cursor: "pointer", marginLeft: 4,
+                background: discoveryMode ? AMBER + "22" : "transparent",
+                border: `1px solid ${discoveryMode ? AMBER : "#1e2530"}`,
+                color: discoveryMode ? AMBER : SLATE,
+                opacity: discoveryLoading ? 0.5 : 1,
+              }}>
+              {discoveryLoading ? "..." : discoveryMode ? `DISC (${discoveryState?.cards?.length || 0})` : "DISC"}
+            </button>
+          </div>
+
+          {/* Setup card grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
+            {cards.map(card => (
+              <SetupCard key={card.symbol} card={card} isSelected={selectedCard === card.symbol}
+                onSelect={() => setSelectedCard(card.symbol)} />
             ))}
           </div>
-        )}
-        {discoveryMode && (!discoveryState || discoveryState.cards.length === 0) && !discoveryLoading && (
-          <div style={{ textAlign: "center", padding: "20px 0", color: "#1e2530", fontSize: 11 }}>
-            No discovery candidates scored yet — click RESCAN
-          </div>
-        )}
 
-        {/* DETAIL */}
-        {detail && (
-          <div style={{ marginTop: 16 }}>
-            <DetailPanel card={detail} />
-          </div>
-        )}
+          {cards.length === 0 && !refreshing && (
+            <div style={{ textAlign: "center", padding: "32px 0", color: "#1e2530", fontSize: 11 }}>
+              Click Scan Now to begin
+            </div>
+          )}
 
-        {/* Position Manager + Income Tracker moved to top (after regime) */}
-
-        {/* ALERT LOG */}
-        {alertLog.length > 0 && (
-          <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 14, marginTop: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.12em" }}>
-                ALERT HISTORY ({alertLog.length})
+          {/* Discovery results */}
+          {discoveryMode && discoveryState && discoveryState.cards.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 8, color: AMBER, letterSpacing: "0.1em" }}>DISCOVERY — {discoveryState.cards.length} candidates</div>
+                <button onClick={runDiscovery} disabled={discoveryLoading}
+                  style={{ padding: "2px 6px", borderRadius: 3, border: `1px solid ${AMBER}44`, background: "transparent", color: AMBER, fontSize: 8, cursor: "pointer" }}>
+                  {discoveryLoading ? "..." : "RESCAN"}
+                </button>
               </div>
-              <button onClick={() => { clearAlertHistory(); setAlertLog([]); }}
-                style={{ padding: "3px 8px", background: "transparent", border: `1px solid ${RED}44`, borderRadius: 4, color: RED, fontSize: 9, cursor: "pointer" }}>
-                CLEAR
-              </button>
-            </div>
-            <div style={{ maxHeight: 200, overflowY: "auto" }}>
-              {alertLog.slice(0, 20).map((a, i) => {
-                const pColor = a.priority === "high" ? GREEN : a.priority === "medium" ? AMBER : SLATE;
-                return (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #1e253044", fontSize: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: pColor, boxShadow: `0 0 4px ${pColor}` }} />
-                      <span style={{ fontWeight: 700, color: "#e2e8f0" }}>{a.symbol}</span>
-                      <span style={{ color: SLATE }}>{a.action}</span>
-                      <span style={{ color: pColor, fontSize: 9 }}>score {a.score}</span>
-                      {a.probability && <span style={{ color: GREEN, fontSize: 9 }}>prob {(a.probability * 100).toFixed(0)}%</span>}
-                    </div>
-                    <span style={{ color: SLATE, fontSize: 9 }}>{a.dateStr}</span>
+              {discoveryState.cards.slice(0, 10).map(card => (
+                <div key={card.symbol} style={{
+                  background: "#0d1117", border: "1px solid #1e2530", borderRadius: 6, padding: 8, marginBottom: 4,
+                  display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontWeight: 700, color: "#e2e8f0" }}>{card.symbol}</span>
+                    <span style={{ color: SLATE }}>${card.price}</span>
+                    {card.discoveryMeta && (
+                      <span style={{ fontSize: 8, color: SLATE }}>#{card.discoveryMeta.histRank} {card.discoveryMeta.spreadQuality} {card.discoveryMeta.wheelSuit}</span>
+                    )}
                   </div>
-                );
-              })}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: "monospace", color: card.score >= 75 ? GREEN : card.score >= 55 ? AMBER : SLATE }}>{card.score}</span>
+                    <span style={{ fontSize: 8, color: card.signal === "GO" ? GREEN : card.signal === "WATCH" ? AMBER : RED, fontWeight: 700 }}>{card.signal}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        )}
-
-        {/* CALIBRATION STATUS */}
-        {(() => {
-          const calStats = getCalibrationStats();
-          if (calStats.total === 0) return null;
-          return (
-            <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 12, fontSize: 9, color: SLATE }}>
-              <span>CAL: {calStats.total} obs</span>
-              <span>ATR Penalty: <span style={{ color: calStats.pctAtrPenalty > 0.7 ? RED : calStats.pctAtrPenalty > 0.5 ? AMBER : GREEN }}>{(calStats.pctAtrPenalty * 100).toFixed(0)}%</span></span>
-              <span>Bonus: <span style={{ color: calStats.pctPositiveBonus < 0.1 ? RED : calStats.pctPositiveBonus < 0.2 ? AMBER : GREEN }}>{(calStats.pctPositiveBonus * 100).toFixed(0)}%</span></span>
-              <span>Avg {"\u0394"}: <span style={{ color: calStats.avgDelta > 0 ? GREEN : calStats.avgDelta < -5 ? RED : SLATE }}>{calStats.avgDelta > 0 ? "+" : ""}{calStats.avgDelta}</span></span>
-              {calStats.reviewed > 0 && <span>Reviewed: {calStats.reviewed}</span>}
-            </div>
-          );
-        })()}
-
-        <div style={{ textAlign: "center", fontSize: 9, color: "#1e2530", marginTop: 8 }}>
-          Credit-vol engine · {ALL_SCAN_SYMBOLS.length} symbols · HYG+KRE+VIX regime · sell premium · not financial advice
+          )}
         </div>
+
+        {/* RIGHT: Detail + Alerts (sticky side panel) */}
+        <div className="cv-right" style={{ borderLeft: "1px solid #1e2530", overflowY: "auto", background: "#0a0e14" }}>
+
+          {/* Selected detail */}
+          {detail ? (
+            <div style={{ padding: 12 }}>
+              <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em", marginBottom: 8 }}>
+                DETAIL: {detail.symbol}
+              </div>
+              <DetailPanel card={detail} />
+            </div>
+          ) : (
+            <div style={{ padding: 20, textAlign: "center", color: "#1e2530", fontSize: 10 }}>
+              Select a setup to view details
+            </div>
+          )}
+
+          {/* Alerts */}
+          <div style={{ padding: 12, borderTop: "1px solid #1e2530" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em" }}>
+                ALERTS {alertLog.length > 0 && `· ${alertLog.length}`}
+              </div>
+              {alertLog.length > 0 && (
+                <button onClick={() => { clearAlertHistory(); setAlertLog([]); }}
+                  style={{ padding: "2px 6px", background: "transparent", border: `1px solid ${RED}44`, borderRadius: 3, color: RED, fontSize: 8, cursor: "pointer" }}>
+                  CLEAR
+                </button>
+              )}
+            </div>
+            {alertLog.length === 0
+              ? <div style={{ textAlign: "center", padding: "16px 0", color: "#1e2530", fontSize: 10 }}>No alerts</div>
+              : <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                  {alertLog.slice(0, 20).map((a, i) => {
+                    const pColor = a.priority === "high" ? GREEN : a.priority === "medium" ? AMBER : SLATE;
+                    return (
+                      <div key={i} style={{ borderLeft: `2px solid ${pColor}`, padding: "4px 8px", marginBottom: 3, fontSize: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontWeight: 700, color: "#e2e8f0" }}>{a.symbol} <span style={{ color: pColor, fontSize: 8 }}>{a.score}</span></span>
+                          <span style={{ fontSize: 8, color: SLATE }}>{a.dateStr}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+        </div>
+
       </div>
     </div>
   );
