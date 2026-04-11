@@ -11,6 +11,10 @@ const PROXY_URL = (typeof import.meta !== "undefined" && import.meta.env?.VITE_P
 
 const USER_ID_KEY = "triggerEngine_userId";
 
+// Default shared user ID — all devices sync to the same store.
+// Change this to support multi-user in the future.
+const DEFAULT_USER_ID = "michelle_primary";
+
 /**
  * Get or create a persistent user ID for sync.
  */
@@ -18,12 +22,12 @@ export function getUserId() {
   try {
     let id = localStorage.getItem(USER_ID_KEY);
     if (!id) {
-      id = "u_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      id = DEFAULT_USER_ID;
       localStorage.setItem(USER_ID_KEY, id);
     }
     return id;
   } catch {
-    return "default";
+    return DEFAULT_USER_ID;
   }
 }
 
