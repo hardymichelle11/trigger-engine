@@ -612,6 +612,9 @@ trigger-engine/
 │       ├── bqReader.js            # Browser-side BQ query adapter via proxy endpoint
 │       ├── historyProvider.js     # Unified history source: BQ > Polygon > cache
 │       ├── discoveryScanner.js   # Historical top-100 scanner with quality filters
+│       ├── calibration/
+│       │   ├── calibrationTracker.js  # Observation recording, stats, quarterly reports
+│       │   └── calibrationStorage.js  # localStorage persistence + export
 │       └── structure/
 │           ├── candlePatterns.js    # 8 candle pattern detectors (engulfing, hammer, doji, etc.)
 │           ├── swingStructure.js    # Swing highs/lows, trend bias, BOS/MSS detection
@@ -692,6 +695,25 @@ Note: Developer tier allows unlimited API calls. Watch for rate limiting at high
 ---
 
 ## 11. Changelog
+
+### 2026-04-11 (session 18 — Self-calibration tracking system)
+- **Calibration tracker** (`src/lib/calibration/calibrationTracker.js`):
+  - `recordCalibrationSnapshot(cards)`: Inspects scored cards after each scan, records per-symbol observations with baseline vs enhanced scores, ATR penalty flag, positive bonus flag, chart adjustments. 5-minute dedup window.
+  - `markAlertsFired(symbols)`: Updates observations with alert status after alert engine runs.
+  - `recordOutcomeUpdate(id, { sessionsOut, outcome, justified })`: Manual outcome entry for quarterly review.
+  - `getCalibrationStats({ from, to })`: Rolling stats — ATR penalty rate, positive bonus rate, avg delta, alert rates, outcome/justified breakdowns, top penalties/bonuses.
+  - `getQuarterlyCalibrationReport()`: Full report with recommendation (keep weights / reduce ATR / increase bonus / no action).
+  - `formatCalibrationReport()`: Human-readable text output.
+- **Calibration storage** (`src/lib/calibration/calibrationStorage.js`): localStorage with in-memory fallback for Node.js tests. Schema v1, max 2000 observations rolling. CRUD operations + export.
+- **signalEngine.js**: `buildUiCard` now exposes `baselineScore` (pre-chart-context) alongside `score` (post-chart-context) for calibration comparison.
+- **CreditVolScanner.jsx**: Refresh cycle records calibration snapshot after each scan + marks alerted symbols.
+- **CLI tools:**
+  - `npm run calibration:export`: Exports to JSON, CSV, and quarterly report text in `logs/calibration/`.
+  - `npm run calibration:update -- --list`: Shows unreviewed observations.
+  - `npm run calibration:update -- --id X --outcome HIT_T1 --justified YES --sessions 3`: Updates outcome.
+  - `npm run calibration:update -- --symbol NVDA`: Shows observations for a symbol.
+- **test-calibration.js**: 46 assertions — empty state, observation recording, shape validation, ATR/bonus detection, dedup, outcome update, stats with outcome, quarterly report, export shape, clear.
+- **npm run validate**: 14 test suites, 454 total assertions.
 
 ### 2026-04-11 (session 17 — Calibration pass)
 - **Calibration harness** (`scripts/run-calibration.js`): Compares baseline scoring vs chart-context-enhanced scoring across 4 synthetic scenarios (clean uptrend + demand, trap under resistance, neutral sideways, reversal at support). Measures per-adjustment impact, signal changes, alert eligibility changes.

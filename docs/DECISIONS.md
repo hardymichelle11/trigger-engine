@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-04-11 — Self-calibration as observation log, not auto-tuning
+
+**Decision:** The calibration system logs observations and generates reports, but never modifies scoring weights automatically. Weight adjustments are human decisions made during quarterly review.
+
+**Reason:** Auto-tuning from limited data is dangerous for a trading system — a few bad observations could shift weights in the wrong direction. The calibration tracker answers "what is chart context actually doing?" without changing the answer itself. Quarterly review with the export data lets Michelle decide whether to adjust weights based on accumulated evidence.
+
+**What it tracks:** Per-scan observations with baseline vs enhanced scores, ATR penalty rate, positive bonus rate, alert rate comparison. Outcome updates (HIT_T1, FAILED, etc.) are entered manually after 1-5 sessions. Quarterly report summarizes patterns and makes non-binding recommendations.
+
+---
+
 ## 2026-04-11 — Chart context as bounded secondary layer, not primary logic
 
 **Decision:** Chart context (candle patterns, swing structure, S/R zones, supply/demand, ATR extension) is capped at ±15 total score contribution and can never create a GO signal by itself. It is secondary confluence that improves entry/exit quality without overriding the core setup thesis or regime.

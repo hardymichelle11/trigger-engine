@@ -21,6 +21,7 @@ import {
   filterTrapNames,
 } from "./optionsWatchlist.js";
 import { runDiscoveryScan, getDiscoveryPreview } from "./lib/discoveryScanner.js";
+import { recordCalibrationSnapshot, markAlertsFired, getCalibrationStats } from "./lib/calibration/calibrationTracker.js";
 
 // --------------------------------------------------
 // COLORS (matching App.jsx theme)
@@ -875,13 +876,21 @@ export default function CreditVolScanner({ onBack }) {
       setLastRefresh(new Date());
 
       // Evaluate alerts on scanner results
+      let alertedSymbols = [];
       if (alertsEnabled && state.cards.length > 0) {
         const newAlerts = evaluateAlerts(state.cards, {}, getRecentAlerts());
         if (newAlerts.length > 0) {
           sendAlerts(newAlerts, { browser: true, console: true });
           newAlerts.forEach(a => recordAlert(a));
           setAlertLog(loadAlertHistory());
+          alertedSymbols = newAlerts.map(a => a.card.symbol);
         }
+      }
+
+      // Record calibration observations (lightweight, deduped)
+      if (state.cards.length > 0) {
+        recordCalibrationSnapshot(state.cards);
+        if (alertedSymbols.length > 0) markAlertsFired(alertedSymbols);
       }
 
       if (!selectedCard && state.cards.length > 0) {
@@ -1169,7 +1178,22 @@ export default function CreditVolScanner({ onBack }) {
           </div>
         )}
 
-        <div style={{ textAlign: "center", fontSize: 9, color: "#1e2530", marginTop: 20 }}>
+        {/* CALIBRATION STATUS */}
+        {(() => {
+          const calStats = getCalibrationStats();
+          if (calStats.total === 0) return null;
+          return (
+            <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 12, fontSize: 9, color: SLATE }}>
+              <span>CAL: {calStats.total} obs</span>
+              <span>ATR Penalty: <span style={{ color: calStats.pctAtrPenalty > 0.7 ? RED : calStats.pctAtrPenalty > 0.5 ? AMBER : GREEN }}>{(calStats.pctAtrPenalty * 100).toFixed(0)}%</span></span>
+              <span>Bonus: <span style={{ color: calStats.pctPositiveBonus < 0.1 ? RED : calStats.pctPositiveBonus < 0.2 ? AMBER : GREEN }}>{(calStats.pctPositiveBonus * 100).toFixed(0)}%</span></span>
+              <span>Avg {"\u0394"}: <span style={{ color: calStats.avgDelta > 0 ? GREEN : calStats.avgDelta < -5 ? RED : SLATE }}>{calStats.avgDelta > 0 ? "+" : ""}{calStats.avgDelta}</span></span>
+              {calStats.reviewed > 0 && <span>Reviewed: {calStats.reviewed}</span>}
+            </div>
+          );
+        })()}
+
+        <div style={{ textAlign: "center", fontSize: 9, color: "#1e2530", marginTop: 8 }}>
           Credit-vol engine · {ALL_SCAN_SYMBOLS.length} symbols · HYG+KRE+VIX regime · sell premium · not financial advice
         </div>
       </div>

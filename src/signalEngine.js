@@ -140,6 +140,7 @@ export function buildUiCard(setup, market) {
     category: setup.category || "HIGH_IV",
     price: round2(setup.price),
     score: finalScore,
+    baselineScore: scored.score,
     signal: finalSignal,
     stage: scored.timing.stage,
     regime: market.mode,
