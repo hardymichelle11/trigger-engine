@@ -8,6 +8,7 @@ import {
   safeNumber,
 } from "./signalEngine.js";
 import { loadPositions, savePositions, computeEconomics } from "./lib/storage/positionStorage.js";
+import { syncPositions, pushPositions } from "./lib/storage/positionSync.js";
 import { loadIncomeTracker, saveIncomeTracker, clearIncomeTracker } from "./lib/storage/incomeStorage.js";
 import { getIvRankBatch } from "./lib/iv/ivAdapter.js";
 import { evaluateAlerts } from "./lib/alerts/alertEngine.js";
@@ -640,11 +641,25 @@ function DetailPanel({ card }) {
 function PositionManager() {
   const [positions, setPositions] = useState(() => loadPositions());
   const [editingId, setEditingId] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("");
 
   const emptyForm = { symbol: "", strike: "", expiry: "", contracts: "1", entryCredit: "", currentPrice: "", currentOptionPrice: "", fees: "", rollCredits: "", rollDebits: "", notes: "" };
   const [form, setForm] = useState(emptyForm);
 
-  useEffect(() => { savePositions(positions); }, [positions]);
+  // Save locally + push to cloud on every change
+  useEffect(() => {
+    savePositions(positions);
+    pushPositions(positions).then(ok => setSyncStatus(ok ? "synced" : "local only"));
+  }, [positions]);
+
+  // Pull from cloud on mount (merge with local)
+  useEffect(() => {
+    setSyncStatus("syncing...");
+    syncPositions(loadPositions()).then(merged => {
+      setPositions(merged);
+      setSyncStatus("synced");
+    }).catch(() => setSyncStatus("local only"));
+  }, []);
 
   function submitPosition() {
     const strike = safeNumber(form.strike);
@@ -709,8 +724,13 @@ function PositionManager() {
 
   return (
     <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 12, marginTop: 10 }}>
-      <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em", marginBottom: 8 }}>
-        POSITION MANAGER {editingId ? "— EDITING" : "— SHORT PUTS"}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em" }}>
+          POSITION MANAGER {editingId ? "— EDITING" : "— SHORT PUTS"}
+        </span>
+        <span style={{ fontSize: 8, color: syncStatus === "synced" ? GREEN : syncStatus === "syncing..." ? AMBER : SLATE }}>
+          {syncStatus === "synced" ? "● synced" : syncStatus === "syncing..." ? "● syncing" : "○ local"}
+        </span>
       </div>
 
       {/* Form: row 1 — symbol, strike, expiry, contracts */}
