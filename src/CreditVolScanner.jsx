@@ -675,14 +675,14 @@ function PositionManager() {
       <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.12em", marginBottom: 10 }}>POSITION MANAGER — ACTIVE SHORT PUTS</div>
 
       {/* Add position form */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
         {["symbol", "strike", "credit", "currentPrice"].map(field => (
           <input key={field} placeholder={field.replace(/([A-Z])/g, " $1")}
             value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-            style={{ padding: 8, background: "#111827", color: "#f9fafb", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }} />
+            style={{ flex: "1 1 70px", minWidth: 60, padding: 7, background: "#111827", color: "#f9fafb", border: "1px solid #374151", borderRadius: 6, fontSize: 10 }} />
         ))}
         <button onClick={addPosition}
-          style={{ padding: "8px 12px", background: GREEN + "18", border: `1px solid ${GREEN}`, borderRadius: 6, color: GREEN, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+          style={{ padding: "7px 12px", background: GREEN + "18", border: `1px solid ${GREEN}`, borderRadius: 6, color: GREEN, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
           ADD
         </button>
       </div>
@@ -691,29 +691,29 @@ function PositionManager() {
       {positions.map(pos => {
         const zoneColor = pos.rollPlan.zone === "ACTION" ? RED : pos.rollPlan.zone === "WATCH" ? AMBER : pos.rollPlan.zone === "DEFENSE" ? AMBER : GREEN;
         return (
-          <div key={pos.id} style={{ background: "#111827", border: `1px solid ${zoneColor}33`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>{pos.symbol}</span>
-                <span style={{ fontSize: 11, color: SLATE }}>Short ${pos.strike} Put</span>
+          <div key={pos.id} style={{ background: "#111827", border: `1px solid ${zoneColor}33`, borderRadius: 8, padding: 10, marginBottom: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{pos.symbol}</span>
+                <span style={{ fontSize: 10, color: SLATE }}>${pos.strike}P</span>
               </div>
-              <span style={{ fontSize: 10, fontWeight: 700, color: zoneColor, background: zoneColor + "22", padding: "3px 8px", borderRadius: 4 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: zoneColor, background: zoneColor + "22", padding: "2px 6px", borderRadius: 3 }}>
                 {pos.rollPlan.zone}
               </span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, fontSize: 11, marginBottom: 8 }}>
-              <Metric label="Credit" value={`$${pos.credit}`} color={GREEN} />
-              <Metric label="Current" value={`$${pos.currentPrice}`} />
-              <Metric label="Warning" value={`$${pos.rollPlan.levels.warning}`} color={AMBER} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 10, marginBottom: 6 }}>
+              <Metric label="Cr" value={`$${pos.credit}`} color={GREEN} />
+              <Metric label="Px" value={`$${pos.currentPrice}`} />
+              <Metric label="Warn" value={`$${pos.rollPlan.levels.warning}`} color={AMBER} />
             </div>
 
             {/* BTC targets */}
-            <div style={{ fontSize: 9, color: SLATE, marginBottom: 4 }}>BUY TO CLOSE TARGETS</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, fontSize: 11, marginBottom: 8 }}>
-              <Metric label="30% profit" value={`$${pos.profitPlan.considerClose.btcPrice}`} />
-              <Metric label="50% profit" value={`$${pos.profitPlan.closePosition.btcPrice}`} color={AMBER} />
-              <Metric label="70% profit" value={`$${pos.profitPlan.alwaysClose.btcPrice}`} color={GREEN} />
+            <div style={{ fontSize: 8, color: SLATE, marginBottom: 3 }}>BTC TARGETS</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 10, marginBottom: 6 }}>
+              <Metric label="30%" value={`$${pos.profitPlan.considerClose.btcPrice}`} />
+              <Metric label="50%" value={`$${pos.profitPlan.closePosition.btcPrice}`} color={AMBER} />
+              <Metric label="70%" value={`$${pos.profitPlan.alwaysClose.btcPrice}`} color={GREEN} />
             </div>
 
             <div style={{ fontSize: 10, color: "#b0b8c4" }}>{pos.rollPlan.instructions}</div>
