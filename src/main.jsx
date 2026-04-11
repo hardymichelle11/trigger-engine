@@ -14,12 +14,99 @@ import {
   getSetupsAsObject,
 } from './lib/setupRegistry.js'
 import { validateSetup } from './lib/setupValidator.js'
+import { hasPolygonKey, setPolygonKey, clearApiKeys } from './lib/apiKeyManager.js'
+
+// --------------------------------------------------
+// API KEY GATE — prompts for key before showing app
+// --------------------------------------------------
+
+function ApiKeyGate({ onUnlock }) {
+  const [key, setKey] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const trimmed = key.trim();
+    if (!trimmed) {
+      setError("API key is required");
+      return;
+    }
+    if (trimmed.length < 10) {
+      setError("That doesn't look like a valid Polygon API key");
+      return;
+    }
+    setPolygonKey(trimmed);
+    onUnlock();
+  }
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: "#060a0f", display: "flex",
+      alignItems: "center", justifyContent: "center",
+      fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace",
+    }}>
+      <div style={{
+        background: "#0d1117", border: "1px solid #1e2530", borderRadius: 12,
+        padding: 32, maxWidth: 420, width: "100%",
+      }}>
+        <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.18em", marginBottom: 6 }}>
+          TRIGGER ENGINE
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", marginBottom: 20 }}>
+          API Key Required
+        </div>
+        <div style={{ fontSize: 11, color: "#b0b8c4", marginBottom: 16, lineHeight: 1.6 }}>
+          Enter your Polygon.io API key to connect to live market data.
+          The key is stored in your browser only — it is never sent to any server
+          or included in the application code.
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <input
+            type="password"
+            value={key}
+            onChange={e => { setKey(e.target.value); setError(""); }}
+            placeholder="Polygon API key"
+            autoFocus
+            style={{
+              width: "100%", padding: 12, background: "#111827", color: "#f9fafb",
+              border: `1px solid ${error ? "#ef4444" : "#374151"}`, borderRadius: 8,
+              fontSize: 13, fontFamily: "monospace", marginBottom: 10,
+              boxSizing: "border-box",
+            }}
+          />
+          {error && (
+            <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 10 }}>{error}</div>
+          )}
+          <button
+            type="submit"
+            style={{
+              width: "100%", padding: 12, background: "#065f46",
+              border: "1px solid #22c55e", borderRadius: 8,
+              color: "#22c55e", fontSize: 13, fontWeight: 700,
+              cursor: "pointer", letterSpacing: "0.05em",
+            }}>
+            CONNECT
+          </button>
+        </form>
+
+        <div style={{ fontSize: 9, color: "#1e2530", marginTop: 16, textAlign: "center" }}>
+          Get a free key at polygon.io/dashboard/signup
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------
+// MAIN APP
+// --------------------------------------------------
 
 function Root() {
+  const [keyReady, setKeyReady] = useState(() => hasPolygonKey());
   const [page, setPage] = useState("scanner");
 
   // React owns the setup list. Registry is the mutation layer.
-  // This ensures re-renders happen when setups change.
   const [setups, setSetups] = useState(() => getAllSetups());
 
   // Derived: engine-format object for App.jsx
@@ -28,18 +115,11 @@ function Root() {
   // --- Mutation handlers ---
 
   const handleAddSetup = useCallback((builderPayload) => {
-    // Convert builder format → registry format
     const registrySetup = fromBuilderFormat(builderPayload);
-
-    // Validate
     const errors = validateSetup(registrySetup);
     if (errors.length > 0) return { ok: false, errors };
-
-    // Add to registry
     const addErrors = addSetup(registrySetup);
     if (addErrors) return { ok: false, errors: addErrors };
-
-    // Sync React state + persist
     setSetups(getAllSetups());
     saveToStorage();
     return { ok: true };
@@ -47,21 +127,20 @@ function Root() {
 
   const handleToggleSetup = useCallback((id) => {
     const ok = toggleSetup(id);
-    if (ok) {
-      setSetups(getAllSetups());
-      saveToStorage();
-    }
+    if (ok) { setSetups(getAllSetups()); saveToStorage(); }
     return ok;
   }, []);
 
   const handleRemoveSetup = useCallback((id) => {
     const ok = removeSetup(id);
-    if (ok) {
-      setSetups(getAllSetups());
-      saveToStorage();
-    }
+    if (ok) { setSetups(getAllSetups()); saveToStorage(); }
     return ok;
   }, []);
+
+  // --- API Key Gate ---
+  if (!keyReady) {
+    return <ApiKeyGate onUnlock={() => setKeyReady(true)} />;
+  }
 
   // --- Page routing ---
 

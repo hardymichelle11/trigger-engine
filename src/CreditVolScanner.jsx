@@ -39,7 +39,9 @@ const CYAN   = "#2dd4bf";
 // POLYGON.IO FETCHER
 // --------------------------------------------------
 
-const POLYGON_KEY = import.meta.env.VITE_POLYGON_API_KEY;
+import { getPolygonKey } from "./lib/apiKeyManager.js";
+// API key loaded at runtime from localStorage — never in the bundle
+const POLYGON_KEY = getPolygonKey();
 const POLYGON_BASE = "https://api.polygon.io";
 
 async function fetchSnapshot(symbol) {

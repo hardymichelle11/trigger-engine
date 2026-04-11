@@ -18,7 +18,9 @@ import {
 // SELF-CALIBRATING MULTI-SETUP TRIGGER ENGINE
 // =====================================================
 
-const POLYGON_KEY = import.meta.env.VITE_POLYGON_API_KEY;
+import { getPolygonKey } from "./lib/apiKeyManager.js";
+// API key loaded at runtime from localStorage — never in the bundle
+const POLYGON_KEY = getPolygonKey();
 const POLYGON_BASE = "https://api.polygon.io";
 const USE_MOCK = false;
 
