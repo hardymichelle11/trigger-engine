@@ -1,0 +1,608 @@
+"""
+CREDIT REGIME CALIBRATION ENGINE
+Claude-friendly reference implementation
+
+Purpose
+-------
+Detect and calibrate market regimes for premium-selling decisions using:
+- HYG  : high-yield credit stress
+- KRE  : regional bank stress
+- XLF  : broad financial sector stress
+- VIX  : implied volatility / fear pricing
+- Optional:
+    - QQQ : growth/liquidity sensitivity
+    - TNX : 10Y yield / rate pressure
+
+Design goals
+------------
+1. Avoid false positives from one ticker moving alone
+2. Detect "early stress" before VIX fully spikes
+3. Separate:
+   - calm
+   - early_stress
+   - panic
+   - crisis
+4. Produce:
+   - regime
+   - regime_score (0-100)
+   - sell_puts_signal
+   - confidence
+   - explanation
+5. Remain easy for Claude to modify safely
+
+Claude usage note
+-----------------
+If you give this file to Claude, ask it to:
+- preserve explainability
+- avoid changing thresholds without noting why
+- prefer rolling z-scores and percentile thresholds
+- keep regime labels stable unless statistically justified
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, Tuple
+import math
+import statistics
+
+
+# =========================================================
+# 1. CLAUDE-FRIENDLY CONFIG
+# =========================================================
+
+CONFIG = {
+    "tickers": {
+        "credit": "HYG",
+        "regional_banks": "KRE",
+        "financials": "XLF",
+        "volatility": "VIX",
+        "growth": "QQQ",
+        "rates": "TNX",
+    },
+
+    # Weighting logic:
+    # HYG + KRE + XLF are the "credit/liquidity stress complex"
+    # VIX confirms whether fear is already priced
+    # QQQ and TNX help refine, not dominate
+    "weights": {
+        "HYG": 0.24,
+        "KRE": 0.22,
+        "XLF": 0.18,
+        "VIX": 0.24,
+        "QQQ": 0.07,
+        "TNX": 0.05,
+    },
+
+    # Thresholds are intentionally simple.
+    # Claude should preserve these unless backtest evidence suggests changes.
+    "thresholds": {
+        "calm_max": 25,
+        "early_stress_max": 50,
+        "panic_max": 75,
+        # >75 => crisis
+    },
+
+    # Signal thresholds based on rolling standardized move strength.
+    # Negative z-score = below recent mean
+    # Positive z-score = above recent mean
+    "zscore_thresholds": {
+        "mild_down": -0.50,
+        "moderate_down": -1.00,
+        "hard_down": -1.50,
+        "mild_up": 0.50,
+        "moderate_up": 1.00,
+        "hard_up": 1.50,
+    },
+
+    # VIX absolute regime guardrails
+    # These are useful because VIX levels matter even if z-score is noisy.
+    "vix_absolute": {
+        "calm": 18.0,
+        "watch": 21.0,
+        "panic": 25.0,
+        "crisis": 30.0,
+    },
+
+    # Premium-selling posture by regime
+    "actions": {
+        "calm": "SELL_PUTS_NORMAL",
+        "early_stress": "WAIT_OR_SMALL_FAR_OTM",
+        "panic": "SELL_PUTS_INTO_FEAR",
+        "crisis": "DEFEND_NO_NEW_PUTS",
+    },
+
+    # Minimum data length for stable rolling statistics
+    "lookback": {
+        "short": 5,
+        "medium": 10,
+        "long": 20,
+    }
+}
+
+
+# =========================================================
+# 2. DATA STRUCTURES
+# =========================================================
+
+@dataclass
+class FeatureSnapshot:
+    ticker: str
+    last: float
+    mean_5: float
+    mean_10: float
+    mean_20: float
+    std_20: float
+    z20: float
+    pct_change_1: float
+    pct_change_5: float
+    slope_5: float
+
+
+@dataclass
+class RegimeResult:
+    regime: str
+    regime_score: float
+    confidence: float
+    sell_puts_signal: str
+    explanation: List[str]
+    component_scores: Dict[str, float]
+    raw_features: Dict[str, Dict]
+
+
+# =========================================================
+# 3. BASIC STATS HELPERS
+# =========================================================
+
+def mean(values: List[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def stdev(values: List[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    try:
+        return statistics.stdev(values)
+    except statistics.StatisticsError:
+        return 0.0
+
+
+def pct_change(current: float, previous: float) -> float:
+    if previous == 0:
+        return 0.0
+    return (current - previous) / previous
+
+
+def slope(values: List[float]) -> float:
+    """
+    Simple linear slope proxy over equally spaced points.
+    Positive => trending up
+    Negative => trending down
+    """
+    n = len(values)
+    if n < 2:
+        return 0.0
+
+    x = list(range(n))
+    x_mean = mean(x)
+    y_mean = mean(values)
+
+    num = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, values))
+    den = sum((xi - x_mean) ** 2 for xi in x)
+    return num / den if den else 0.0
+
+
+def rolling_feature_snapshot(ticker: str, series: List[float]) -> FeatureSnapshot:
+    """
+    Expects series ordered oldest -> newest
+    """
+    if len(series) < 20:
+        raise ValueError(f"{ticker}: need at least 20 observations")
+
+    last = series[-1]
+    last_5 = series[-5:]
+    last_10 = series[-10:]
+    last_20 = series[-20:]
+
+    mean_5 = mean(last_5)
+    mean_10 = mean(last_10)
+    mean_20 = mean(last_20)
+    std_20 = stdev(last_20)
+
+    z20 = 0.0 if std_20 == 0 else (last - mean_20) / std_20
+    pct_change_1 = pct_change(series[-1], series[-2])
+    pct_change_5 = pct_change(series[-1], series[-6]) if len(series) >= 6 else 0.0
+    slope_5 = slope(last_5)
+
+    return FeatureSnapshot(
+        ticker=ticker,
+        last=last,
+        mean_5=mean_5,
+        mean_10=mean_10,
+        mean_20=mean_20,
+        std_20=std_20,
+        z20=z20,
+        pct_change_1=pct_change_1,
+        pct_change_5=pct_change_5,
+        slope_5=slope_5,
+    )
+
+
+# =========================================================
+# 4. COMPONENT SCORING
+# =========================================================
+
+def score_risk_off_asset(feature: FeatureSnapshot) -> float:
+    """
+    For HYG, KRE, XLF, QQQ:
+    falling price => higher stress score
+    Returns 0-100.
+    """
+    z = feature.z20
+    s5 = feature.slope_5
+    p1 = feature.pct_change_1
+    p5 = feature.pct_change_5
+
+    score = 0.0
+
+    # Price below recent mean
+    if z <= -1.5:
+        score += 45
+    elif z <= -1.0:
+        score += 32
+    elif z <= -0.5:
+        score += 18
+
+    # Short trend down
+    if s5 < 0:
+        score += min(20, abs(s5) * 500)
+
+    # 1-bar and 5-bar weakness
+    if p1 < 0:
+        score += min(15, abs(p1) * 300)
+    if p5 < 0:
+        score += min(20, abs(p5) * 250)
+
+    return max(0.0, min(100.0, score))
+
+
+def score_vix(feature: FeatureSnapshot, absolute_vix: float) -> float:
+    """
+    VIX rising => higher stress score
+    Use both z-score and absolute level.
+    """
+    z = feature.z20
+    s5 = feature.slope_5
+    p1 = feature.pct_change_1
+    p5 = feature.pct_change_5
+
+    score = 0.0
+
+    # Absolute VIX matters a lot
+    if absolute_vix >= CONFIG["vix_absolute"]["crisis"]:
+        score += 55
+    elif absolute_vix >= CONFIG["vix_absolute"]["panic"]:
+        score += 42
+    elif absolute_vix >= CONFIG["vix_absolute"]["watch"]:
+        score += 28
+    elif absolute_vix <= CONFIG["vix_absolute"]["calm"]:
+        score += 5
+
+    # Relative move vs own history
+    if z >= 1.5:
+        score += 25
+    elif z >= 1.0:
+        score += 18
+    elif z >= 0.5:
+        score += 10
+
+    if s5 > 0:
+        score += min(12, abs(s5) * 500)
+    if p1 > 0:
+        score += min(10, abs(p1) * 300)
+    if p5 > 0:
+        score += min(12, abs(p5) * 250)
+
+    return max(0.0, min(100.0, score))
+
+
+def score_tnx(feature: FeatureSnapshot) -> float:
+    """
+    TNX can contribute to stress when yields rise quickly.
+    This is weaker than HYG/KRE/XLF/VIX and should not dominate.
+    """
+    z = feature.z20
+    p5 = feature.pct_change_5
+    s5 = feature.slope_5
+
+    score = 0.0
+
+    if z >= 1.5:
+        score += 30
+    elif z >= 1.0:
+        score += 22
+    elif z >= 0.5:
+        score += 10
+
+    if p5 > 0:
+        score += min(15, abs(p5) * 200)
+    if s5 > 0:
+        score += min(10, abs(s5) * 500)
+
+    return max(0.0, min(100.0, score))
+
+
+# =========================================================
+# 5. REGIME RULES
+# =========================================================
+
+def weighted_regime_score(component_scores: Dict[str, float]) -> float:
+    weights = CONFIG["weights"]
+    total = 0.0
+    for ticker, score in component_scores.items():
+        total += weights.get(ticker, 0.0) * score
+    return round(total, 2)
+
+
+def classify_regime(score: float, vix_last: float, hyg_score: float, kre_score: float) -> str:
+    """
+    Uses both aggregate score and guards for certain patterns.
+    This prevents under-classifying real stress when VIX hasn't fully caught up.
+    """
+    # Guard 1: early credit stress even if VIX still muted
+    if hyg_score >= 35 and kre_score >= 35 and vix_last < CONFIG["vix_absolute"]["watch"]:
+        return "early_stress"
+
+    if score <= CONFIG["thresholds"]["calm_max"]:
+        return "calm"
+    if score <= CONFIG["thresholds"]["early_stress_max"]:
+        return "early_stress"
+    if score <= CONFIG["thresholds"]["panic_max"]:
+        return "panic"
+    return "crisis"
+
+
+def compute_confidence(component_scores: Dict[str, float], regime: str) -> float:
+    """
+    Confidence rises when multiple components agree.
+    """
+    stress_components = sum(1 for s in component_scores.values() if s >= 35)
+    very_high_components = sum(1 for s in component_scores.values() if s >= 60)
+
+    base = 45.0 + stress_components * 8 + very_high_components * 6
+
+    # Mild penalty if regime is calm but one component is screaming
+    if regime == "calm" and very_high_components > 0:
+        base -= 15
+
+    return max(0.0, min(100.0, round(base, 2)))
+
+
+def build_explanation(
+    features: Dict[str, FeatureSnapshot],
+    component_scores: Dict[str, float],
+    regime: str,
+    regime_score: float
+) -> List[str]:
+    lines = []
+    lines.append(f"Regime classified as {regime} with aggregate score {regime_score}.")
+
+    for ticker in ["HYG", "KRE", "XLF", "VIX", "QQQ", "TNX"]:
+        if ticker not in features:
+            continue
+        f = features[ticker]
+        score = component_scores.get(ticker, 0.0)
+        direction = "up" if f.slope_5 > 0 else "down" if f.slope_5 < 0 else "flat"
+        lines.append(
+            f"{ticker}: score={score:.1f}, last={f.last:.2f}, z20={f.z20:.2f}, "
+            f"1-bar={f.pct_change_1:.2%}, 5-bar={f.pct_change_5:.2%}, slope_5={direction}."
+        )
+
+    if regime == "calm":
+        lines.append("Credit and financial conditions appear stable; normal premium-selling posture is allowed.")
+    elif regime == "early_stress":
+        lines.append("Credit/financial weakness is building before a full fear spike; reduce size or wait.")
+    elif regime == "panic":
+        lines.append("Fear is priced; this is the main premium-harvesting zone if support levels and sizing are respected.")
+    elif regime == "crisis":
+        lines.append("System stress is elevated; avoid new short puts unless explicitly hedged and risk-defined.")
+
+    return lines
+
+
+# =========================================================
+# 6. MAIN ENGINE
+# =========================================================
+
+def evaluate_regime(price_history: Dict[str, List[float]]) -> RegimeResult:
+    """
+    price_history format:
+    {
+        "HYG": [...],
+        "KRE": [...],
+        "XLF": [...],
+        "VIX": [...],
+        "QQQ": [...],   # optional
+        "TNX": [...],   # optional
+    }
+
+    All series ordered oldest -> newest.
+    Need at least 20 observations for included tickers.
+    """
+    required = ["HYG", "KRE", "XLF", "VIX"]
+    for t in required:
+        if t not in price_history:
+            raise ValueError(f"Missing required ticker: {t}")
+
+    features: Dict[str, FeatureSnapshot] = {}
+    for ticker, series in price_history.items():
+        if len(series) >= 20:
+            features[ticker] = rolling_feature_snapshot(ticker, series)
+
+    component_scores: Dict[str, float] = {}
+
+    for ticker in ["HYG", "KRE", "XLF", "QQQ"]:
+        if ticker in features:
+            component_scores[ticker] = score_risk_off_asset(features[ticker])
+
+    component_scores["VIX"] = score_vix(features["VIX"], features["VIX"].last)
+
+    if "TNX" in features:
+        component_scores["TNX"] = score_tnx(features["TNX"])
+
+    regime_score = weighted_regime_score(component_scores)
+    regime = classify_regime(
+        score=regime_score,
+        vix_last=features["VIX"].last,
+        hyg_score=component_scores.get("HYG", 0.0),
+        kre_score=component_scores.get("KRE", 0.0),
+    )
+
+    confidence = compute_confidence(component_scores, regime)
+    sell_puts_signal = CONFIG["actions"][regime]
+    explanation = build_explanation(features, component_scores, regime, regime_score)
+
+    return RegimeResult(
+        regime=regime,
+        regime_score=regime_score,
+        confidence=confidence,
+        sell_puts_signal=sell_puts_signal,
+        explanation=explanation,
+        component_scores=component_scores,
+        raw_features={k: asdict(v) for k, v in features.items()},
+    )
+
+
+# =========================================================
+# 7. OPTIONAL CALIBRATION LAYER
+# =========================================================
+
+def calibrate_thresholds(
+    historical_results: List[Dict],
+    target_false_panic_rate: float = 0.15,
+    target_missed_stress_rate: float = 0.20
+) -> Dict[str, float]:
+    """
+    Claude-friendly placeholder for threshold calibration.
+
+    historical_results example:
+    [
+        {
+            "regime_score": 41.2,
+            "future_vix_spike_3d": True,
+            "future_drawdown_3d": -0.018,
+            "future_drawdown_5d": -0.032
+        },
+        ...
+    ]
+
+    Goal:
+    - keep false "panic/crisis" calls under control
+    - catch real future volatility expansions and drawdowns
+
+    This function returns suggested thresholds only.
+    Human review is recommended before deployment.
+    """
+    scores = sorted(r["regime_score"] for r in historical_results)
+    if not scores:
+        return CONFIG["thresholds"]
+
+    # Simple percentile-based starting point
+    n = len(scores)
+    calm_max = scores[max(0, int(n * 0.35) - 1)]
+    early_stress_max = scores[max(0, int(n * 0.65) - 1)]
+    panic_max = scores[max(0, int(n * 0.85) - 1)]
+
+    suggested = {
+        "calm_max": round(calm_max, 2),
+        "early_stress_max": round(early_stress_max, 2),
+        "panic_max": round(panic_max, 2),
+    }
+
+    return suggested
+
+
+# =========================================================
+# 8. CLAUDE PROMPT BLOCK
+# =========================================================
+
+CLAUDE_BUILD_PROMPT = """
+You are updating a credit regime engine used for premium-selling decisions.
+
+Your job:
+1. Preserve explainability
+2. Preserve stable labels:
+   - calm
+   - early_stress
+   - panic
+   - crisis
+3. Keep HYG, KRE, XLF, and VIX as the core signal complex
+4. Treat QQQ and TNX as secondary refiners
+5. Avoid making VIX the sole driver
+6. Detect early credit stress before a full VIX spike
+7. Return structured output:
+   - regime
+   - regime_score
+   - confidence
+   - sell_puts_signal
+   - explanation
+
+Rules:
+- Do not remove required tickers without explanation
+- Do not change weights or thresholds unless you explain why
+- Prefer small, documented changes
+- Avoid overfitting to one date range
+- Prefer rolling z-scores, percent changes, and slope
+- Preserve guardrails that classify early_stress when HYG and KRE weaken before VIX confirms
+
+Desired interpretation:
+- calm: normal short put selling allowed
+- early_stress: reduce size, go farther OTM, or wait
+- panic: best premium harvest zone if support and sizing align
+- crisis: capital defense, avoid new naked short put exposure
+
+When proposing improvements:
+- explain the problem
+- explain the change
+- explain expected behavioral difference
+- explain backtest impact if available
+"""
+
+
+# =========================================================
+# 9. EXAMPLE USAGE
+# =========================================================
+
+if __name__ == "__main__":
+    # Fake sample data for structure only
+    sample = {
+        "HYG": [81.5, 81.4, 81.6, 81.3, 81.2, 81.1, 80.9, 80.8, 80.7, 80.6,
+                80.6, 80.5, 80.4, 80.3, 80.2, 80.1, 80.0, 79.95, 80.0, 80.01],
+        "KRE": [70.7, 70.5, 70.4, 70.3, 70.1, 70.0, 69.8, 69.7, 69.6, 69.5,
+                69.4, 69.3, 69.2, 69.1, 69.0, 68.9, 68.8, 68.85, 68.9, 68.95],
+        "XLF": [51.7, 51.6, 51.5, 51.4, 51.3, 51.2, 51.15, 51.1, 51.0, 50.95,
+                50.9, 50.88, 50.85, 50.82, 50.8, 50.78, 50.75, 50.77, 50.8, 50.81],
+        "VIX": [17.2, 17.4, 17.5, 17.8, 18.0, 18.1, 18.2, 18.4, 18.6, 18.8,
+                19.0, 19.1, 19.3, 19.6, 19.9, 20.2, 20.0, 19.7, 19.4, 19.23],
+        "QQQ": [472, 471, 470, 469, 468, 467, 466, 465, 464, 463,
+                462, 461, 460, 459, 458, 457, 456, 456.5, 457, 457.2],
+        "TNX": [4.11, 4.12, 4.13, 4.15, 4.16, 4.18, 4.20, 4.22, 4.24, 4.25,
+                4.27, 4.26, 4.24, 4.23, 4.22, 4.21, 4.19, 4.18, 4.17, 4.16],
+    }
+
+    result = evaluate_regime(sample)
+
+    print("=== REGIME RESULT ===")
+    print("regime:", result.regime)
+    print("regime_score:", result.regime_score)
+    print("confidence:", result.confidence)
+    print("sell_puts_signal:", result.sell_puts_signal)
+    print("\ncomponent_scores:")
+    for k, v in result.component_scores.items():
+        print(f"  {k}: {v:.2f}")
+    print("\nexplanation:")
+    for line in result.explanation:
+        print("-", line)
+
+    print("\n=== CLAUDE BUILD PROMPT ===")
+    print(CLAUDE_BUILD_PROMPT)
