@@ -1,0 +1,22 @@
+{
+  "name": "AI Picks — Trigger Engine",
+  "short_name": "AI Picks",
+  "description": "Market scanner and trading signal engine",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060a0f",
+  "theme_color": "#060a0f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
