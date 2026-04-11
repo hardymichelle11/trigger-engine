@@ -306,23 +306,15 @@ function LadderBar({ target, prob, idx }) {
 }
 
 function AlertRow({ a }) {
-  const styles = {
-    GO:         { bg: "#071a0f", border: GREEN, tag: GREEN, text: "#86efac" },
-    WATCH:      { bg: "#1c1700", border: AMBER, tag: AMBER, text: "#fde68a" },
-    "NO TRADE": { bg: "#0d1117", border: "#1e2530", tag: "#9ca3af", text: "#b0b8c4" },
-    REGIME:     { bg: "#0d0717", border: PURPLE, tag: PURPLE, text: "#c4b5fd" },
-    REFRESH:    { bg: "#071525", border: BLUE,   tag: BLUE,   text: "#7dd3fc" },
-    INFO:       { bg: "#0d1117", border: "#1e2530", tag: "#9ca3af", text: "#b0b8c4" },
-  };
-  const c = styles[a.type] || styles.INFO;
+  const tagColors = { GO: GREEN, WATCH: AMBER, REFRESH: BLUE, REGIME: PURPLE, INFO: SLATE, "NO TRADE": SLATE };
+  const color = tagColors[a.type] || SLATE;
   return (
-    <div style={{ background: c.bg, borderLeft: `3px solid ${c.border}`, borderRadius: 6, padding: "9px 11px", marginBottom: 7, animation: "slideIn 0.2s ease" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: c.tag, background: c.tag + "22", padding: "2px 6px", borderRadius: 3 }}>{a.type}</span>
-        <span style={{ fontSize: 9, color: "#9ca3af", fontFamily: "monospace" }}>{a.time}</span>
+    <div style={{ borderLeft: `2px solid ${color}`, padding: "5px 8px", marginBottom: 4, fontSize: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ color, fontWeight: 700, fontSize: 8 }}>{a.type}</span>
+        <span style={{ fontSize: 8, color: SLATE, fontFamily: "monospace" }}>{a.time}</span>
       </div>
-      <div style={{ fontSize: 11, color: c.text, lineHeight: 1.5 }}>{a.msg}</div>
-      {a.meta && <div style={{ fontSize: 10, color: "#b0b8c4", marginTop: 3, fontFamily: "monospace", whiteSpace: "pre-line" }}>{a.meta}</div>}
+      <div style={{ color: "#d1d5db", lineHeight: 1.4 }}>{a.msg}</div>
     </div>
   );
 }
@@ -335,9 +327,9 @@ function RegimePanel({ regime }) {
   if (!regime) return null;
   const color = regime.state === "RISK-ON" ? GREEN : regime.state === "RISK-OFF" ? RED : AMBER;
   return (
-    <div style={{ background: "#0d1117", border: `1px solid ${color}33`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em" }}>MARKET REGIME</div>
+    <div style={{ background: "#0d1117", border: `1px solid ${color}33`, borderRadius: 8, padding: 10, marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div style={{ fontSize: 8, color: "#9ca3af", letterSpacing: "0.1em" }}>REGIME</div>
         <span style={{ fontSize: 10, fontWeight: 700, color, background: color + "22", padding: "3px 8px", borderRadius: 4, letterSpacing: "0.08em" }}>{regime.state}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 10 }}>
@@ -376,37 +368,40 @@ function SetupCard({ result, isSelected, onSelect }) {
     <div onClick={onSelect} style={{
       background: isSelected ? "#0d1520" : "#0d1117",
       border: `1px solid ${isSelected ? stateColor + "66" : "#1e2530"}`,
-      borderRadius: 10, padding: 14, cursor: "pointer",
-      transition: "all 0.2s", marginBottom: 8,
+      borderRadius: 8, padding: 10, cursor: "pointer",
+      transition: "all 0.15s",
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 8, fontWeight: 700, color: kindColor, background: kindColor + "22", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.1em" }}>{kindLabel}</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>{result.setup}</span>
+      {/* Row 1: type badge + symbol + score ring */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 7, fontWeight: 700, color: kindColor, background: kindColor + "22", padding: "1px 4px", borderRadius: 2, letterSpacing: "0.08em" }}>{kindLabel}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{result.setup}</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <ScoreRing score={result.score} size={36} />
-          <span style={{ fontSize: 10, fontWeight: 700, color: stateColor, letterSpacing: "0.08em" }}>{result.state}</span>
-        </div>
+        <ScoreRing score={result.score} size={30} />
       </div>
 
-      <div style={{ display: "flex", gap: 12, fontSize: 10 }}>
-        <span style={{ color: "#b0b8c4" }}>
-          {result.kind === "pair" ? `L: $${fmt(result.leaderPrice)} F: $${fmt(result.followerPrice)}` :
-           `$${fmt(result.leaderPrice)}`}
+      {/* Row 2: state badge + price */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: stateColor, letterSpacing: "0.06em" }}>{result.state}</span>
+        <span style={{ fontSize: 10, color: "#b0b8c4" }}>
+          ${fmt(result.leaderPrice)}
+          {result.change !== undefined && (
+            <span style={{ color: result.change >= 0 ? GREEN : RED, marginLeft: 4 }}>{pctFmt(result.change)}</span>
+          )}
         </span>
-        {result.winProb !== undefined && (
-          <span style={{ color: GREEN }}>Win: {(result.winProb * 100).toFixed(1)}%</span>
-        )}
-        {result.suggestedSize !== undefined && (
-          <span style={{ color: BLUE }}>Kelly: ${fmt(result.suggestedSize, 0)}</span>
-        )}
-        {result.change !== undefined && (
-          <span style={{ color: result.change >= 0 ? GREEN : RED }}>{pctFmt(result.change)}</span>
-        )}
       </div>
 
-      {result.error && <div style={{ fontSize: 10, color: RED, marginTop: 6 }}>{result.error}</div>}
+      {/* Row 3: compact metrics */}
+      <div style={{ display: "flex", gap: 8, fontSize: 9, color: SLATE }}>
+        {result.winProb !== undefined && <span style={{ color: GREEN }}>W:{(result.winProb * 100).toFixed(0)}%</span>}
+        {result.suggestedSize !== undefined && <span style={{ color: BLUE }}>K:${fmt(result.suggestedSize, 0)}</span>}
+        {result.kind === "stack_reversal" && result.stage && result.stage !== "NO SIGNAL" && (
+          <span style={{ color: result.stage === "EARLY" ? GREEN : result.stage === "MID" ? AMBER : RED }}>{result.stage}</span>
+        )}
+        {result.kind === "infra_follower" && result.lagging && <span style={{ color: GREEN }}>LAG</span>}
+      </div>
+
+      {result.error && <div style={{ fontSize: 9, color: RED, marginTop: 4 }}>{result.error}</div>}
     </div>
   );
 }
@@ -415,24 +410,35 @@ function SetupCard({ result, isSelected, onSelect }) {
 // DETAIL PANEL (selected setup)
 // ---------------------------
 
+/** Charts for the selected setup — rendered in the center column (needs width). */
+function DetailCharts({ result, setupKey, setups }) {
+  if (!result || !setups[setupKey]) return null;
+  const setup = setups[setupKey];
+  const charts = [];
+  if (setup.tvLeader) charts.push({ label: setup.leader.symbol, symbol: setup.tvLeader });
+  if (setup.tvFollower) charts.push({ label: setup.follower?.symbol, symbol: setup.tvFollower });
+  if (!charts.length) return null;
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      {charts.map(c => (
+        <div key={c.symbol}>
+          <div style={{ fontSize: 8, color: SLATE, letterSpacing: "0.1em", marginBottom: 4 }}>{c.label}</div>
+          <TradingViewChart symbol={c.symbol} height={350} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Findings panel — rendered in the right side panel. */
 function DetailPanel({ result, setupKey, setups }) {
   if (!result) return null;
   const setup = setups[setupKey];
   if (!setup) return null;
 
-  const charts = [];
-  if (setup.tvLeader) charts.push({ label: setup.leader.symbol, symbol: setup.tvLeader });
-  if (setup.tvFollower) charts.push({ label: setup.follower?.symbol, symbol: setup.tvFollower });
-
   return (
     <div>
-      {/* Charts */}
-      {charts.map(c => (
-        <div key={c.symbol}>
-          <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 6 }}>{c.label} CHART</div>
-          <TradingViewChart symbol={c.symbol} height={400} />
-        </div>
-      ))}
 
       {/* Pair-specific: ladder + gates */}
       {result.kind === "pair" && result.ladderProbs && (
@@ -783,119 +789,147 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
   const watchCount = results.filter(r => r.state === "WATCH").length;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#060a0f", color: "#e2e8f0", fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace", padding: 16 }}>
+    <div style={{ minHeight: "100vh", background: "#060a0f", color: "#e2e8f0", fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace" }}>
       <style>{`
         @keyframes slideIn { from{opacity:0;transform:translateY(-5px)} to{opacity:1;transform:translateY(0)} }
         @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.35} }
         @keyframes glow    { 0%,100%{box-shadow:0 0 8px #22c55e33} 50%{box-shadow:0 0 22px #22c55e77} }
         @keyframes spin    { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
         ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-thumb{background:#1e2530;border-radius:2px}
+        @media (max-width: 1024px) { .dashboard-grid { grid-template-columns: 1fr !important; } .left-panel, .right-panel { display: none !important; } .left-panel-mobile { display: flex !important; } }
+        @media (min-width: 1025px) { .left-panel-mobile { display: none !important; } }
       `}</style>
 
-      <div style={{ maxWidth: 800, margin: "0 auto" }}>
-
-        {/* HEADER */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
-          <div>
-            <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.18em", marginBottom: 3 }}>MULTI-SETUP TRIGGER ENGINE</div>
-            <div style={{ fontSize: 19, fontWeight: 700, color: "#f1f5f9", letterSpacing: "-0.03em" }}>
-              SCANNER <span style={{ fontSize: 10, color: PURPLE, fontWeight: 400 }}>{results.length} setups</span>
-            </div>
+      {/* HEADER BAR */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #1e2530" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", letterSpacing: "-0.02em" }}>
+            TRIGGER ENGINE
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {goCount > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: GREEN, background: GREEN + "22", padding: "4px 8px", borderRadius: 4, animation: "glow 1.4s infinite" }}>{goCount} GO</span>
-            )}
-            {watchCount > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: AMBER, background: AMBER + "22", padding: "4px 8px", borderRadius: 4 }}>{watchCount} WATCH</span>
-            )}
-          </div>
+          <span style={{ fontSize: 9, color: PURPLE }}>{results.length} setups</span>
+          {goCount > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: GREEN, background: GREEN + "22", padding: "2px 6px", borderRadius: 3, animation: "glow 1.4s infinite" }}>{goCount} GO</span>}
+          {watchCount > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: AMBER, background: AMBER + "22", padding: "2px 6px", borderRadius: 3 }}>{watchCount} WATCH</span>}
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 9, color: SLATE }}>
+          {wsState === WS_STATE.CONNECTED && <span style={{ color: GREEN, fontWeight: 700 }}>● LIVE</span>}
+          {wsState === WS_STATE.UNSUPPORTED && <span>○ WS N/A</span>}
+          {(() => { const ps = getProviderStatus(); return ps.bqAvailable ? <span style={{ color: CYAN, fontWeight: 700 }}>BQ</span> : null; })()}
+          {lastRefresh && <span>{lastRefresh.toLocaleTimeString()}</span>}
+        </div>
+      </div>
 
-        {/* CONTROLS */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      {/* 3-COLUMN DASHBOARD */}
+      <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "180px 1fr 320px", height: "calc(100vh - 44px)" }}>
+
+        {/* LEFT: Controls + Regime */}
+        <div className="left-panel" style={{ borderRight: "1px solid #1e2530", padding: 12, overflowY: "auto", background: "#0a0e14" }}>
           <button onClick={refresh} disabled={refreshing}
-            style={{ flex: 1, padding: 11, background: "#071a0f", border: `1px solid ${GREEN}`, borderRadius: 8, color: GREEN, fontSize: 12, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em", opacity: refreshing ? 0.5 : 1 }}>
-            {refreshing ? "↻ REFRESHING..." : "↻ REFRESH NOW"}
+            style={{ width: "100%", padding: 10, background: "#071a0f", border: `1px solid ${GREEN}`, borderRadius: 6, color: GREEN, fontSize: 11, fontWeight: 700, cursor: "pointer", marginBottom: 8, opacity: refreshing ? 0.5 : 1 }}>
+            {refreshing ? "↻ ..." : "↻ REFRESH"}
           </button>
           <button onClick={() => setAutoRefresh(a => !a)}
-            style={{ padding: "11px 16px", background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 8, color: autoRefresh ? GREEN : "#9ca3af", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
+            style={{ width: "100%", padding: 8, background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 6, color: autoRefresh ? GREEN : SLATE, fontSize: 9, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
             {autoRefresh ? "AUTO: ON" : "AUTO: OFF"}
           </button>
-          {onOpenCreditVol && (
-            <button onClick={onOpenCreditVol}
-              style={{ padding: "11px 16px", background: CYAN + "18", border: `1px solid ${CYAN}`, borderRadius: 8, color: CYAN, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
-              CREDIT-VOL
-            </button>
-          )}
-          {onOpenBuilder && (
-            <button onClick={onOpenBuilder}
-              style={{ padding: "11px 16px", background: PURPLE + "18", border: `1px solid ${PURPLE}`, borderRadius: 8, color: PURPLE, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
-              SETUP BUILDER
-            </button>
-          )}
-        </div>
-        {lastRefresh && (
-          <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 12, textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            {wsState !== WS_STATE.DISCONNECTED && (
-              <span style={{
-                color: wsState === WS_STATE.CONNECTED ? GREEN : wsState === WS_STATE.RECONNECTING ? AMBER : "#9ca3af",
-                fontWeight: 700,
-              }}>
-                {wsState === WS_STATE.CONNECTED ? "● LIVE" : wsState === WS_STATE.RECONNECTING ? "● RECONNECTING" : wsState === WS_STATE.UNSUPPORTED ? "○ WS N/A" : `○ ${wsState}`}
-                {feedHealth && wsState === WS_STATE.CONNECTED && ` (${feedHealth.websocket}ws/${feedHealth.poll}poll)`}
-              </span>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+            {onOpenCreditVol && (
+              <button onClick={onOpenCreditVol}
+                style={{ padding: 8, background: CYAN + "12", border: `1px solid ${CYAN}44`, borderRadius: 6, color: CYAN, fontSize: 9, fontWeight: 700, cursor: "pointer" }}>
+                CREDIT-VOL
+              </button>
             )}
-            {(() => { const ps = getProviderStatus(); return ps.bqAvailable ? (
-              <span style={{ color: CYAN, fontWeight: 700 }}>BQ</span>
-            ) : null; })()}
-            <span>
-              Last refresh: {lastRefresh.toLocaleTimeString()} {autoRefresh && (wsState === WS_STATE.CONNECTED ? "· auto every 2m" : "· auto every 60s")}
-            </span>
+            {onOpenBuilder && (
+              <button onClick={onOpenBuilder}
+                style={{ padding: 8, background: PURPLE + "12", border: `1px solid ${PURPLE}44`, borderRadius: 6, color: PURPLE, fontSize: 9, fontWeight: 700, cursor: "pointer" }}>
+                SETUP BUILDER
+              </button>
+            )}
           </div>
-        )}
 
-        {/* MARKET REGIME */}
-        <RegimePanel regime={regime} />
-
-        {/* SETUP CARDS */}
-        <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 8 }}>SETUPS (ranked by score)</div>
-        {results.map(r => {
-          const key = Object.keys(SETUPS).find(k => {
-            const s = SETUPS[k];
-            const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.kind === "stack_reversal" ? "NVDA_POWER_STACK" : s.leader.symbol;
-            return name === r.setup;
-          });
-          return (
-            <SetupCard key={r.setup} result={r} isSelected={key === selectedSetup}
-              onSelect={() => setSelectedSetup(key)} />
-          );
-        })}
-
-        {/* DETAIL PANEL */}
-        {selectedSetup && selectedResult && (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 10 }}>
-              DETAIL: {selectedResult.setup}
+          {/* Compact regime */}
+          {regime && (
+            <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 8, padding: 10, marginBottom: 12 }}>
+              <div style={{ fontSize: 8, color: SLATE, letterSpacing: "0.1em", marginBottom: 6 }}>REGIME</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: regime.state === "RISK-ON" ? GREEN : regime.state === "RISK-OFF" ? RED : AMBER, marginBottom: 4 }}>{regime.state}</div>
+              <div style={{ fontSize: 9, color: SLATE }}>VIX {fmt(regime.vix.price)} · IWM ${fmt(regime.iwm.price)}</div>
+              <div style={{ height: 2, background: "#1e2530", borderRadius: 1, marginTop: 6 }}>
+                <div style={{ width: `${regime.score}%`, height: "100%", background: regime.state === "RISK-ON" ? GREEN : regime.state === "RISK-OFF" ? RED : AMBER, borderRadius: 1 }} />
+              </div>
             </div>
-            <DetailPanel result={selectedResult} setupKey={selectedSetup} setups={SETUPS} />
-          </div>
-        )}
+          )}
 
-        {/* ALERT LOG */}
-        <div style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.14em", marginBottom: 10 }}>
-            ALERT LOG {alerts.length > 0 && `· ${alerts.length}`}
+          <div style={{ fontSize: 8, color: "#1e2530", marginTop: 8 }}>
+            {getAllSymbols().length} symbols · {USE_MOCK ? "MOCK" : "LIVE"}
           </div>
-          {alerts.length === 0
-            ? <div style={{ textAlign: "center", padding: "32px 0", color: "#1e2530", fontSize: 11 }}>Click Refresh to begin</div>
-            : <div style={{ maxHeight: 400, overflowY: "auto" }}>{alerts.map(a => <AlertRow key={a.id} a={a} />)}</div>
-          }
         </div>
 
-        <div style={{ textAlign: "center", fontSize: 9, color: "#1e2530", marginTop: 20 }}>
-          Self-calibrating engine · {getAllSymbols().length} symbols · VIX+IWM regime · touch-before-stop · {USE_MOCK ? "MOCK DATA" : "LIVE"} · not financial advice
+        {/* MOBILE CONTROLS (hidden on desktop) */}
+        <div className="left-panel-mobile" style={{ display: "none", flexWrap: "wrap", gap: 6, padding: "8px 12px", borderBottom: "1px solid #1e2530" }}>
+          <button onClick={refresh} disabled={refreshing} style={{ padding: "6px 12px", background: "#071a0f", border: `1px solid ${GREEN}`, borderRadius: 6, color: GREEN, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
+            {refreshing ? "↻" : "↻ REFRESH"}
+          </button>
+          <button onClick={() => setAutoRefresh(a => !a)} style={{ padding: "6px 10px", background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 6, color: autoRefresh ? GREEN : SLATE, fontSize: 9, fontWeight: 700, cursor: "pointer" }}>
+            {autoRefresh ? "AUTO" : "OFF"}
+          </button>
+          {onOpenCreditVol && <button onClick={onOpenCreditVol} style={{ padding: "6px 10px", border: `1px solid ${CYAN}44`, borderRadius: 6, color: CYAN, fontSize: 9, cursor: "pointer", background: "transparent" }}>CV</button>}
+          {onOpenBuilder && <button onClick={onOpenBuilder} style={{ padding: "6px 10px", border: `1px solid ${PURPLE}44`, borderRadius: 6, color: PURPLE, fontSize: 9, cursor: "pointer", background: "transparent" }}>BUILD</button>}
         </div>
+
+        {/* CENTER: Setup Tile Grid */}
+        <div style={{ padding: 12, overflowY: "auto" }}>
+          {/* Compact regime for mobile */}
+          <RegimePanel regime={regime} />
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+            {results.map(r => {
+              const key = Object.keys(SETUPS).find(k => {
+                const s = SETUPS[k];
+                const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.kind === "stack_reversal" ? "NVDA_POWER_STACK" : s.leader.symbol;
+                return name === r.setup;
+              });
+              return (
+                <SetupCard key={r.setup} result={r} isSelected={key === selectedSetup}
+                  onSelect={() => setSelectedSetup(key)} />
+              );
+            })}
+          </div>
+
+          {/* Chart below grid (needs width) */}
+          {selectedSetup && selectedResult && (
+            <DetailCharts result={selectedResult} setupKey={selectedSetup} setups={SETUPS} />
+          )}
+        </div>
+
+        {/* RIGHT: Detail + Alerts (sticky side panel) */}
+        <div className="right-panel" style={{ borderLeft: "1px solid #1e2530", overflowY: "auto", background: "#0a0e14" }}>
+
+          {/* Selected detail */}
+          {selectedSetup && selectedResult ? (
+            <div style={{ padding: 12 }}>
+              <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em", marginBottom: 8 }}>
+                DETAIL: {selectedResult.setup}
+              </div>
+              <DetailPanel result={selectedResult} setupKey={selectedSetup} setups={SETUPS} />
+            </div>
+          ) : (
+            <div style={{ padding: 20, textAlign: "center", color: "#1e2530", fontSize: 10 }}>
+              Select a setup tile to view details
+            </div>
+          )}
+
+          {/* Alerts */}
+          <div style={{ padding: 12, borderTop: "1px solid #1e2530" }}>
+            <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em", marginBottom: 8 }}>
+              ALERTS {alerts.length > 0 && `· ${alerts.length}`}
+            </div>
+            {alerts.length === 0
+              ? <div style={{ textAlign: "center", padding: "16px 0", color: "#1e2530", fontSize: 10 }}>No alerts yet</div>
+              : <div style={{ maxHeight: 300, overflowY: "auto" }}>{alerts.slice(0, 30).map(a => <AlertRow key={a.id} a={a} />)}</div>
+            }
+          </div>
+        </div>
+
       </div>
     </div>
   );
