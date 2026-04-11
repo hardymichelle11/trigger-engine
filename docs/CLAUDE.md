@@ -54,7 +54,7 @@ Maintain and extend the trigger-engine without breaking:
 ## Task lane
 - **docs/WORK_QUEUE.md** — Prioritized backlog (P1/P2/P3). Check before starting work. Update after completing tasks.
 - **docs/DECISIONS.md** — Append-only architecture decision log. Add an entry when making non-obvious design choices.
-- **docs/SESSION_NOTES/YYYY-MM-DD.md** — Per-session summary. Create at end of each major session with: goals, what got built, decisions made, open items.
+- **docs/SESSION_NOTES/YYYY-MM-DD.md** — Per-session summary. Create or update for today's date at the end of each session. Accumulate entries within the same day file. Include: goals, what got built per session, decisions made, build status.
 - **docs/history/SYSTEM_MANIFEST.md** — Full system reference. Update sections 6 (Inflight), 8 (File Tree), 11 (Changelog) after major changes.
 
 ## Validation scripts
