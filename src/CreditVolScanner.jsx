@@ -7,7 +7,7 @@ import {
   round2,
   safeNumber,
 } from "./signalEngine.js";
-import { loadPositions, savePositions } from "./lib/storage/positionStorage.js";
+import { loadPositions, savePositions, computeEconomics } from "./lib/storage/positionStorage.js";
 import { loadIncomeTracker, saveIncomeTracker, clearIncomeTracker } from "./lib/storage/incomeStorage.js";
 import { getIvRankBatch } from "./lib/iv/ivAdapter.js";
 import { evaluateAlerts } from "./lib/alerts/alertEngine.js";
@@ -638,96 +638,188 @@ function DetailPanel({ card }) {
 // --------------------------------------------------
 
 function PositionManager() {
-  // Initialize from localStorage, recompute roll/profit plans from persisted workflow data
-  const [positions, setPositions] = useState(() => {
-    const stored = loadPositions();
-    return stored.map(p => ({
-      ...p,
-      rollPlan: buildRollPlan({ creditReceived: p.credit, strike: p.strike, currentPrice: p.currentPrice }),
-      profitPlan: buildProfitPlan({ creditReceived: p.credit }),
-    }));
-  });
-  const [form, setForm] = useState({ symbol: "", strike: "", credit: "", currentPrice: "" });
+  const [positions, setPositions] = useState(() => loadPositions());
+  const [editingId, setEditingId] = useState(null);
 
-  // Persist whenever positions change
+  const emptyForm = { symbol: "", strike: "", expiry: "", contracts: "1", entryCredit: "", currentPrice: "", currentOptionPrice: "", fees: "", rollCredits: "", rollDebits: "", notes: "" };
+  const [form, setForm] = useState(emptyForm);
+
   useEffect(() => { savePositions(positions); }, [positions]);
 
-  function addPosition() {
+  function submitPosition() {
     const strike = safeNumber(form.strike);
-    const credit = safeNumber(form.credit);
-    const currentPrice = safeNumber(form.currentPrice);
-    if (!form.symbol || strike <= 0 || credit <= 0 || currentPrice <= 0) return;
+    const entryCredit = safeNumber(form.entryCredit);
+    if (!form.symbol || strike <= 0 || entryCredit <= 0) return;
 
-    const rollPlan = buildRollPlan({ creditReceived: credit, strike, currentPrice });
-    const profitPlan = buildProfitPlan({ creditReceived: credit });
-
-    setPositions(prev => [...prev, {
-      id: Date.now(),
+    const pos = {
+      id: editingId || Date.now(),
       symbol: form.symbol.toUpperCase(),
-      strike, credit, currentPrice,
-      rollPlan, profitPlan,
-    }]);
-    setForm({ symbol: "", strike: "", credit: "", currentPrice: "" });
+      strategy: "short_put",
+      strike,
+      expiry: form.expiry || "",
+      contracts: Math.max(1, Math.round(safeNumber(form.contracts, 1))),
+      entryCredit,
+      exitDebit: safeNumber(form.exitDebit),
+      rollCredits: safeNumber(form.rollCredits),
+      rollDebits: safeNumber(form.rollDebits),
+      fees: safeNumber(form.fees),
+      currentPrice: safeNumber(form.currentPrice),
+      currentOptionPrice: safeNumber(form.currentOptionPrice),
+      status: "open",
+      notes: form.notes || "",
+      openedAt: editingId ? positions.find(p => p.id === editingId)?.openedAt : Date.now(),
+    };
+
+    if (editingId) {
+      setPositions(prev => prev.map(p => p.id === editingId ? pos : p));
+      setEditingId(null);
+    } else {
+      setPositions(prev => [...prev, pos]);
+    }
+    setForm(emptyForm);
   }
 
-  return (
-    <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 14, marginTop: 12 }}>
-      <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.12em", marginBottom: 10 }}>POSITION MANAGER — ACTIVE SHORT PUTS</div>
+  function startEdit(pos) {
+    setEditingId(pos.id);
+    setForm({
+      symbol: pos.symbol,
+      strike: String(pos.strike),
+      expiry: pos.expiry || "",
+      contracts: String(pos.contracts || 1),
+      entryCredit: String(pos.entryCredit),
+      currentPrice: String(pos.currentPrice || ""),
+      currentOptionPrice: String(pos.currentOptionPrice || ""),
+      fees: String(pos.fees || ""),
+      rollCredits: String(pos.rollCredits || ""),
+      rollDebits: String(pos.rollDebits || ""),
+      notes: pos.notes || "",
+    });
+  }
 
-      {/* Add position form */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        {["symbol", "strike", "credit", "currentPrice"].map(field => (
-          <input key={field} placeholder={field.replace(/([A-Z])/g, " $1")}
-            value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-            style={{ flex: "1 1 70px", minWidth: 60, padding: 7, background: "#111827", color: "#f9fafb", border: "1px solid #374151", borderRadius: 6, fontSize: 10 }} />
-        ))}
-        <button onClick={addPosition}
-          style={{ padding: "7px 12px", background: GREEN + "18", border: `1px solid ${GREEN}`, borderRadius: 6, color: GREEN, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
-          ADD
+  function cancelEdit() {
+    setEditingId(null);
+    setForm(emptyForm);
+  }
+
+  function closePosition(id) {
+    setPositions(prev => prev.map(p => p.id === id ? { ...p, status: p.status === "open" ? "closed" : "open" } : p));
+  }
+
+  const inputStyle = { flex: "1 1 65px", minWidth: 55, padding: 6, background: "#111827", color: "#f9fafb", border: "1px solid #374151", borderRadius: 5, fontSize: 9 };
+
+  return (
+    <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 12, marginTop: 10 }}>
+      <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em", marginBottom: 8 }}>
+        POSITION MANAGER {editingId ? "— EDITING" : "— SHORT PUTS"}
+      </div>
+
+      {/* Form: row 1 — symbol, strike, expiry, contracts */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 5 }}>
+        <input placeholder="Symbol" value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} style={{ ...inputStyle, flex: "1 1 55px", minWidth: 50 }} />
+        <input placeholder="Strike" value={form.strike} onChange={e => setForm(f => ({ ...f, strike: e.target.value }))} style={inputStyle} />
+        <input type="date" placeholder="Expiry" value={form.expiry} onChange={e => setForm(f => ({ ...f, expiry: e.target.value }))} style={{ ...inputStyle, flex: "1 1 95px", minWidth: 90 }} />
+        <input placeholder="Qty" value={form.contracts} onChange={e => setForm(f => ({ ...f, contracts: e.target.value }))} style={{ ...inputStyle, flex: "0 1 35px", minWidth: 30 }} />
+      </div>
+
+      {/* Form: row 2 — credit, option price, underlying price, fees */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 5 }}>
+        <input placeholder="Entry credit" value={form.entryCredit} onChange={e => setForm(f => ({ ...f, entryCredit: e.target.value }))} style={inputStyle} />
+        <input placeholder="Opt price" value={form.currentOptionPrice} onChange={e => setForm(f => ({ ...f, currentOptionPrice: e.target.value }))} style={inputStyle} />
+        <input placeholder="Stock price" value={form.currentPrice} onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))} style={inputStyle} />
+        <input placeholder="Fees" value={form.fees} onChange={e => setForm(f => ({ ...f, fees: e.target.value }))} style={{ ...inputStyle, flex: "0 1 45px", minWidth: 40 }} />
+      </div>
+
+      {/* Form: row 3 — rolls + notes + submit */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+        <input placeholder="Roll cr" value={form.rollCredits} onChange={e => setForm(f => ({ ...f, rollCredits: e.target.value }))} style={{ ...inputStyle, flex: "0 1 50px" }} />
+        <input placeholder="Roll dr" value={form.rollDebits} onChange={e => setForm(f => ({ ...f, rollDebits: e.target.value }))} style={{ ...inputStyle, flex: "0 1 50px" }} />
+        <input placeholder="Notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inputStyle, flex: "2 1 100px" }} />
+        <button onClick={submitPosition}
+          style={{ padding: "6px 10px", background: GREEN + "18", border: `1px solid ${GREEN}`, borderRadius: 5, color: GREEN, fontSize: 9, fontWeight: 700, cursor: "pointer" }}>
+          {editingId ? "SAVE" : "ADD"}
         </button>
+        {editingId && (
+          <button onClick={cancelEdit}
+            style={{ padding: "6px 10px", background: "transparent", border: `1px solid ${SLATE}44`, borderRadius: 5, color: SLATE, fontSize: 9, cursor: "pointer" }}>
+            CANCEL
+          </button>
+        )}
       </div>
 
       {/* Active positions */}
       {positions.map(pos => {
-        const zoneColor = pos.rollPlan.zone === "ACTION" ? RED : pos.rollPlan.zone === "WATCH" ? AMBER : pos.rollPlan.zone === "DEFENSE" ? AMBER : GREEN;
+        const econ = computeEconomics(pos);
+        const rollPlan = buildRollPlan({ creditReceived: pos.entryCredit, strike: pos.strike, currentPrice: pos.currentPrice });
+        const profitPlan = buildProfitPlan({ creditReceived: pos.entryCredit });
+        const zoneColor = rollPlan.zone === "ACTION" ? RED : rollPlan.zone === "WATCH" ? AMBER : rollPlan.zone === "DEFENSE" ? AMBER : GREEN;
+        const statusColor = pos.status === "closed" ? SLATE : pos.status === "assigned" ? RED : GREEN;
+        const profitColor = econ.profitPct >= 0.7 ? GREEN : econ.profitPct >= 0.3 ? AMBER : econ.profitPct >= 0 ? SLATE : RED;
+
         return (
-          <div key={pos.id} style={{ background: "#111827", border: `1px solid ${zoneColor}33`, borderRadius: 8, padding: 10, marginBottom: 6 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div key={pos.id} style={{ background: "#111827", border: `1px solid ${pos.status === "closed" ? "#1e2530" : zoneColor + "33"}`, borderRadius: 8, padding: 10, marginBottom: 6, opacity: pos.status === "closed" ? 0.6 : 1 }}>
+            {/* Header: symbol, strike, expiry, zone, status */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{pos.symbol}</span>
                 <span style={{ fontSize: 10, color: SLATE }}>${pos.strike}P</span>
+                {pos.expiry && <span style={{ fontSize: 9, color: SLATE }}>{pos.expiry}</span>}
+                {pos.contracts > 1 && <span style={{ fontSize: 9, color: CYAN }}>x{pos.contracts}</span>}
+                <span style={{ fontSize: 8, color: statusColor, background: statusColor + "18", padding: "1px 4px", borderRadius: 2 }}>{pos.status.toUpperCase()}</span>
               </div>
-              <span style={{ fontSize: 9, fontWeight: 700, color: zoneColor, background: zoneColor + "22", padding: "2px 6px", borderRadius: 3 }}>
-                {pos.rollPlan.zone}
+              <span style={{ fontSize: 9, fontWeight: 700, color: zoneColor, background: zoneColor + "22", padding: "2px 5px", borderRadius: 3 }}>
+                {rollPlan.zone}
               </span>
             </div>
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 10, marginBottom: 6 }}>
-              <Metric label="Cr" value={`$${pos.credit}`} color={GREEN} />
-              <Metric label="Px" value={`$${pos.currentPrice}`} />
-              <Metric label="Warn" value={`$${pos.rollPlan.levels.warning}`} color={AMBER} />
+            {/* Economics row 1: credit, breakeven, net premium */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 9, marginBottom: 4 }}>
+              <Metric label="Credit" value={`$${pos.entryCredit}`} color={GREEN} />
+              <Metric label="BE" value={`$${econ.breakeven}`} color={CYAN} />
+              <Metric label="Net" value={`$${econ.netPremium}`} />
+              <Metric label="ROC" value={`${(econ.roc * 100).toFixed(1)}%`} color={econ.roc > 0.03 ? GREEN : SLATE} />
+              {econ.dte !== null && <Metric label="DTE" value={econ.dte} color={econ.dte <= 3 ? RED : econ.dte <= 7 ? AMBER : SLATE} />}
+            </div>
+
+            {/* Economics row 2: current prices, P&L */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 9, marginBottom: 4 }}>
+              <Metric label="Stock" value={pos.currentPrice ? `$${pos.currentPrice}` : "—"} />
+              <Metric label="Opt" value={pos.currentOptionPrice ? `$${pos.currentOptionPrice}` : "—"} />
+              <Metric label="P&L" value={`${(econ.profitPct * 100).toFixed(0)}%`} color={profitColor} />
+              {econ.unrealizedPnl !== 0 && <Metric label="$P&L" value={`$${econ.unrealizedPnl}`} color={econ.unrealizedPnl >= 0 ? GREEN : RED} />}
+              {pos.fees > 0 && <Metric label="Fees" value={`$${pos.fees}`} color={SLATE} />}
             </div>
 
             {/* BTC targets */}
-            <div style={{ fontSize: 8, color: SLATE, marginBottom: 3 }}>BTC TARGETS</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 10, marginBottom: 6 }}>
-              <Metric label="30%" value={`$${pos.profitPlan.considerClose.btcPrice}`} />
-              <Metric label="50%" value={`$${pos.profitPlan.closePosition.btcPrice}`} color={AMBER} />
-              <Metric label="70%" value={`$${pos.profitPlan.alwaysClose.btcPrice}`} color={GREEN} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 9, marginBottom: 4 }}>
+              <span style={{ color: SLATE, fontSize: 8 }}>BTC:</span>
+              <Metric label="30%" value={`$${profitPlan.considerClose.btcPrice}`} />
+              <Metric label="50%" value={`$${profitPlan.closePosition.btcPrice}`} color={AMBER} />
+              <Metric label="70%" value={`$${profitPlan.alwaysClose.btcPrice}`} color={GREEN} />
             </div>
 
-            <div style={{ fontSize: 10, color: "#b0b8c4" }}>{pos.rollPlan.instructions}</div>
+            {pos.notes && <div style={{ fontSize: 9, color: "#b0b8c4", marginBottom: 4, fontStyle: "italic" }}>{pos.notes}</div>}
 
-            <button onClick={() => setPositions(prev => prev.filter(p => p.id !== pos.id))}
-              style={{ marginTop: 8, padding: "4px 10px", background: "transparent", border: `1px solid ${RED}44`, borderRadius: 4, color: RED, fontSize: 10, cursor: "pointer" }}>
-              Remove
-            </button>
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 5, marginTop: 4 }}>
+              <button onClick={() => startEdit(pos)}
+                style={{ padding: "3px 8px", background: "transparent", border: `1px solid ${CYAN}44`, borderRadius: 3, color: CYAN, fontSize: 9, cursor: "pointer" }}>
+                Edit
+              </button>
+              <button onClick={() => closePosition(pos.id)}
+                style={{ padding: "3px 8px", background: "transparent", border: `1px solid ${AMBER}44`, borderRadius: 3, color: AMBER, fontSize: 9, cursor: "pointer" }}>
+                {pos.status === "open" ? "Close" : "Reopen"}
+              </button>
+              <button onClick={() => setPositions(prev => prev.filter(p => p.id !== pos.id))}
+                style={{ padding: "3px 8px", background: "transparent", border: `1px solid ${RED}44`, borderRadius: 3, color: RED, fontSize: 9, cursor: "pointer" }}>
+                Remove
+              </button>
+            </div>
           </div>
         );
       })}
 
       {positions.length === 0 && (
-        <div style={{ textAlign: "center", padding: "16px 0", color: "#1e2530", fontSize: 11 }}>
+        <div style={{ textAlign: "center", padding: "12px 0", color: "#1e2530", fontSize: 10 }}>
           No active positions — add a short put to track
         </div>
       )}
