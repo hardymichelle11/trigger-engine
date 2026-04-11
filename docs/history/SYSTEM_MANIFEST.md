@@ -1,6 +1,6 @@
 # SYSTEM MANIFEST — Trigger Engine + Market Data Pipeline
 
-**Last updated:** 2026-04-04
+**Last updated:** 2026-04-10
 **Project:** `my-app` (trigger-engine)
 **Repository:** https://github.com/hardymichelle11/trigger-engine
 **Author:** Michelle Hardy (hardymichelle11)
@@ -13,19 +13,29 @@
 The **Trigger Engine** is a self-calibrating, multi-setup market signal scanner that combines real-time market data ingestion, quantitative analysis, and a React dashboard for monitoring trade setups across multiple instruments and strategies.
 
 ### Core capabilities:
-- **Multi-setup scanning** across 4 setup types: Pair, Basket, Infra Follower, Standalone
-- **Market regime awareness** via VIX + IWM scoring (RISK-ON / NEUTRAL / RISK-OFF)
-- **Monte Carlo simulation** for touch-before-stop probability estimation
+- **Multi-setup scanning** across 5 setup types: Pair, Basket, Infra Follower, Stack Reversal, Standalone
+- **Credit-Volatility Options Engine** — premium selling scanner with macro credit regime (HYG/KRE/LQD/VIX), setup scoring, timing classification, strike selection, probability layer, profit management, defense/roll logic, position tracking, and weekly income tracker
+- **Options Watchlist System** — 2026 top-27 active options universe + historical top-100 Cboe rankings with spread quality, wheel suitability, and tier metadata; scan filters (Premium Engine, Wheel, High IV, Credit, ETF, Traps)
+- **Market regime awareness** via VIX + IWM scoring (RISK-ON / NEUTRAL / RISK-OFF) for trigger engine, and HYG + KRE + VIX credit-vol regime for options engine
+- **Monte Carlo simulation** for touch-before-stop probability estimation (trigger engine) and simplified probability layer for put strike success estimation (options engine)
 - **Kelly-lite position sizing** based on simulated win probabilities
+- **Stack reversal detection** with distance-based staging (EARLY/MID/LATE) and action engine
 - **Instrument validation pipeline** (symbol, exchange, cross-asset, freshness)
 - **Live data from Polygon.io** (developer tier) with after-hours fallback
-- **BigQuery persistence** for historical bars and live snapshots
-- **Cost-optimized refresh** (~$1.60/month BQ cost)
+- **BigQuery persistence** for historical bars and live snapshots with computed columns
+- **Cost-optimized refresh** via silent Windows scheduled tasks
 - **TradingView chart integration** for visual confirmation
 - **Ticker catalog + Setup Builder UI** for configuring setups without editing code
 
-### Instruments tracked (18 symbols):
-NBIS, NEBX, CRWV, BE, VRT, ETN, POWL, QQQM, MSFT, NVDA, AAPL, AMZN, GOOGL, IWM, VIX, JEPI, JEPQ, BAM, BEPC
+### Instruments tracked (48 symbols):
+
+**Trigger Engine core (20):** NBIS, NEBX, CRWV, BE, VRT, ETN, POWL, QQQM, MSFT, NVDA, AAPL, AMZN, GOOGL, IWM, VIX, JEPI, JEPQ, BAM, BEPC, CEG, GEV
+
+**Credit-Vol Engine (9):** BX, APO, ARCC, OWL, OBDC, COIN, HYG, KRE, LQD
+
+**AI/HPC Infrastructure (2):** CORZ, IREN
+
+**2026 Options Watchlist additions (17):** SPY, QQQ, SPX, TLT, SLV, GLD, XLF, XLE, TSLA, GOOG, AMD, PLTR, MSTR, SMCI, META, HOOD, BTDR, FXI
 
 ---
 
@@ -36,29 +46,44 @@ NBIS, NEBX, CRWV, BE, VRT, ETN, POWL, QQQM, MSFT, NVDA, AAPL, AMZN, GOOGL, IWM, 
                          ==============
 
   Polygon.io REST API ──────────────────────────────────────┐
-  (snapshots, aggs)                                         │
+  (snapshots, aggs, ticker details)                         │
        │                                                    │
        ▼                                                    ▼
-  ┌─────────────────┐     ┌──────────────────┐    ┌──────────────────┐
-  │ refresh_schedule │     │ market_data_     │    │ React Dashboard  │
-  │ .py              │     │ pipeline.py      │    │ (Vite + React)   │
-  │                  │     │                  │    │                  │
-  │ - refresh-live   │     │ - init           │    │ Polygon snapshot │
-  │ - refresh-1m     │     │ - backfill       │    │ on page load /   │
-  │ - refresh-1d     │     │ - refresh-recent │    │ manual refresh   │
-  └────────┬─────────┘     └────────┬─────────┘    └────────┬─────────┘
+  ┌─────────────────┐     ┌──────────────────┐    ┌──────────────────────────┐
+  │ refresh_schedule │     │ market_data_     │    │ React Dashboard          │
+  │ .py              │     │ pipeline.py      │    │ (Vite + React)           │
+  │                  │     │                  │    │                          │
+  │ - refresh-live   │     │ - init           │    │ Polygon snapshot on page │
+  │ - refresh-1m     │     │ - backfill       │    │ load / manual refresh    │
+  │ - refresh-1d     │     │ - refresh-recent │    │                          │
+  └────────┬─────────┘     └────────┬─────────┘    └────────┬─────────────────┘
            │                        │                       │
            ▼                        ▼                       ▼
-  ┌─────────────────────────────────────┐    ┌──────────────────────────┐
-  │         Google BigQuery             │    │     Browser (Client)     │
-  │  supple-synapse-470605-c5           │    │                          │
-  │  Dataset: market_data               │    │  - Engine scoring        │
-  │                                     │    │  - Monte Carlo sim       │
-  │  bars_1m  (partitioned by bar_date) │    │  - Market regime eval    │
-  │  bars_1d  (partitioned by bar_date) │    │  - Validation pipeline   │
-  │  quotes_live (partitioned by date)  │    │  - TradingView charts    │
-  └─────────────────────────────────────┘    │  - Setup Builder UI      │
-                                             └──────────────────────────┘
+  ┌─────────────────────────────────────┐    ┌──────────────────────────────────┐
+  │         Google BigQuery             │    │     Browser (Client)             │
+  │  supple-synapse-470605-c5           │    │                                  │
+  │  Dataset: market_data               │    │  PAGE 1: TRIGGER ENGINE          │
+  │                                     │    │  - 5 setup evaluators            │
+  │  bars_1m  (+ range_pct, momentum)   │    │  - Monte Carlo sim              │
+  │  bars_1d  (+ range_pct, momentum,   │    │  - VIX+IWM market regime        │
+  │            gap, prev_close)         │    │  - Stack reversal engine         │
+  │  quotes_live                        │    │  - TradingView charts            │
+  └─────────────────────────────────────┘    │                                  │
+                                             │  PAGE 2: CREDIT-VOL SCANNER      │
+                                             │  - signalEngine.js (12 sections) │
+                                             │  - HYG+KRE+LQD+VIX regime       │
+                                             │  - Setup scoring + timing        │
+                                             │  - Strike selection + prob layer │
+                                             │  - Profit mgmt (30/50/70% BTC)  │
+                                             │  - Defense/roll logic            │
+                                             │  - Position manager              │
+                                             │  - Weekly income tracker         │
+                                             │  - optionsWatchlist.js filters   │
+                                             │                                  │
+                                             │  PAGE 3: SETUP BUILDER           │
+                                             │  - Ticker catalog browser        │
+                                             │  - Setup form (pair/basket/etc)  │
+                                             └──────────────────────────────────┘
 
                          SCHEDULING
                          ==========
@@ -69,6 +94,7 @@ NBIS, NEBX, CRWV, BE, VRT, ETN, POWL, QQQM, MSFT, NVDA, AAPL, AMZN, GOOGL, IWM, 
   └── MarketData-Bars1d        → daily 5 PM   → refresh-1d
 
   All tasks auto-skip outside market hours (Mon-Fri 9:25-16:05 ET)
+  VBS wrapper ensures zero console window flashing.
 ```
 
 ---
@@ -79,10 +105,12 @@ NBIS, NEBX, CRWV, BE, VRT, ETN, POWL, QQQM, MSFT, NVDA, AAPL, AMZN, GOOGL, IWM, 
 - **Cost**: Partition pruning means DELETEs and queries only scan the 3-5 day rolling window, not the full history. At ~660K rows of 1m data, a full scan would cost ~$0.005 per query. With partitioning, the rolling refresh touches only ~21K rows. Over a month, this saves ~95% of DML cost.
 - **Clustering by symbol + exchange**: Allows BQ to skip irrelevant row groups when filtering by specific tickers.
 - **Streaming inserts**: No load job overhead, sub-second latency, pay only for rows written.
+- **Computed columns at ingestion**: `range_pct`, `momentum`, `gap`, `prev_close` computed once during ETL, avoiding runtime math in downstream queries.
 
 ### Why Polygon.io?
 - Developer tier provides real-time snapshots and unlimited historical aggs.
 - Single API for both live quotes and historical backfill (no vendor mixing).
+- Ticker details endpoint provides exchange metadata, cached per session.
 - Clean REST interface, well-documented response shapes.
 - ~7,500 API calls/day fits comfortably within developer tier limits.
 
@@ -103,74 +131,199 @@ NBIS, NEBX, CRWV, BE, VRT, ETN, POWL, QQQM, MSFT, NVDA, AAPL, AMZN, GOOGL, IWM, 
 - `powershell -windowstyle hidden` still flashes briefly.
 - `wscript.exe` with a VBS file using `WshShell.Run ..., 0` runs completely silently.
 
-### Why computed columns at ingestion time?
-- `range_pct`, `momentum`, `gap` are computed once during ETL and stored.
-- Avoids recomputing on every downstream query.
-- Makes BQ queries simpler and cheaper (no runtime math).
+### Why distance-based staging for stack reversal?
+- Time-based staging (minutes since flip) drifts and is less meaningful.
+- Distance to T1 directly measures opportunity: 3-8% = best entry, 1-3% = momentum started, <=1% = exhaustion risk.
+- Maps cleanly to actions: ENTER_AGGRESSIVE, ENTER_NORMAL, TAKE_PROFIT_OR_SKIP.
 
 ---
 
 ## 4. Code & Configurations
 
-### 4.1 Pipeline Scripts
+### 4.1 Setup Types (5 evaluators)
+
+#### Pair: `evaluatePairSetup()` (NBIS/NEBX)
+- Leader/follower with 2x leveraged ETF relationship
+- Cross-asset validation, touch-before-stop Monte Carlo (N=2000)
+- Kelly position sizing, ladder probabilities for T1/T2/T3
+
+#### Basket: `evaluateBasketSetup()` (QQQM + drivers)
+- Leader ETF vs MSFT/NVDA/AAPL/AMZN/GOOGL driver components
+- Catch-up thesis: scores when drivers lead and ETF lags
+
+#### Infra Follower: `evaluateInfraFollowerSetup()` (BE_INFRA)
+- BE follows AI cluster (NBIS/CRWV/NVDA) + infra drivers (VRT/ETN/POWL)
+- Strategic partners (BAM/BEPC) tracked
+- Lag detection with configurable threshold (default 0.75%)
+- Dynamic targets (4%/7%/10%), Monte Carlo with cluster impulse model
+- Kelly sizing from MC win probability
+
+#### Stack Reversal: `evaluateStackReversalSetup()` (NVDA_POWER_STACK) **[NEW]**
+- **Leader**: NVDA reversal detection via `isTurningUp()` (price > prev && slope > 0)
+- **Power sector**: CEG, GEV, BE -- `groupStrength()` fraction turning up >= 50%
+- **Infra/followers**: NBIS, NEBX -- lag detection
+- **Stack reversal** = all three layers confirming simultaneously
+- **Distance-based staging** via `getStage(distToT1)`:
+
+  | Distance to T1 | Stage | Action | Score Boost |
+  |----------------|-------|--------|-------------|
+  | 3-8% | EARLY | ENTER_AGGRESSIVE | +35 (stack +20, early +15) |
+  | 1-3% | MID | ENTER_NORMAL | +25 (stack +20, mid +5) |
+  | <=1% | LATE | TAKE_PROFIT_OR_SKIP | +10 (stack +20, late -10) |
+
+- **Target weights by stage**: EARLY 1/1/1, MID 1/.85/.65, LATE .8/.5/.2
+- **Best follower recommendation**: NEBX or NBIS based on which lags more
+- **Signal label**: `STACK_REVERSAL_EARLY`, `STACK_REVERSAL_MID`, etc.
+
+#### Standalone: `evaluateStandaloneSetup()` (CRWV, JEPI, JEPQ)
+- Single instrument with volatility and momentum checks
+- Market regime overlay
+
+### 4.2 Shared Engine Functions
+
+```
+getStage(distToT1)        -- Distance-based stage classification (reusable)
+isTurningUp(feed)         -- Price > prev && slope > 0 (intraday position proxy)
+groupStrength(feeds)      -- Fraction of group turning up (0 to 1)
+pctChange(feed)           -- (last - prevClose) / prevClose
+avg(nums)                 -- Safe average with empty array handling
+computeKellyLite(winProb) -- Half-Kelly position sizing
+randn()                   -- Box-Muller normal distribution
+normalizeFeed(raw)        -- Standardize any data source to internal model
+validateInstrument()      -- Symbol, exchange, price validity checks
+validateCrossAsset()      -- Direction alignment, leverage ratio, freshness
+evaluateMarketRegime()    -- VIX + IWM scoring
+```
+
+### 4.3 Credit-Volatility Options Engine (`src/signalEngine.js`)
+
+A 12-section retail hedge fund model for consistent weekly income (~$1,000/week) via premium selling. Philosophy: sell fear, don't follow it. Act as the insurance seller, not the buyer.
+
+#### Section 1: Macro Signal Engine (GO / NO-GO)
+- Inputs: HYG, KRE, LQD, VIX
+- Credit stress: HYG < 80 OR KRE < 68.60
+- Volatility active: VIX rising AND ATR expansion > 150%
+- Modes: HIGH_PREMIUM_ENVIRONMENT, CREDIT_STRESS_HIGH_PREMIUM, CREDIT_STRESS_WATCH, VOLATILE_BUT_CONTAINED, RISK_ON, LOW_EDGE
+
+#### Section 3: Setup Scoring
+- Weights: marketRegime (20), leader (20), power (20), followerLag (15), ivRich (10), atrExpansion (10), supportLocation (5)
+- Watchlist quality: spreadA (+3), tier1 (+2), wheelLow (-5)
+- Timing boost: EARLY +15, MID +5, LATE -15, EXHAUSTED -25
+- Signals: GO (>=75), WATCH (>=55), NO_TRADE
+
+#### Section 4: Strike Selection
+- Primary (safer): 10% below spot
+- Secondary (premium): 5% below spot
+- Expiration: 5-10 DTE preferred
+
+#### Section 5: Profit Management
+- 30% profit: CONSIDER CLOSE
+- 50% profit: CLOSE POSITION
+- 70% profit: ALWAYS CLOSE
+- Rule: "Never let a winner turn into a loser"
+
+#### Section 6: Defense / Roll Logic
+- Zones: SAFE → WATCH → DEFENSE → ACTION
+- Roll: buy to close, sell new put 5-10% lower strike, extend 1-2 weeks
+
+#### Section 7: Trading Window
+- No trades first 60 min of market open
+- Best window: 1:30 PM - 3:30 PM ET
+
+#### Section 9: Sentiment Interpretation
+- Elevated put premiums + bearish put/call ratio = institutions buying protection
+- Action: SELL puts (not buy), move strikes lower for safety
+
+#### Section 10: Probability Layer
+- Simplified Monte Carlo with error function approximation
+- Minimum 65% probability threshold to execute
+- Calculates prob above strike, touch probability, expected move
+
+#### Section 11: Risk Management
+- Max 2-3 concurrent positions
+- Stop new trades if HYG + KRE both collapsing
+- Trap name warnings for Low wheel suitability names
+
+#### Section 12: Trade Recommendation Output
+```
+TRADE: YES / NO
+STRIKE: recommended
+EXPIRATION: 5-10 DTE
+PREMIUM: expected midpoint
+PROBABILITY: %
+ACTION: SELL_PUTS / WAIT / CLOSE / ROLL / MANAGE_ONLY
+RISK LEVEL: LOW / MED / HIGH
+```
+
+### 4.4 Options Watchlist System (`src/optionsWatchlist.js`)
+
+#### 2026 Top Active (27 symbols)
+- **Tier 1 ETFs**: SPY, QQQ, SPX, VIX, IWM, TLT, SLV, GLD, XLF, HYG, KRE, XLE
+- **Tier 2 Stocks**: TSLA, NVDA, AAPL, GOOG, MSFT, AMD, PLTR, COIN, MSTR, SMCI, AMZN, META, HOOD, BTDR, FXI
+
+#### Historical Top 100 (Cboe-based Macroption ranking)
+TSLA (#1) through ADBE (#100) with spread quality and wheel suitability ratings
+
+#### Metadata Fields
+- `spreadQuality`: A+ (tightest), A (good), B (wider) — practical heuristic
+- `wheelSuit`: High (safe assignment), Medium (acceptable), Low (trap), No (cash-settled)
+- `tier`: 1 (structurally liquid) or 2 (active)
+
+#### Built-in Scan Filters
+- **Premium Engine**: spreadQuality in (A+, A) AND wheelSuit != No
+- **Wheel Candidates**: wheelSuit in (High, Medium) AND spreadQuality in (A+, A)
+- **Trap Names**: wheelSuit = Low — pure premium plays, never assignment candidates
+
+### 4.5 Ticker Catalog (`src/tickerCatalog.js`)
+
+Master dictionary of 48 tickers with id, symbol, exchange, name, category, subcategory, tags, and enabled flag. Categories: AI, Tech, Infra, ETF, Index, Income, Energy, Fertilizer, Credit. Setup Builder imports from this single source of truth (duplicate catalog removed from TickerSetupBuilder.jsx).
+
+### 4.6 Pipeline Scripts
 
 #### `pipeline/market_data_pipeline.py`
-- **Purpose**: Core data pipeline -- BQ table creation, Polygon data fetching, backfill, refresh
-- **Key functions**:
-  - `ensure_tables()` -- DDL for bars_1m, bars_1d, quotes_live with partitioning/clustering
-  - `get_exchange(symbol)` -- Cached Polygon ticker details lookup for primary exchange
-  - `fetch_agg_bars(symbol, multiplier, timespan, start, end)` -- Fetches aggregate bars, computes `range_pct`, `momentum`, `gap`, `prev_close`
-  - `fetch_snapshot(symbol)` -- Fetches real-time snapshot for quotes_live
-  - `load_json_rows(client, table, rows, batch_size=5000)` -- Batched streaming insert with retry
-  - `overwrite_recent_window()` -- Partition-pruned DELETE + INSERT for rolling refresh
-  - `backfill(symbols, days_1m, days_1d)` -- One-time historical data load
-- **CLI**: `init`, `backfill`, `refresh-recent`, `refresh-live`
+- BQ table creation with computed columns (range_pct, momentum, gap, prev_close)
+- Exchange lookup from Polygon ticker details (cached per session via `get_exchange()`)
+- `fetch_agg_bars()` computes `range_pct = (high-low)/open`, `momentum = close/open - 1`, `gap = open/prev_close - 1`
+- Batched streaming inserts for append-only tables (5000 rows, 3 retries with exponential backoff)
+- Staging + MERGE for bars tables: `_ensure_staging_table()`, `_load_to_staging()` (load job, not streaming), `merge_from_staging()` (MERGE on symbol+exchange+ts), `upsert_bars()` (orchestrator)
+- CLI: `init`, `backfill`, `refresh-recent`, `refresh-live`
 
 #### `pipeline/refresh_schedule.py`
-- **Purpose**: Cost-optimized incremental refresh with market hours gating
-- **Key functions**:
-  - `is_market_hours()` -- Checks Mon-Fri 9:25-16:05 ET
-  - `refresh_1m(symbols, days=3)` -- Rolling 3-day overwrite of 1m bars
-  - `refresh_1d(symbols, days=5)` -- Rolling 5-day overwrite of daily bars
-  - `refresh_live(symbols)` -- Append-only snapshots to quotes_live
-- **CLI**: `refresh-1m`, `refresh-1d`, `refresh-live`, `refresh-all`
+- Cost-optimized incremental refresh with market hours gating
+- `refresh_1m`: rolling 3-day upsert via staging + MERGE (streaming-buffer-safe)
+- `refresh_1d`: rolling 5-day upsert via staging + MERGE
+- `refresh_live`: append-only snapshots (unchanged)
+- Per-symbol ok/error counters in output
+- CLI: `refresh-1m`, `refresh-1d`, `refresh-live`, `refresh-all`
 
-#### `pipeline/run_refresh.bat`
-- **Purpose**: Wrapper that sets env vars and calls refresh_schedule.py
-- **Usage**: `run_refresh.bat refresh-live`, `run_refresh.bat refresh-1m`, etc.
+#### `pipeline/validate_bq.py`
+- Post-refresh validation: duplicate detection on (symbol, exchange, ts), row counts per date, staging table health
+- CLI: `python pipeline/validate_bq.py --days 5 --table both`
 
-#### `pipeline/run_refresh.vbs`
-- **Purpose**: Silent execution wrapper -- runs run_refresh.bat with window style 0 (hidden)
-- **Used by**: Windows Task Scheduler to avoid console window flashing
+#### `pipeline/run_refresh.bat` + `pipeline/run_refresh.vbs`
+- `.bat`: sets env vars and calls refresh_schedule.py
+- `.vbs`: wraps .bat with `WshShell.Run ..., 0` for completely silent execution
+- Used by Windows Task Scheduler
 
-### 4.2 Frontend
+### 4.7 System Prompts for Data Analysis
 
-#### `src/App.jsx` — Main Scanner Dashboard
-- **SETUPS config**: Defines all 6 setups (NBIS_NEBX pair, QQQM basket, BE_INFRA infra_follower, CRWV/JEPI/JEPQ standalone)
-- **Engine evaluators**: `evaluatePairSetup()`, `evaluateStandaloneSetup()`, `evaluateBasketSetup()`, `evaluateInfraFollowerSetup()`
-- **Market regime**: `evaluateMarketRegime(vix, iwm)` -- VIX/IWM scoring
-- **Monte Carlo**: `runPairMonteCarlo()`, `runBEInfraMonteCarlo()` -- 2000-path touch-before-stop simulation
-- **Polygon fetch**: `fetchPolygonSnapshot()`, `fetchPolygonVIX()` -- Real-time data with after-hours fallback to prevDay
-- **Validation**: `validateInstrument()`, `validateCrossAsset()` -- Feed integrity checks
-- **UI components**: `RegimePanel`, `SetupCard`, `DetailPanel`, `TradingViewChart`, `ScoreRing`, `LadderBar`, `Gate`, `AlertRow`, `ValidationPanel`
+#### Stack Reversal Detection
+```
+Given: NVDA feed, power sector feeds (CEG/GEV/BE), follower feeds (NBIS/NEBX)
 
-#### `src/TickerSetupBuilder.jsx` — Setup Builder UI
-- **Purpose**: Visual ticker catalog browser + setup configuration form
-- **Features**: Search, category/tag filtering, multi-select for drivers/leaders, JSON payload preview
-- **Setup types**: Pair, Basket, Infra Follower, Standalone
-- **Output**: JSON payload ready to send to backend
+isTurningUp(asset) = asset.price > asset.prev && asset.slope > 0
+groupStrength(group) = count(turning up) / total
 
-#### `src/tickerCatalog.js` — Ticker Catalog Module
-- **22 tickers** with id, symbol, exchange, name, category, subcategory, tags, enabled
-- **Categories**: AI, ETF, Infra, Tech, Index, Income, Energy, Fertilizer
-- **Filter function**: `filterCatalog({ search, categories, tags, exchange, enabledOnly })`
-- **Setup factories**: `createPairSetup()`, `createBasketSetup()`, `createInfraFollowerSetup()`, `createStandaloneSetup()`
-- **Lookup helpers**: `getTickerById()`, `resolveSetup()`, `getAllSymbolsFromSetups()`
+stackReversal = leaderUp && powerStrength >= 0.5 && infraStrength >= 0.5
 
-#### `src/main.jsx` — App Router
-- Simple state-based routing between Scanner (`App`) and Setup Builder (`TickerSetupBuilder`)
+stage = getStage(follower.distToT1):
+  3-8%  -> EARLY  (ENTER_AGGRESSIVE)
+  1-3%  -> MID    (ENTER_NORMAL)
+  <=1%  -> LATE   (TAKE_PROFIT_OR_SKIP)
 
-### 4.3 System Prompts for Data Analysis
+scoreBoost: stack +20, EARLY +15, MID +5, LATE -10
+label: STACK_REVERSAL_{stage}
+```
 
 #### Engine Scoring (Pair Setup)
 ```
@@ -188,12 +341,12 @@ NO TRADE otherwise
 
 #### Engine Scoring (BE Infra Follower)
 ```
-Given: BE price, AI cluster changes (NBIS/CRWV/NVDA), infra driver changes (VRT/ETN/POWL), partner changes (BAM/BEPC)
+Given: BE price, AI cluster changes (NBIS/CRWV/NVDA), infra drivers (VRT/ETN/POWL), partners (BAM/BEPC)
 clusterStrength = avg(aiStrength, infraStrength, partnerStrength)
 lagAmount = clusterStrength - beMove
 lagging = lagAmount >= 0.75%
 
-Score = sum of:
+Score:
   +25 if aiStrength > 1% (or +10 if > 0.3%)
   +25 if infraStrength > 1% (or +10 if > 0.3%)
   +25 if lagging (or +10 if lagAmount > 0)
@@ -219,10 +372,10 @@ RISK-OFF if score <= 35
 NEUTRAL otherwise
 ```
 
-### 4.4 Environment Variables
+### 4.8 Environment Variables
 
 ```bash
-# pipeline/.env.example (placeholder values)
+# .env.example (placeholder values)
 VITE_POLYGON_API_KEY=YOUR_POLYGON_API_KEY
 VITE_GCP_PROJECT=YOUR_GCP_PROJECT_ID
 GOOGLE_APPLICATION_CREDENTIALS=./pipeline/service-account.json
@@ -239,7 +392,7 @@ BQ_DATASET=market_data
 ```sql
 CREATE TABLE market_data.bars_1m (
   symbol        STRING NOT NULL,
-  exchange      STRING,          -- e.g., "XNAS", "XNYS", "BATS"
+  exchange      STRING,          -- e.g., "XNAS", "XNYS", "BATS" (from Polygon ticker details)
   ts            TIMESTAMP NOT NULL,
   bar_date      DATE NOT NULL,
   open          FLOAT64,
@@ -257,7 +410,7 @@ CREATE TABLE market_data.bars_1m (
 PARTITION BY bar_date
 CLUSTER BY symbol, exchange
 ```
-**Current size**: ~661,862 rows (90 days, 18 symbols)
+**Current size**: ~661,862 rows (90 days, original 18 symbols; pending backfill for 30 new symbols)
 
 ### `bars_1d` — Daily Aggregate Bars
 ```sql
@@ -275,7 +428,7 @@ CREATE TABLE market_data.bars_1d (
   trades        INT64,
   range_pct     FLOAT64,         -- (high - low) / open
   momentum      FLOAT64,         -- close / open - 1
-  gap           FLOAT64,         -- open / prev_close - 1
+  gap           FLOAT64,         -- open / prev_close - 1 (overnight gap)
   prev_close    FLOAT64,         -- previous day's close
   source        STRING,
   ingested_at   TIMESTAMP NOT NULL
@@ -283,7 +436,7 @@ CREATE TABLE market_data.bars_1d (
 PARTITION BY bar_date
 CLUSTER BY symbol, exchange
 ```
-**Current size**: ~11,066 rows (1000 days, 18 symbols)
+**Current size**: ~11,066 rows (1000 days, original 18 symbols; pending backfill for 30 new symbols)
 
 ### `quotes_live` — Real-Time Snapshots
 ```sql
@@ -316,21 +469,29 @@ CLUSTER BY symbol, exchange
 ## 6. Inflight Tasks
 
 ### Active / In Progress
-- [ ] **BQ streaming buffer cooldown**: Rolling overwrite DELETEs fail if rows are still in the streaming buffer (<30 min after insert). Need to either wait or use MERGE instead of DELETE+INSERT.
-- [ ] **Connect Setup Builder output to engine**: Currently the builder generates JSON payloads but doesn't dynamically update the scanner's SETUPS config at runtime.
+- [x] **BQ streaming buffer cooldown** (fixed 2026-04-10): Replaced DELETE+INSERT with staging table + MERGE. Load jobs to `bars_1m_staging`/`bars_1d_staging` via `load_table_from_file` (no streaming buffer), then MERGE into canonical tables on `(symbol, exchange, ts)`. Idempotent, no duplicates, no buffer conflicts. Added `pipeline/validate_bq.py` for post-refresh duplicate detection and row count verification.
+- [x] **Connect Setup Builder output to engine** (completed 2026-04-10): Builder validates payloads via setupValidator, calls setupRegistry.addSetup(), updates React state in main.jsx, scanner re-renders immediately. localStorage persistence for runtime-added setups. Toggle/remove controls in builder UI. Seed config (config/setups.js) is never mutated at runtime.
+- [ ] **Backfill computed columns**: Existing 660K+ rows in bars_1m/bars_1d don't have range_pct/momentum/gap populated (only new data does).
+- [ ] **Backfill new symbols**: CORZ, IREN, BX, APO, ARCC, OWL, OBDC, COIN, HYG, KRE, LQD, SPY, QQQ, TLT, SLV, GLD, XLF, XLE, TSLA, GOOG, AMD, PLTR, MSTR, SMCI, META, HOOD, BTDR, FXI need initial historical data load via `market_data_pipeline.py backfill`
+- [ ] **Live options data feed**: Put/call ratio in CreditVolScanner currently uses placeholder random values; needs real options data from broker API or Polygon options snapshot
+- [x] **IV rank integration** (completed 2026-04-11): Source-agnostic adapter with cache, Polygon options source, ATR fallback, manual entry API. Confidence-weighted scoring.
 
 ### Planned
-- [ ] **Real-time WebSocket feed**: Replace polling with Polygon WebSocket for sub-second price updates
-- [ ] **OXY, MOS, CF setups**: Tickers are in the catalog but no setup evaluators built yet (Energy, Fertilizer sectors)
+- [x] **Real-time WebSocket feed** (completed 2026-04-11): WS connection manager with reconnect, unified quote feed merging WS + poll, throttled updates, graceful fallback. 32 assertions.
+- [x] **OXY, MOS, CF setups** (completed 2026-04-11): Added as standalone type through config registry. 10 total setups.
 - [ ] **Cloud Run deployment**: Move scheduled tasks from local Windows Task Scheduler to Cloud Scheduler + Cloud Run for reliability
-- [ ] **Backfill computed columns**: Existing 660K+ rows in bars_1m/bars_1d don't have range_pct/momentum/gap populated (only new data does)
-- [ ] **Dashboard reads from BQ**: Frontend currently fetches live from Polygon directly; could optionally read historical context from BQ for richer analysis
+- [x] **Dashboard reads from BQ** (completed 2026-04-11): Unified history provider (BQ > Polygon > cache) with proxy adapter. Daily context API. 21 assertions.
+- [x] **True slope calculation** (completed 2026-04-11): priceHistory.js with linear regression slope from Polygon 1m bars. Integrated into stackReversalEvaluator and infraFollowerEvaluator with intraday-proxy fallback. 33 test assertions.
+- [x] **Position persistence** (completed 2026-04-11): localStorage adapters with schema versioning. Persists workflow data, recomputes live values on load.
+- [x] **Monte Carlo upgrade for options engine** (completed 2026-04-11): Full GBM path simulation (N=1000), true touch probability, max drawdown, price distribution percentiles. erf fallback retained.
 
 ### Experimental Ideas
-- [ ] **Alert notifications**: Push alerts (Slack, email, SMS) when a setup transitions to GO
-- [ ] **Backtesting module**: Use bars_1d history to simulate past performance of the scoring engine
+- [x] **Alert notifications** (completed 2026-04-11): Multi-gate alert engine with browser notifications, console, webhook-ready. localStorage history + dedup. 34 assertions.
+- [x] **Backtesting module** (completed 2026-04-11): Alert-driven backtest with outcome replay, gate replay, per-symbol stats, threshold comparison. 47 assertions.
 - [ ] **Multi-user support**: Store setups per user in Firestore, allow multiple dashboard instances
 - [ ] **NEBX vol drag visualization**: Show the compounding cost of holding the 2x leveraged ETF over time
+- [x] **Stack reversal backtesting** (completed 2026-04-11): NVDA thesis replay with stage outcomes, NBIS vs NEBX comparison, target rates, MFE/MAE, follower picker accuracy. 37 assertions.
+- [x] **Historical top-100 scanner** (completed 2026-04-11): Discovery mode in CreditVolScanner, filtered by quality, excludes curated symbols. 26 assertions.
 
 ---
 
@@ -374,20 +535,16 @@ export GOOGLE_APPLICATION_CREDENTIALS="./pipeline/service-account.json"
 # 7. Initialize BigQuery tables
 python pipeline/market_data_pipeline.py init
 
-# 8. Backfill historical data (takes ~5-10 min)
+# 8. Backfill historical data (takes ~15-20 min with 48 symbols)
 python pipeline/market_data_pipeline.py backfill \
-  --symbols NBIS,NEBX,QQQM,MSFT,NVDA,AAPL,AMZN,GOOGL,IWM,JEPI,JEPQ,CRWV,BE,VRT,ETN,POWL,BAM,BEPC \
+  --symbols NBIS,NEBX,QQQM,MSFT,NVDA,AAPL,AMZN,GOOGL,IWM,JEPI,JEPQ,CRWV,BE,VRT,ETN,POWL,BAM,BEPC,CORZ,IREN,BX,APO,ARCC,OWL,OBDC,COIN,HYG,KRE,LQD,SPY,QQQ,TLT,SLV,GLD,XLF,XLE,TSLA,GOOG,AMD,PLTR,MSTR,SMCI,META,HOOD,BTDR,FXI \
   --days_1m 90 --days_1d 1000
 
 # 9. Start the dev server
 npm run dev
 
-# 10. Set up scheduled refresh (Windows)
-# Edit pipeline/run_refresh.bat with your actual keys
-# Then run as Administrator:
-pipeline/setup_tasks.bat
-
-# Or manually create silent tasks:
+# 10. Set up silent scheduled refresh (Windows)
+# Edit pipeline/run_refresh.bat with your actual keys, then:
 schtasks /create /tn "MarketData-LiveSnapshot" /tr "wscript.exe \"C:\path\to\pipeline\run_refresh.vbs\" refresh-live" /sc minute /mo 1 /f
 schtasks /create /tn "MarketData-Bars1m" /tr "wscript.exe \"C:\path\to\pipeline\run_refresh.vbs\" refresh-1m" /sc minute /mo 15 /f
 schtasks /create /tn "MarketData-Bars1d" /tr "wscript.exe \"C:\path\to\pipeline\run_refresh.vbs\" refresh-1d" /sc daily /st 17:00 /f
@@ -407,8 +564,7 @@ for t in ['bars_1m','bars_1d','quotes_live']:
     print(f'{t}: {list(q.result())[0].n:,} rows')
 "
 
-# Open dashboard
-# Navigate to http://localhost:5173
+# Open dashboard at http://localhost:5173
 ```
 
 ---
@@ -419,33 +575,76 @@ for t in ['bars_1m','bars_1d','quotes_live']:
 trigger-engine/
 ├── .env                          # Local secrets (gitignored)
 ├── .env.example                  # Template for required env vars
-├── .gitignore                    # Blocks .env, service-account*.json, node_modules, dist
+├── .gitignore                    # Blocks .env, service-account*.json, node_modules, dist, __pycache__
 ├── index.html                    # Vite entry point
 ├── package.json                  # Node dependencies
 ├── vite.config.js                # Vite config (HMR overlay disabled)
 │
 ├── src/
-│   ├── main.jsx                  # App router (Scanner <-> Setup Builder)
-│   ├── App.jsx                   # Scanner dashboard + engine logic (~1100 lines)
-│   ├── TickerSetupBuilder.jsx    # Ticker catalog UI + setup builder
-│   ├── tickerCatalog.js          # 22-ticker catalog + filter/factory helpers
+│   ├── main.jsx                  # App router (Scanner <-> Setup Builder <-> Credit-Vol)
+│   ├── App.jsx                   # Trigger engine dashboard + 5 setup evaluators (imports from registry)
+│   ├── CreditVolScanner.jsx      # Credit-vol options engine UI (regime, cards, position mgr, income tracker)
+│   ├── TickerSetupBuilder.jsx    # Ticker catalog UI + setup builder (imports from tickerCatalog.js)
+│   ├── signalEngine.js           # Credit-vol engine: 12-section scoring/regime/timing/roll/probability
+│   ├── optionsWatchlist.js       # 2026 top-27 + historical top-100 watchlist + scan filters
+│   ├── tickerCatalog.js          # 48-ticker master catalog + filter/factory helpers
 │   ├── App.css                   # Minimal (all styles inline)
-│   └── index.css                 # CSS reset
+│   ├── index.css                 # CSS reset
+│   │
+│   ├── config/
+│   │   └── setups.js             # Setup definitions (single source of truth for all trigger engine setups)
+│   │
+│   └── lib/
+│       ├── setupRegistry.js      # Setup registry: load, filter, resolve, symbol extraction, runtime mutations
+│       ├── setupValidator.js     # Schema validation for setup objects (type-specific rules)
+│       ├── priceHistory.js       # Slope/trend from bars_1m: linear regression, MA, acceleration, Polygon fetcher
+│       ├── alerts/
+│       │   ├── alertEngine.js    # Multi-gate condition evaluator (score, MC, IV, dedup)
+│       │   ├── alertNotifier.js  # Pluggable delivery (browser, console, webhook)
+│       │   └── alertHistory.js   # localStorage persistence + dedup tracking
+│       ├── backtest/
+│       │   ├── backtestEngine.js  # Trade outcome evaluator + alert gate replay
+│       │   ├── backtestReporter.js # Summary stats, comparison, formatted reports
+│       │   └── stackReversalBacktest.js # NVDA thesis replay: stage/follower/target analysis
+│       ├── websocket/
+│       │   ├── polygonSocket.js   # Polygon WS connection manager (auth, subscribe, reconnect)
+│       │   └── quoteFeed.js       # Unified quote store merging WS + poll data
+│       ├── bqReader.js            # Browser-side BQ query adapter via proxy endpoint
+│       ├── historyProvider.js     # Unified history source: BQ > Polygon > cache
+│       ├── discoveryScanner.js   # Historical top-100 scanner with quality filters
+│       └── structure/
+│           ├── candlePatterns.js    # 8 candle pattern detectors (engulfing, hammer, doji, etc.)
+│           ├── swingStructure.js    # Swing highs/lows, trend bias, BOS/MSS detection
+│           ├── zoneDetection.js     # S/R band clustering from swings + ATR tolerance
+│           ├── supplyDemand.js      # Base + displacement supply/demand zones
+│           └── chartContextEngine.js # Orchestrator: unified context + bounded score adjustments
+│       ├── iv/
+│       │   ├── ivAdapter.js      # Source-agnostic IV rank provider (Polygon, manual, ATR fallback)
+│       │   └── ivCache.js        # TTL-based in-memory cache with staleness tracking
+│       └── storage/
+│           ├── positionStorage.js  # localStorage adapter for short put positions (schema v1)
+│           └── incomeStorage.js    # localStorage adapter for weekly income tracker (schema v1)
 │
 ├── pipeline/
-│   ├── market_data_pipeline.py   # Core pipeline: BQ schema, Polygon fetch, backfill
-│   ├── refresh_schedule.py       # Cost-optimized incremental refresh
+│   ├── market_data_pipeline.py   # Core pipeline: BQ schema, Polygon fetch, backfill, staging+MERGE
+│   ├── refresh_schedule.py       # Cost-optimized incremental refresh (staging+MERGE for bars, append for quotes)
+│   ├── validate_bq.py            # Post-refresh validation: duplicates, row counts, staging health
 │   ├── run_refresh.bat           # Env var wrapper for refresh_schedule.py
 │   ├── run_refresh.vbs           # Silent execution wrapper (no console flash)
-│   ├── setup_tasks.bat           # Windows Task Scheduler setup
+│   ├── setup_tasks.bat           # Windows Task Scheduler setup (legacy, use VBS instead)
 │   └── service-account.json      # GCP credentials (gitignored)
 │
 ├── docs/
+│   ├── CLAUDE.md                 # Claude operating rules for this project
+│   ├── WORK_QUEUE.md             # Prioritized task backlog (P1/P2/P3)
+│   ├── DECISIONS.md              # Architecture decision log (append-only)
 │   ├── ARCHITECTURE.md           # System design overview
 │   ├── SETUP.md                  # Installation guide
 │   ├── REFRESH_SCHEDULE.md       # Refresh cadence, cost estimates, deployment
+│   ├── SESSION_NOTES/
+│   │   └── 2026-04-10.md         # Per-session summary (goals, built, decisions, open items)
 │   └── history/
-│       └── SYSTEM_MANIFEST.md    # THIS FILE
+│       └── SYSTEM_MANIFEST.md    # THIS FILE — update after each major session
 │
 ├── prompts/                      # Prompt templates (empty, ready for use)
 ├── assets/                       # Static assets (empty, ready for use)
@@ -469,24 +668,249 @@ trigger-engine/
 
 ## 10. Cost Summary
 
-### Monthly estimates (18 symbols, market hours only):
+### Monthly estimates (~48 symbols, market hours only):
 
 | Component | Monthly Cost |
 |-----------|-------------|
-| BQ streaming inserts | ~$1.00 |
-| BQ active storage | ~$0.50 |
-| BQ DML (rolling deletes) | ~$0.10 |
+| BQ streaming inserts | ~$2.50 |
+| BQ active storage | ~$1.00 |
+| BQ DML (rolling deletes) | ~$0.25 |
 | Polygon API calls | $0 (developer tier) |
-| **Total** | **~$1.60/month** |
+| **Total** | **~$3.75/month** |
 
 ### Daily API usage:
 | Task | Calls/Run | Runs/Day | Total/Day |
 |------|-----------|----------|-----------|
-| Live snapshots | 18 | 390 | 7,020 |
-| 1-minute bars | 18 | 26 | 468 |
-| Daily bars | 18 | 1 | 18 |
-| **Total** | | | **~7,500** |
+| Live snapshots | 48 | 390 | 18,720 |
+| 1-minute bars | 48 | 26 | 1,248 |
+| Daily bars | 48 | 1 | 48 |
+| Ticker details | 48 | ~1 (cached) | 48 |
+| **Total** | | | **~20,064** |
+
+Note: Developer tier allows unlimited API calls. Watch for rate limiting at higher symbol counts.
 
 ---
 
-*This manifest should be updated after each major coding session. Use a shorter version of the generation prompt to refresh sections 6 (Inflight Tasks) and any sections where code or architecture changed.*
+## 11. Changelog
+
+### 2026-04-11 (session 17 — Calibration pass)
+- **Calibration harness** (`scripts/run-calibration.js`): Compares baseline scoring vs chart-context-enhanced scoring across 4 synthetic scenarios (clean uptrend + demand, trap under resistance, neutral sideways, reversal at support). Measures per-adjustment impact, signal changes, alert eligibility changes.
+- **Calibration findings:**
+  - Avg score delta: -3.8 (appropriately cautious — penalties fire more than bonuses)
+  - ATR extension penalty (-5) is the most impactful single adjustment (fires on 4/4 scenarios)
+  - Clear air to T1 (+5) fires correctly for the clean scenario
+  - Zero signal changes, zero alert eligibility changes — chart context acts as refinement, not override
+  - Demand zone detection fires less often on synthetic data (expected — real market data will show more hits)
+  - **Recommendation: current v1 weights are well-balanced. Monitor with real market data before adjusting.**
+- **CLI**: `npm run calibrate` runs the full calibration pass with detailed per-scenario trace output.
+
+### 2026-04-11 (session 16 — Sprint M: Chart context engine)
+- **Chart structure modules** (`src/lib/structure/`):
+  - `candlePatterns.js`: Detects 8 patterns (bullish/bearish engulfing, hammer, shooting star, doji, inside bar, outside bar, three-bar reversal) from OHLCV with confidence scoring. Pure numeric detection, no visual parsing.
+  - `swingStructure.js`: Pivot-point swing high/low detection, higher high/low counting, trend bias (BULLISH/BEARISH/NEUTRAL), break of structure (BOS_UP/BOS_DOWN) and market structure shift (MSS_UP/MSS_DOWN) events.
+  - `zoneDetection.js`: ATR-based clustering of swing levels into support/resistance bands with touches, confidence, freshness. Nearest support/resistance with % distance.
+  - `supplyDemand.js`: Base + displacement zone detection. Demand = consolidation then upward impulse > 1.5 ATR. Supply = reverse. Tracks tested vs fresh zones.
+  - `chartContextEngine.js`: Orchestrator that combines all layers. `getChartContext()` returns unified analysis with bounded score adjustments (±15 max). Feature flag `ENABLE_CHART_CONTEXT`.
+- **Score adjustments (capped at ±15):**
+  - Fresh demand/support confluence near entry: +5
+  - Clean air to T1 before resistance: +5
+  - Higher low held at demand zone: +3
+  - Bullish reversal candle at support/demand: +3
+  - Fresh supply zone near target: -8
+  - Entry directly under resistance: -6
+  - ATR overextended: -5
+- **signalEngine.js**: `buildUiCard` integrates chart context — merges score adjustments, appends chart-context trace entries to combined score trace, re-evaluates signal if score shifted.
+- **CreditVolScanner detail panel**: New "CHART CONTEXT — ENTRY / EXIT QUALITY" section showing nearest support/resistance (% distance), ATR extension state, trend bias, demand/supply zone status, room to T1 with clear path indicator.
+- **test-structure.js**: 54 assertions covering all 5 modules — candle patterns (engulfing, hammer, doji, inside bar, empty input, shape), swing structure (uptrend/downtrend bias, higherHighs, lowerLows, events), zones (ATR, S/R bands, zone shape), supply/demand (demand zones, empty input), chart context engine (full output shape, score cap, empty/null safety, room to target, feature flag).
+- **npm run validate**: 13 test suites, 408 total assertions.
+
+### 2026-04-11 (session 15 — Sprint L: Historical top-100 scanner)
+- **Discovery scanner** (`src/lib/discoveryScanner.js`): Scans historical top-100 watchlist symbols NOT already in the curated 2026 scan. Filters by spread quality (A+/A) and wheel suitability (High/Medium). Fetches Polygon snapshots in batches of 5, runs through the same scoring engine (`buildScannerState`), enriches cards with discovery metadata (histRank, spreadQuality, wheelSuit).
+- `getDiscoveryCandidates()`: Returns filtered candidates excluding curated symbols, sorted by histRank.
+- `runDiscoveryScan()`: Full pipeline — candidates → snapshots → setups → scoring → ranked cards.
+- `getDiscoveryPreview()`: Stats summary without fetching (candidate count, rank range, quality breakdown).
+- **CreditVolScanner UI**: DISCOVERY toggle button in scan filter bar (amber). When active, shows top 10 discovery candidates ranked by score with rank badge, spread quality, wheel suitability indicators. RESCAN button for manual refresh.
+- **test-discovery.js**: 26 assertions — candidate exclusion, quality filters, sort order, custom filters, preview shape, no duplicates, curated exclusion, edge cases.
+- **npm run validate**: 12 test suites, 354 total assertions.
+- **All original work queue items now complete.** Remaining: Cloud Run deployment (deferred for cost).
+
+### 2026-04-11 (session 14 — Sprint K: Stack reversal backtesting)
+- **Stack reversal backtest** (`src/lib/backtest/stackReversalBacktest.js`):
+  - `evaluateStackEvent()`: Takes an NVDA reversal event (stage, power strength, follower lag, forward prices for NVDA/NBIS/NEBX) and measures: T1/T2/T3 target hit rates, stop hit, MFE/MAE, time to target, leader forward move, follower picker accuracy.
+  - `runStackBacktest()`: Batch evaluation.
+  - `summarizeStackBacktest()`: Aggregates by stage (EARLY/MID/LATE), by follower (NBIS vs NEBX), follower picker accuracy, avg leader forward move.
+  - `formatStackReport()`: CLI report showing stage breakdown, follower comparison, per-event detail with picker correctness.
+- **CLI**: `npm run backtest:stack` runs 8 synthetic NVDA reversal scenarios covering EARLY (4), MID (3), LATE (1) stages. Shows win rate by stage, NBIS vs NEBX T1/T2/T3 rates, MFE/MAE, and follower picker accuracy.
+- **test-stack-backtest.js**: 37 assertions — clean win, loss, stall, MFE/MAE capture, follower picker, leader move, insufficient data, batch, summary stats, stage breakdown, follower group stats, report format, stage-based outcome comparison.
+- **npm run validate**: 11 test suites, 328 total assertions.
+
+### 2026-04-11 (session 13 — Sprint J: Dashboard reads from BQ)
+- **BQ reader** (`src/lib/bqReader.js`): Browser-side adapter that queries BigQuery via a configurable proxy endpoint (`VITE_BQ_PROXY_URL`). Queries for 1m bars (closes for slope), 1d bars (daily context), and parameterized SQL. Returns null when proxy is not configured (graceful fallback).
+- **History provider** (`src/lib/historyProvider.js`): Unified source chain: cache (3 min TTL) → BQ proxy → Polygon REST → stale cache → empty. Returns same `{ closes, source }` shape regardless of origin. `getTrendBatch()` replaces direct `fetchTrendData()` calls. Also provides `getDailyContext()` for richer BQ-only data (gap, prev_close series, period high/low, avg range/volume).
+- **App.jsx**: Slope computation now uses `getTrendBatch()` from history provider instead of direct Polygon call. Status bar shows "BQ" badge when proxy is configured. Provider status accessible via `getProviderStatus()`.
+- **test-history.js**: 21 assertions — provider status shape, BQ unavailable without proxy, empty results without API key, cache clear, source chain priority, trend metadata, status fields.
+- **npm run validate**: 10 test suites, 291 total assertions.
+
+### 2026-04-11 (session 12 — Sprint I: WebSocket live feed)
+- **Polygon WebSocket connection manager** (`src/lib/websocket/polygonSocket.js`):
+  - Connects to `wss://socket.polygon.io/stocks`, authenticates, subscribes to per-second aggregates (`A.*`).
+  - Exponential backoff reconnect (max 5 attempts). Heartbeat stale detection (30s). Graceful UNSUPPORTED state for developer tier.
+  - `createPolygonSocket()` returns controller with connect/disconnect/getState/getStats/updateSymbols.
+- **Unified quote feed** (`src/lib/websocket/quoteFeed.js`):
+  - Merges WS per-second aggregates with REST poll baseline into one quote map. WS updates price/high/low/volume. Poll provides prevClose/name/exchange (WS doesn't carry these).
+  - Fresh WS data (< 60s) is preserved during re-polls — poll only updates metadata fields on WS-fresh symbols.
+  - Throttled downstream notifications (5s max) to prevent re-render storms.
+  - Source map: tracks per-symbol source (websocket vs poll), updatedAt, stale flag. Feed health summary.
+- **App.jsx**: Connects WS on mount for evaluator-critical symbols. Merged quotes used when WS connected (falls back to poll-only otherwise). Auto-refresh adjusts: 120s when WS live, 60s when polling. Status bar shows `● LIVE (Xws/Ypoll)` or `○ WS N/A`.
+- **CreditVolScanner.jsx**: Separate WS connection for scanner symbols. Same merge/fallback pattern. Feed health shown in scan timestamp row.
+- **test-websocket.js**: 32 assertions — empty feed, poll population, WS overwrite, prevClose preservation, source tracking, feed health, re-poll doesn't overwrite fresh WS, listener subscribe/unsubscribe, reset, WS_STATE enum, new symbol creation.
+- **npm run validate**: 9 test suites, 270 total assertions.
+
+### 2026-04-11 (session 11 — Sprint H: backtesting harness)
+- **Backtest engine** (`src/lib/backtest/backtestEngine.js`):
+  - `evaluateTradeOutcome()`: Takes a trade setup + forward price series, measures: expired above strike, strike touched (+ day), max favorable excursion, max adverse excursion, P&L (credit vs intrinsic loss), days to profit target. Result categories: WIN, LOSS, SCRATCH, OPEN.
+  - `runBacktest()`: Batch evaluation of multiple trades.
+  - `replayAlertGates()`: Re-evaluates alert gate conditions on historical card data without needing the full scanner pipeline. Same 7-gate logic as production alerts.
+- **Backtest reporter** (`src/lib/backtest/backtestReporter.js`):
+  - `summarizeBacktest()`: Aggregates outcomes into win rate, avg P&L, touch rate, avg MFE/MAE, days to profit, per-symbol breakdown.
+  - `compareBacktests()`: Delta comparison between two threshold configurations (trade count change, win rate change).
+  - `formatReport()`: Human-readable CLI output.
+- **CLI**: `npm run backtest` runs 10 synthetic trade scenarios (NVDA, NBIS, CRWV, COIN, TSLA, ARCC, AMD, BX, SPY, MSTR) with realistic price paths. `npm run backtest -- --strict` compares tighter thresholds.
+- **test-backtest.js**: 47 assertions — clean win, clean loss, touch+recover, scratch, MFE, MAE, insufficient data, profit target detection, batch, summary stats, empty summary, comparison, report format, gate replay (pass, score fail, touch fail, strict thresholds).
+- **npm run validate**: 8 test suites, 238 total assertions.
+
+### 2026-04-11 (session 10 — Sprint G: alert notifications)
+- **Alert engine** (`src/lib/alerts/alertEngine.js`): Multi-gate condition evaluator with configurable thresholds. Gates: score (GO/WATCH), action filter, MC probability above strike (>= 65%), touch probability (<= 40%), avg max drawdown (<= 8%), IV percentile (>= 50), IV confidence (excludes "none"), dedup window (15 min). Returns structured `AlertResult` with `shouldAlert`, `priority` (high/medium/low), `passedGates`, `failedGates`, `summary`.
+- **Alert notifier** (`src/lib/alerts/alertNotifier.js`): Pluggable delivery — browser Notification API (with permission request), console logging, webhook-ready `notifyWebhook()` for Slack/Discord/email. `sendAlerts()` dispatches through all enabled channels.
+- **Alert history** (`src/lib/alerts/alertHistory.js`): localStorage persistence (schema v1, max 100 entries), dedup via in-memory recent-alerts set, stats API (total, last 24h, high priority count).
+- **CreditVolScanner**: ALERTS toggle button in controls bar. Refresh cycle evaluates alerts when enabled, sends via notifier, records in history, updates log state. Alert history panel at bottom shows last 20 alerts with priority indicators, symbol, action, score, probability, timestamp. CLEAR button wipes history.
+- **test-alerts.js**: 34 assertions — all gates pass, each gate blocks individually (score, action, prob, touch, drawdown, IV confidence, IV percentile), dedup blocking + expiry, different symbol not blocked, erf fallback, custom thresholds, batch evaluation, threshold shape.
+- **npm run validate**: 7 test suites, 191 total assertions.
+
+### 2026-04-11 (session 9 — Sprint F: Monte Carlo upgrade)
+- **Monte Carlo probability layer**: Replaced simplified erf approximation with full path-based Monte Carlo simulation in `probabilityLayer.js`
+  - `monteCarloEstimate()`: Simulates N price paths (default 1000) using geometric Brownian motion over DTE steps. IV percentile → annualized IV → daily vol. Checks path-dependent touch probability (did any step reach strike), final price distribution, average max drawdown.
+  - `estimateProbability()`: Public API that uses MC by default, falls back to erf via `{ useMC: false }`.
+  - Output enriched: `method` (monte_carlo vs erf_approximation), `paths`, `steps`, `avgMaxDrawdown`, `distribution` (P10/P25/P50/P75/P90), `assumptions` (annualizedIV, dailyVol, atrMultiple).
+  - erf retained as fallback for malformed inputs or explicit opt-out.
+- **CreditVolScanner detail panel**: Shows MC method badge, distribution percentiles, avg max drawdown, annualized IV and daily vol assumptions.
+- **test-mc.js**: 31 assertions — deep OTM, ATM, ITM, IV sensitivity, DTE sensitivity, ATR expansion, distribution ordering, drawdown bounds, null inputs, API shape, erf fallback, convergence check (two 5K-path runs within 5%).
+- **npm run validate**: 6 test suites, 157 total assertions.
+
+### 2026-04-11 (session 8 — P2 complete: OXY/MOS/CF + score explainability)
+- **OXY, MOS, CF setups**: Added as standalone type through config registry. 10 total setups now (was 7). Mock quotes in App.jsx, pipeline DEFAULT_SYMBOLS updated in both files. Uses existing standalone evaluator — no new evaluator type needed (standalone does regime + vol + momentum which is correct for commodity singles).
+- **Score explainability trace**: `scoreSetup()` now builds a `scoreTrace` array recording every scoring contribution with points and human-readable reason. Surfaced in CreditVolScanner detail panel as "SCORE TRACE — WHY THIS SCORE" with per-line breakdown (green for positive, red for negative) and clamped total. Covers: regime, leader/power/follower signals, IV contribution with source + confidence note, ATR expansion, support, timing, combos, watchlist quality, trap penalties.
+- **P2 complete**: All 5 P2 items now done (slope, backfill columns, IV rank, options data, OXY/MOS/CF).
+- **npm run validate**: 5 suites, 126 assertions (10 setups + 22 engine + 21 watchlist + 33 slope + 40 IV).
+
+### 2026-04-11 (session 7 — Sprint E: IV rank adapter)
+- **IV adapter layer**: Source-agnostic IV rank provider (`src/lib/iv/ivAdapter.js`)
+  - Core contract: `getIvRank(symbol, options)` returns `{ symbol, ivRank, source, asOf, stale, confidence, ivCurrent, iv52High, iv52Low }`
+  - Sources (priority order): cache → Polygon options snapshot → stock snapshot extraction → ATR-based estimate → stale cache → null
+  - `getIvRankBatch()` for multi-symbol with rate-limit batching
+  - `setIvRankManual()` for manual entry or broker data paste (Thinkorswim, Fidelity)
+  - Input clamping (0-100), source tagging, confidence levels
+- **IV cache** (`src/lib/iv/ivCache.js`): TTL-based in-memory cache (default 5 min). Stale entries still returned but flagged. Stats API for debug.
+- **CreditVolScanner**: Refresh cycle now calls `getIvRankBatch()` before `buildSetups()`. Real IV data flows through to setup objects as `ivPercentile`, `ivSource`, `ivConfidence`. UI shows checkmark on non-estimate IV values.
+- **setupScoring.js**: IV contribution is confidence-weighted — full 10pts for high/medium confidence, 60% (6pts) for low-confidence ATR estimates. Diagnostics include `ivConfident` and `ivFromRealSource` flags.
+- **signalEngine.js**: `buildUiCard` metrics now include `ivSource` and `ivConfidence` for UI display.
+- **test-iv.js**: 40 assertions covering null/empty, ATR fallback, cache set/get, staleness, manual entry, clamping, contract shape.
+- **npm run validate**: 5 test suites, 123 total assertions.
+
+### 2026-04-11 (session 6 — Sprint D: true slope calculation)
+- **priceHistory.js**: New reusable slope/trend utility (`src/lib/priceHistory.js`) with:
+  - `computeSlope()`: Linear regression on close prices, returns normalized slope + R² confidence
+  - `computeMA()`: Short moving average
+  - `computeMASlope()`: Slope of the MA itself (trend acceleration/deceleration)
+  - `computeAcceleration()`: Delta between recent slope and older slope
+  - `analyzeTrend()`: Full analysis returning slope, R², confidence (high/medium/low), turningUp, strongTrend, priceAboveMA
+  - `fetchRecentBars()`: Fetches 60 recent 1m bars from Polygon
+  - `fetchTrendData()`: Batch fetcher for multiple symbols with rate-limit batching
+- **isTurningUp() upgraded** (`shared.js`): Accepts optional trend data from `analyzeTrend()`. Uses real slope when available and confident, falls back to intraday range proxy when history missing.
+- **groupStrength() upgraded** (`shared.js`): Accepts optional `trendData` map, passes per-symbol trends to `isTurningUp()`.
+- **stackReversalEvaluator**: Leader reversal detection and power/infra groupStrength now use real slope. Output includes `slopeSource` ("bars_1m" vs "intraday_proxy"), `leaderSlope`, `leaderSlopeR2`, `leaderSlopeConfidence`.
+- **infraFollowerEvaluator**: AI cluster trend confirmation bonus (+5 score when AI leaders have confirmed uptrend from bars_1m). Output includes `aiTrendConfirmed`, `slopeSource`, `followerSlope`.
+- **App.jsx refresh cycle**: Fetches trend data for 10 evaluator-critical symbols (NVDA, CEG, GEV, BE, NBIS, NEBX, CRWV, VRT, ETN, POWL) between calibration and runAllSetups. Attached as `calibrated.trendData`. Gracefully skips if mock mode or fetch fails.
+- **test-slope.js**: 33 assertions covering positive/negative/flat/noisy/insufficient slopes, MA, MA-slope, acceleration, full analyzeTrend, confidence levels.
+- **npm run validate**: Now runs 4 test suites (83 total assertions).
+
+### 2026-04-11 (session 5 — Sprint C: position persistence)
+- **Position persistence**: Positions and income tracker now survive page reload via localStorage
+  - `src/lib/storage/positionStorage.js`: load/save/clear with schema version 1. Persists user workflow data only (symbol, strike, credit, currentPrice, id). Roll plans and profit targets recomputed on load from persisted inputs.
+  - `src/lib/storage/incomeStorage.js`: load/save/clear with schema version 1. Persists weekly total and entries array. RESET button clears both state and storage.
+  - `CreditVolScanner.jsx`: PositionManager initializes from `loadPositions()`, saves on every state change via `useEffect`. IncomeTracker initializes from `loadIncomeTracker()`, saves on state change, RESET calls `clearIncomeTracker()`.
+  - Fail-safe: corrupt/missing/version-mismatched storage returns clean defaults, never crashes.
+  - Design: storage adapters separated from UI components for testability and future upgrade path (BQ/Firestore).
+
+### 2026-04-10 (session 4 — Sprint B complete)
+- **BQ rolling refresh rewrite**: Replaced fragile DELETE+INSERT with staging table + MERGE pattern
+  - `market_data_pipeline.py`: Added `_ensure_staging_table()`, `_load_to_staging()` (uses `load_table_from_file` — not streaming), `merge_from_staging()` (MERGE on symbol+exchange+ts with partition pruning), `upsert_bars()` (orchestrator), updated `overwrite_recent_window()` as legacy wrapper
+  - `refresh_schedule.py`: `refresh_1m` and `refresh_1d` now call `upsert_bars()` instead of DELETE+INSERT. Added per-symbol ok/error counters. quotes_live remains append-only (unchanged).
+  - `pipeline/validate_bq.py`: Post-refresh validation — duplicate detection on (symbol, exchange, ts), row counts per date, staging table health check
+  - `init_db()` now creates staging tables on init
+  - Rollback: revert to previous `refresh_schedule.py` which uses direct DELETE+INSERT (still works if no streaming buffer conflict)
+
+### 2026-04-10 (session 3 — Sprint A complete)
+- **Setup Builder → live scanner connection**: The top P1 inflight task is done. Full flow:
+  - Builder creates setup payload → `fromBuilderFormat()` converts to registry shape → `validateSetup()` checks schema → `addSetup()` writes to registry → React state updates in main.jsx → App.jsx re-renders with new setup included in engine evaluator loop
+  - Validation errors display inline in builder (red panel)
+  - Success confirmation shows setup ID added (green panel)
+  - Active setups panel in builder shows all setups with toggle ON/OFF and remove (runtime only)
+  - Seed setups from config/setups.js are toggle-able but not removable
+  - Runtime-added setups tagged with `_source: "runtime"` and purple RUNTIME badge
+  - localStorage persistence: runtime setups survive page reload via `saveToStorage()`/`loadFromStorage()`
+- **React state ownership**: Lifted setup state to main.jsx `useState()`. App.jsx receives `engineSetups` prop (keyed object format) instead of calling `getSetupsAsObject()` at module level. Registry is mutation layer, React owns render truth.
+- **setupRegistry.js enhancements**: Added `fromBuilderFormat()` (builder payload → registry shape converter), `loadFromStorage()`/`saveToStorage()`/`clearStorage()`, `getSetupsAsObject(setupList)` now accepts optional array override for React-owned state
+- **App.jsx**: `runAllSetups()` now takes SETUPS as parameter. `DetailPanel` receives setups as prop. `refresh` callback depends on SETUPS for re-evaluation when setups change.
+- **TickerSetupBuilder.jsx**: Replaced `saveSetup`/`sendToBackend` with `addToScanner()` connected to registry. Added validation error display, success messages, active setups panel with toggle/remove.
+
+### 2026-04-10 (session 2)
+- **Setup Registry System**: Externalized all setup definitions from App.jsx into config-driven architecture
+  - `src/config/setups.js`: Single source of truth for all 7 trigger engine setups (NBIS_NEBX, QQQM_STACK, CRWV, JEPI, JEPQ, NVDA_POWER_STACK, BE_INFRA) with normalized format, typed thresholds, and TradingView chart config
+  - `src/lib/setupRegistry.js`: Registry layer with getSetupsAsObject() for backward-compat, getAllSymbols(), getSetupsByType(), runtime mutations (add/update/remove/toggle), format conversion from normalized to engine format
+  - `src/lib/setupValidator.js`: Schema validation per setup type — required fields, threshold range checks, cross-field validation (targets > stop, earlyMinDist < earlyMaxDist, etc.)
+  - App.jsx now imports via `getSetupsAsObject()` — zero inline setup definitions remain
+- **CLAUDE.md**: Added setup registry rules section (config location, validation flow, mutation rules)
+
+### 2026-04-10 (session 1)
+- **Credit-Volatility Options Engine**: New `signalEngine.js` (12-section retail hedge fund model) with macro credit regime (HYG/KRE/LQD/VIX), setup scoring with watchlist quality weighting, timing classification (EARLY/MID/LATE/EXHAUSTED), strike selection (5-10% below spot), simplified Monte Carlo probability layer (65% floor), profit management (30/50/70% BTC targets), defense/roll logic (SAFE/WATCH/DEFENSE/ACTION zones), trading window enforcement (no trades first 60 min, best window 1:30-3:30 ET), and sentiment interpretation engine
+- **CreditVolScanner.jsx**: Full React UI matching existing dark theme — credit-vol regime panel, ranked setup cards with watchlist badges, detail panel with Section 12 trade recommendation output, position manager for active short puts (BTC targets, roll alerts), weekly income tracker ($1,000/week target), 7 scan filter buttons (ALL/PREMIUM ENGINE/WHEEL/HIGH IV/CREDIT/ETF/TRAPS)
+- **Options Watchlist System**: `optionsWatchlist.js` with 2026 top-27 active options universe (OptionCharts + Cboe + Macroption sources), historical top-100 Cboe rankings, unified lookup map, spread quality (A+/A/B) and wheel suitability (High/Medium/Low/No) metadata, scan filter functions (Premium Engine, Wheel Candidates, Trap Names)
+- **Ticker catalog expanded**: 22 → 48 tickers. Added CORZ, IREN (AI/HPC), BX, APO, ARCC, OWL, OBDC (Credit), COIN (High IV), HYG, KRE, LQD (macro indicators), SPY, QQQ, SPX, TLT, SLV, GLD, XLF, XLE (Tier 1 ETFs), TSLA, GOOG, AMD, PLTR, MSTR, SMCI, META, HOOD, BTDR, FXI (Tier 2)
+- **TickerSetupBuilder.jsx deduplication**: Removed hardcoded duplicate catalog; now imports from `tickerCatalog.js` single source of truth
+- **Pipeline symbol expansion**: Both `market_data_pipeline.py` and `refresh_schedule.py` updated with all 48 symbols organized by engine (trigger core, credit-vol, 2026 watchlist)
+- **Navigation**: 3-page app (Trigger Engine ↔ Credit-Vol Scanner ↔ Setup Builder) via `main.jsx` router with CREDIT-VOL button (teal) added to trigger engine controls
+- **Watchlist-aware scoring**: Signal engine integrates spread quality (+3 for A+/A), tier (+2 for Tier 1), and trap name penalty (-5 for Low wheel) into setup scores; action engine warns on Low wheel suitability names
+
+### 2026-04-06
+- **NVDA_POWER_STACK**: New `stack_reversal` setup type with 3-layer detection (leader/power/infra)
+- **Distance-based staging**: Replaced time-based staging with distToT1 (3-8% EARLY, 1-3% MID, <=1% LATE)
+- **Action engine**: ENTER_AGGRESSIVE, ENTER_NORMAL, TAKE_PROFIT_OR_SKIP mapped from stage
+- **`getStage(distToT1)`**: Extracted as reusable function
+- **`isTurningUp(feed)`**: Asset direction detection (price > prev && slope > 0)
+- **`groupStrength(feeds)`**: Fraction of group turning up
+- **CEG, GEV**: Added to symbol registry and mock quotes (Constellation Energy, GE Vernova)
+- **Score boost model**: stack +20, EARLY +15, MID +5, LATE -10 layered on top of gate scoring
+- **Best follower recommendation**: NEBX or NBIS selected by maximum lag from leader
+
+### 2026-04-05
+- **Computed BQ columns**: range_pct, momentum (bars_1m + bars_1d), gap, prev_close (bars_1d only)
+- **Exchange lookup**: `get_exchange()` fetches from Polygon ticker details, cached per session
+- **Silent task runner**: VBS wrapper (`run_refresh.vbs`) for zero console window flashing
+- **System manifest created**: docs/history/SYSTEM_MANIFEST.md
+
+### 2026-04-04
+- **BE_INFRA setup**: Infra follower with MC simulation, cluster strength scoring, strategic partners
+- **Ticker catalog**: 22 tickers with categories/tags, filter functions, setup factories
+- **Setup Builder UI**: TickerSetupBuilder.jsx with catalog browser + setup form
+- **Polygon.io integration**: Live snapshot fetch with after-hours prevDay fallback
+- **BigQuery pipeline**: Backfill complete (661K 1m rows, 11K 1d rows), refresh schedule deployed
+- **Scheduled tasks**: Windows Task Scheduler with market hours gating
+
+### 2026-04-03
+- **Initial commit**: React/Vite dashboard, NBIS/NEBX pair engine, TradingView charts
+- **Repository created**: github.com/hardymichelle11/trigger-engine
+
+---
+
+*This manifest should be updated after each major coding session. Use a shorter version of the generation prompt to refresh sections 6 (Inflight Tasks), 11 (Changelog), and any sections where code or architecture changed.*

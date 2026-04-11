@@ -1,199 +1,31 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { getAllSymbols, MARKET_REGIME } from "./lib/setupRegistry.js";
+import { getTrendBatch, getProviderStatus } from "./lib/historyProvider.js";
+import { createPolygonSocket, WS_STATE } from "./lib/websocket/polygonSocket.js";
+import { updateFromWebSocket, updateFromPoll, getQuotes, getFeedHealth } from "./lib/websocket/quoteFeed.js";
+import {
+  evaluatePairSetup,
+  evaluateStandaloneSetup,
+  evaluateBasketSetup,
+  evaluateInfraFollowerSetup,
+  evaluateStackReversalSetup,
+  pctChange,
+  normalizeFeed,
+  computeRealizedVolFromRange,
+} from "./lib/evaluators/index.js";
 
 // =====================================================
 // SELF-CALIBRATING MULTI-SETUP TRIGGER ENGINE
-// - Fresh data on load / manual refresh / auto-refresh
-// - VIX + IWM market regime
-// - Pair / basket / standalone support
-// - Touch / touch-before-stop logic
 // =====================================================
-
-// ---------------------------
-// CONFIG
-// ---------------------------
 
 const POLYGON_KEY = import.meta.env.VITE_POLYGON_API_KEY;
 const POLYGON_BASE = "https://api.polygon.io";
-const USE_MOCK = false; // true = mock data, false = live Polygon.io
-
-const MARKET_REGIME = {
-  vix: { symbol: "VIX", type: "index", fearThreshold: 28, panicThreshold: 35 },
-  iwm: { symbol: "IWM", type: "etf", weakReturnThreshold: -0.005, strongReturnThreshold: 0.005 },
-};
-
-const SETUPS = {
-  NBIS_NEBX: {
-    kind: "pair",
-    leader: { symbol: "NBIS", exchange: "NASDAQ", description: "Nebius" },
-    follower: { symbol: "NEBX", exchange: "CBOE", description: "2X Long NBIS" },
-    targets: [37.0, 38.5, 40.0],
-    stop: 32.0,
-    leaderThreshold: 103,
-    capital: 1000,
-    tvLeader: "NASDAQ:NBIS",
-    tvFollower: "NEBX",
-  },
-  QQQM_STACK: {
-    kind: "basket",
-    leader: { symbol: "QQQM", exchange: "NASDAQ", description: "Invesco NASDAQ 100 ETF" },
-    drivers: ["MSFT", "NVDA", "AAPL", "AMZN", "GOOGL"],
-    capital: 2000,
-    tvLeader: "NASDAQ:QQQM",
-  },
-  CRWV: {
-    kind: "standalone",
-    leader: { symbol: "CRWV", exchange: "NASDAQ", description: "CoreWeave" },
-    capital: 1000,
-    tvLeader: "NASDAQ:CRWV",
-  },
-  JEPI: {
-    kind: "standalone",
-    leader: { symbol: "JEPI", exchange: "ARCA", description: "JPMorgan Equity Premium Income ETF" },
-    capital: 2000,
-    tvLeader: "AMEX:JEPI",
-  },
-  JEPQ: {
-    kind: "standalone",
-    leader: { symbol: "JEPQ", exchange: "NASDAQ", description: "JPMorgan Nasdaq Equity Premium Income ETF" },
-    capital: 2000,
-    tvLeader: "NASDAQ:JEPQ",
-  },
-  BE_INFRA: {
-    kind: "infra_follower",
-    follower: { symbol: "BE", exchange: "NYSE", description: "Bloom Energy" },
-    aiLeaders: ["NBIS", "CRWV", "NVDA"],
-    infraDrivers: ["VRT", "ETN", "POWL"],
-    strategicPartners: ["BAM", "BEPC"],
-    capital: 1000,
-    lagThreshold: 0.0075,           // 0.75% lag vs cluster average
-    targetsPct: [0.04, 0.07, 0.10], // 4%, 7%, 10%
-    stopPct: 0.04,                   // 4% downside stop
-    tvFollower: "NYSE:BE",
-  },
-};
+const USE_MOCK = false;
 
 const TICK_MS = 1400;
 
-// ---------------------------
-// SYMBOL REGISTRY
-// ---------------------------
-
-function getAllSymbols() {
-  const symbols = new Set([MARKET_REGIME.vix.symbol, MARKET_REGIME.iwm.symbol]);
-  Object.values(SETUPS).forEach((s) => {
-    if (s.leader?.symbol) symbols.add(s.leader.symbol);
-    if (s.follower?.symbol) symbols.add(s.follower.symbol);
-    if (s.drivers) s.drivers.forEach((d) => symbols.add(d));
-    if (s.aiLeaders) s.aiLeaders.forEach((d) => symbols.add(d));
-    if (s.infraDrivers) s.infraDrivers.forEach((d) => symbols.add(d));
-    if (s.strategicPartners) s.strategicPartners.forEach((d) => symbols.add(d));
-  });
-  return Array.from(symbols);
-}
-
-// ---------------------------
-// RANDOM / MATH
-// ---------------------------
-
-function randn() {
-  let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-}
-
-function pctChange(feed) {
-  if (!feed?.prevClose) return 0;
-  return (feed.last - feed.prevClose) / feed.prevClose;
-}
-
-function avg(nums) {
-  if (!nums || !nums.length) return 0;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
-function getDistancePct(price, target) {
-  return (target - price) / price;
-}
-
-function computeRealizedVolFromRange(high, low, last) {
-  if (!high || !low || !last) return 0;
-  return (high - low) / last;
-}
-
-function computeVolatility(path) {
-  if (!path || path.length < 2) return 0;
-  let total = 0;
-  for (let i = 1; i < path.length; i++) {
-    total += Math.abs((path[i] - path[i - 1]) / path[i - 1]);
-  }
-  return total / path.length;
-}
-
-function scoreDistance(dist) {
-  if (dist <= 0) return 0;
-  if (dist < 0.02) return 0.6;
-  if (dist <= 0.05) return 1.0;
-  if (dist <= 0.06) return 0.5;
-  return 0;
-}
-
-function isConstructive(path) {
-  if (!path || path.length < 3) return true;
-  const [a, b, c] = path.slice(-3);
-  return !(c < b && b < a && (a - c) / a > 0.015);
-}
-
-function computeKellyLite(winProb) {
-  const edge = winProb - (1 - winProb);
-  return Math.min(1, Math.max(0, edge) * 0.5);
-}
-
-// ---------------------------
-// NORMALIZATION / VALIDATION
-// ---------------------------
-
-function normalizeFeed(raw) {
-  return {
-    symbol: String(raw.symbol || "").toUpperCase(),
-    name: raw.name || "",
-    exchange: String(raw.exchange || "").toUpperCase(),
-    last: Number(raw.last ?? raw.price ?? 0),
-    prevClose: Number(raw.prevClose ?? raw.previousClose ?? 0),
-    high: Number(raw.high ?? 0),
-    low: Number(raw.low ?? 0),
-    volume: Number(raw.volume ?? 0),
-    timestamp: raw.timestamp ?? Date.now(),
-  };
-}
-
-function validateInstrument(feed, expected) {
-  const symbolOk = feed.symbol === String(expected.symbol || "").toUpperCase();
-  // Exchange: skip check if feed has no exchange or generic "STOCKS" from Polygon
-  const exchangeOk = expected.exchange
-    ? (feed.exchange === "" || feed.exchange === "STOCKS" || feed.exchange.includes(String(expected.exchange).toUpperCase()))
-    : true;
-  // Description: skip check if feed name is empty (Polygon snapshots don't include name)
-  const descOk = (expected.description && feed.name)
-    ? String(feed.name).toUpperCase().includes(String(expected.description).toUpperCase())
-    : true;
-  const priceOk = Number.isFinite(feed.last) && feed.last > 0;
-  const prevOk = Number.isFinite(feed.prevClose) && feed.prevClose > 0;
-  return { valid: symbolOk && priceOk && prevOk, symbolOk, exchangeOk, descOk, priceOk, prevOk };
-}
-
-function validateCrossAsset(leader, follower) {
-  const leaderRet = pctChange(leader);
-  const followerRet = pctChange(follower);
-  const sameDirection = (leaderRet >= 0 && followerRet >= 0) || (leaderRet <= 0 && followerRet <= 0);
-  const leverageGap = Math.abs(followerRet - 2 * leaderRet);
-  const leverageOk = leverageGap < 0.12;
-  const now = Date.now();
-  // If timestamp is 0 or very small (market closed / no trades), consider fresh (data is latest available)
-  const leaderFresh = !leader.timestamp || leader.timestamp < 1e10 || Math.abs(now - leader.timestamp) < 24 * 60 * 60 * 1000;
-  const followerFresh = !follower.timestamp || follower.timestamp < 1e10 || Math.abs(now - follower.timestamp) < 24 * 60 * 60 * 1000;
-  return { valid: sameDirection && leverageOk && leaderFresh && followerFresh, sameDirection, leverageOk, leverageGap, leaderFresh, followerFresh, leaderRet, followerRet };
-}
+// Helpers imported from lib/evaluators/shared.js via index.js:
+// pctChange, normalizeFeed, computeRealizedVolFromRange
 
 // ---------------------------
 // MOCK DATA PROVIDER
@@ -219,6 +51,11 @@ const MOCK_QUOTES = {
   POWL:  { symbol: "POWL",  name: "Powell Industries",         exchange: "NASDAQ", last: 195.60, prevClose: 191.20, high: 197.0, low: 190.0, volume: 320000 },
   BAM:   { symbol: "BAM",   name: "Brookfield Asset Management", exchange: "NYSE", last: 48.70,  prevClose: 48.30,  high: 49.1, low: 48.0, volume: 1100000 },
   BEPC:  { symbol: "BEPC",  name: "Brookfield Renewable",     exchange: "NYSE",   last: 31.80,  prevClose: 31.50,  high: 32.0, low: 31.2, volume: 450000 },
+  CEG:   { symbol: "CEG",   name: "Constellation Energy",     exchange: "NASDAQ", last: 248.30, prevClose: 244.10, high: 250.5, low: 243.0, volume: 3800000 },
+  GEV:   { symbol: "GEV",   name: "GE Vernova",               exchange: "NYSE",   last: 342.70, prevClose: 338.50, high: 345.0, low: 337.0, volume: 2100000 },
+  OXY:   { symbol: "OXY",   name: "Occidental Petroleum",    exchange: "NYSE",   last: 47.20,  prevClose: 46.80,  high: 47.8, low: 46.3, volume: 9800000 },
+  MOS:   { symbol: "MOS",   name: "Mosaic",                  exchange: "NYSE",   last: 28.40,  prevClose: 27.90,  high: 28.9, low: 27.6, volume: 4200000 },
+  CF:    { symbol: "CF",    name: "CF Industries",            exchange: "NYSE",   last: 75.30,  prevClose: 74.60,  high: 76.1, low: 74.2, volume: 2100000 },
 };
 
 function getMockQuote(symbol) {
@@ -347,270 +184,34 @@ function evaluateMarketRegime(vix, iwm) {
   return { state, score, notes, vix: { price: vix.last, changePct: vixChange }, iwm: { price: iwm.last, changePct: iwmChange } };
 }
 
-// ---------------------------
-// SIMULATION (calibrated)
-// ---------------------------
-
-function simulateLeaderPath(start, vol = 0.065) {
-  let price = start;
-  const path = [];
-  for (let i = 0; i < 10; i++) {
-    price *= (1 + 0.0005 + vol * randn());
-    path.push(price);
-  }
-  return path;
-}
-
-function simulateFollowerPath(leaderPath, startPrice) {
-  let price = startPrice;
-  const dailyFee = 0.000052; // 1.30% / 252
-  const path = [];
-  for (let i = 0; i < leaderPath.length; i++) {
-    const leaderRet = i === 0 ? 0 : (leaderPath[i] - leaderPath[i - 1]) / leaderPath[i - 1];
-    const volDrag = leaderRet * leaderRet;
-    const followerRet = 2.0 * leaderRet - dailyFee - volDrag + 0.003 * randn();
-    price *= (1 + followerRet);
-    path.push(price);
-  }
-  return path;
-}
-
-function evaluateTouchBeforeStop(path, targets, stop) {
-  const hits = targets.map(() => false);
-  let stopHit = false;
-  for (const p of path) {
-    if (p <= stop) { stopHit = true; break; }
-    targets.forEach((t, i) => { if (p >= t) hits[i] = true; });
-  }
-  return { hits, stopHit };
-}
-
-function runPairMonteCarlo(leaderStart, followerStart, targets, stop, leaderVol, N = 2000) {
-  const counts = targets.map(() => 0);
-  let winCount = 0;
-  for (let i = 0; i < N; i++) {
-    const leaderPath = simulateLeaderPath(leaderStart, Math.max(leaderVol, 0.005));
-    const followerPath = simulateFollowerPath(leaderPath, followerStart);
-    const outcome = evaluateTouchBeforeStop(followerPath, targets, stop);
-    outcome.hits.forEach((hit, idx) => { if (hit) counts[idx]++; });
-    if (outcome.hits[0] && !outcome.stopHit) winCount++;
-  }
-  return { ladderProbs: counts.map(c => c / N), winProb: winCount / N };
-}
-
-// ---------------------------
-// SETUP EVALUATORS
-// ---------------------------
-
-function evaluatePairSetup(setup, quotes, marketRegime, calibrated) {
-  const leader = quotes[setup.leader.symbol];
-  const follower = quotes[setup.follower.symbol];
-  if (!leader || !follower) return { setup: setup.leader.symbol, state: "NO TRADE", error: "Missing feed" };
-
-  const leaderCheck = validateInstrument(leader, setup.leader);
-  const followerCheck = validateInstrument(follower, setup.follower);
-  if (!leaderCheck.valid) return { kind: "pair", setup: `${setup.leader.symbol}/${setup.follower.symbol}`, state: "NO TRADE", error: "Bad leader", score: 0 };
-  if (!followerCheck.valid) return { kind: "pair", setup: `${setup.leader.symbol}/${setup.follower.symbol}`, state: "NO TRADE", error: "Bad follower", score: 0 };
-
-  const cross = validateCrossAsset(leader, follower);
-  const leaderAbove = leader.last > (setup.leaderThreshold || 0);
-  const distT1 = getDistancePct(follower.last, setup.targets[0]);
-  const distStop = (follower.last - setup.stop) / follower.last;
-  const leaderVol = calibrated?.symbols?.[setup.leader.symbol]?.vol ?? 0.065;
-
-  let score = 0;
-  if (leaderAbove) score += 25;
-  if (cross.valid) score += 15;
-  score += scoreDistance(distT1) * 25;
-  if (leaderVol > 0.003) score += 10;
-  if (marketRegime.state === "RISK-ON") score += 15;
-  if (marketRegime.state === "RISK-OFF") score -= 20;
-  score = Math.max(0, Math.min(100, score));
-
-  const sim = runPairMonteCarlo(leader.last, follower.last, setup.targets, setup.stop, leaderVol);
-  const kelly = computeKellyLite(sim.winProb);
-
-  let state = "NO TRADE";
-  if (score >= 75 && distT1 > 0 && marketRegime.state !== "RISK-OFF") state = "GO";
-  else if (score >= 50) state = "WATCH";
-
-  return {
-    kind: "pair", setup: `${setup.leader.symbol}/${setup.follower.symbol}`, state, score,
-    leaderPrice: leader.last, followerPrice: follower.last, leaderAbove, distT1, distStop,
-    cross, ladderProbs: sim.ladderProbs, winProb: sim.winProb,
-    suggestedSize: setup.capital * kelly, targets: setup.targets, stop: setup.stop,
-    marketRegime: marketRegime.state, leaderVol,
-  };
-}
-
-function evaluateStandaloneSetup(setup, quotes, marketRegime, calibrated) {
-  const leader = quotes[setup.leader.symbol];
-  if (!leader) return { setup: setup.leader.symbol, state: "NO TRADE", error: "Missing feed", score: 0 };
-  const check = validateInstrument(leader, setup.leader);
-  if (!check.valid) return { kind: "standalone", setup: setup.leader.symbol, state: "NO TRADE", error: "Bad feed", score: 0 };
-
-  const vol = calibrated?.symbols?.[setup.leader.symbol]?.vol ?? 0;
-  const change = pctChange(leader);
-
-  let score = 50;
-  if (vol > 0.002) score += 10;
-  if (change > 0.01) score += 15;
-  if (marketRegime.state === "RISK-ON") score += 15;
-  if (marketRegime.state === "RISK-OFF") score -= 20;
-  score = Math.max(0, Math.min(100, score));
-
-  let state = "NO TRADE";
-  if (score >= 70 && marketRegime.state !== "RISK-OFF") state = "GO";
-  else if (score >= 50) state = "WATCH";
-
-  return { kind: "standalone", setup: setup.leader.symbol, state, score, leaderPrice: leader.last, change, vol, marketRegime: marketRegime.state };
-}
-
-function evaluateBasketSetup(setup, quotes, marketRegime, calibrated) {
-  const leader = quotes[setup.leader.symbol];
-  if (!leader) return { setup: setup.leader.symbol, state: "NO TRADE", error: "Missing feed", score: 0 };
-  const check = validateInstrument(leader, setup.leader);
-  if (!check.valid) return { kind: "basket", setup: setup.leader.symbol, state: "NO TRADE", error: "Bad feed", score: 0 };
-
-  const driverChanges = setup.drivers.map(sym => quotes[sym]).filter(Boolean).map(d => pctChange(d));
-  const avgDriverChange = driverChanges.length > 0 ? driverChanges.reduce((a, b) => a + b, 0) / driverChanges.length : 0;
-  const leaderChange = pctChange(leader);
-
-  let score = 50;
-  if (avgDriverChange > 0.005 && leaderChange < avgDriverChange) score += 20;
-  if (avgDriverChange < -0.005) score -= 20;
-  if (marketRegime.state === "RISK-ON") score += 15;
-  if (marketRegime.state === "RISK-OFF") score -= 20;
-  score = Math.max(0, Math.min(100, score));
-
-  let state = "NO TRADE";
-  if (score >= 70 && marketRegime.state !== "RISK-OFF") state = "GO";
-  else if (score >= 50) state = "WATCH";
-
-  return { kind: "basket", setup: setup.leader.symbol, state, score, leaderPrice: leader.last, leaderChange, avgDriverChange, drivers: setup.drivers, marketRegime: marketRegime.state };
-}
-
-// ---------------------------
-// BE INFRA MONTE CARLO
-// ---------------------------
-
-function runBEInfraMonteCarlo(bePrice, aiStrength, infraStrength, targetsPct, stopPct, N = 2000) {
-  const counts = targetsPct.map(() => 0);
-  let winCount = 0;
-
-  for (let i = 0; i < N; i++) {
-    let price = bePrice;
-    let stopHit = false;
-    const hits = targetsPct.map(() => false);
-
-    for (let step = 0; step < 12; step++) {
-      const clusterImpulse = 0.35 * aiStrength + 0.35 * infraStrength;
-      const drift = clusterImpulse / 12;
-      const noise = 0.015 * randn();
-      price *= 1 + drift + noise;
-
-      const stopLevel = bePrice * (1 - stopPct);
-      if (price <= stopLevel) { stopHit = true; break; }
-
-      targetsPct.forEach((pct, idx) => {
-        if (price >= bePrice * (1 + pct)) hits[idx] = true;
-      });
-    }
-
-    hits.forEach((hit, idx) => { if (hit) counts[idx]++; });
-    if (hits[0] && !stopHit) winCount++;
-  }
-
-  return { ladderProbs: counts.map(c => c / N), winProb: winCount / N };
-}
-
-// ---------------------------
-// INFRA FOLLOWER EVALUATOR (BE)
-// ---------------------------
-
-function evaluateInfraFollowerSetup(setup, quotes, marketRegime, calibrated) {
-  const be = quotes[setup.follower.symbol];
-  if (!be || !be.last) return { kind: "infra_follower", setup: "BE_INFRA", state: "NO TRADE", error: "Missing feed", score: 0 };
-
-  const aiFeeds = setup.aiLeaders.map(s => quotes[s]).filter(Boolean);
-  const infraFeeds = setup.infraDrivers.map(s => quotes[s]).filter(Boolean);
-  const partnerFeeds = (setup.strategicPartners || []).map(s => quotes[s]).filter(Boolean);
-
-  const aiChanges = aiFeeds.filter(f => f.prevClose > 0).map(f => pctChange(f));
-  const infraChanges = infraFeeds.filter(f => f.prevClose > 0).map(f => pctChange(f));
-  const partnerChanges = partnerFeeds.filter(f => f.prevClose > 0).map(f => pctChange(f));
-
-  const aiStrength = avg(aiChanges);
-  const infraStrength = avg(infraChanges);
-  const partnerStrength = partnerChanges.length ? avg(partnerChanges) : 0;
-  const beMove = pctChange(be);
-
-  const clusterStrength = avg([aiStrength, infraStrength, partnerStrength].filter(x => Number.isFinite(x)));
-  const lagAmount = clusterStrength - beMove;
-  const lagging = lagAmount >= (setup.lagThreshold || 0.0075);
-
-  const beTargets = (setup.targetsPct || [0.04, 0.07, 0.10]).map(p => be.last * (1 + p));
-  const beStop = be.last * (1 - (setup.stopPct || 0.04));
-
-  let score = 0;
-  if (aiStrength > 0.01) score += 25;
-  else if (aiStrength > 0.003) score += 10;
-  if (infraStrength > 0.01) score += 25;
-  else if (infraStrength > 0.003) score += 10;
-  if (lagging) score += 25;
-  else if (lagAmount > 0) score += 10;
-  if (marketRegime.state === "RISK-ON") score += 15;
-  if (marketRegime.state === "RISK-OFF") score -= 20;
-  score = Math.max(0, Math.min(100, score));
-
-  const sim = runBEInfraMonteCarlo(be.last, aiStrength, infraStrength, setup.targetsPct || [0.04, 0.07, 0.10], setup.stopPct || 0.04);
-  const kelly = computeKellyLite(sim.winProb);
-
-  let state = "NO TRADE";
-  if (score >= 70 && marketRegime.state !== "RISK-OFF") state = "GO";
-  else if (score >= 50) state = "WATCH";
-
-  return {
-    kind: "infra_follower",
-    setup: "BE_INFRA",
-    state,
-    score,
-    leaderPrice: be.last,
-    change: beMove,
-    aiStrength,
-    infraStrength,
-    partnerStrength,
-    clusterStrength,
-    lagAmount,
-    lagging,
-    targets: beTargets,
-    stop: beStop,
-    ladderProbs: sim.ladderProbs,
-    winProb: sim.winProb,
-    suggestedSize: setup.capital * kelly,
-    aiLeaders: setup.aiLeaders,
-    infraDrivers: setup.infraDrivers,
-    marketRegime: marketRegime.state,
-  };
-}
+// Evaluators imported from lib/evaluators/
+// Simulation, validation, Monte Carlo all live in evaluator modules now.
 
 // ---------------------------
 // MASTER RUNNER
 // ---------------------------
 
-function runAllSetups(quotes, calibrated) {
+function runAllSetups(quotes, calibrated, SETUPS) {
   const regime = evaluateMarketRegime(quotes[MARKET_REGIME.vix.symbol], quotes[MARKET_REGIME.iwm.symbol]);
   const results = [];
 
-  Object.entries(SETUPS).forEach(([key, setup]) => {
+  Object.entries(SETUPS).forEach(([, setup]) => {
     if (setup.kind === "pair") results.push(evaluatePairSetup(setup, quotes, regime, calibrated));
     else if (setup.kind === "standalone") results.push(evaluateStandaloneSetup(setup, quotes, regime, calibrated));
     else if (setup.kind === "basket") results.push(evaluateBasketSetup(setup, quotes, regime, calibrated));
-    else if (setup.kind === "infra_follower") results.push(evaluateInfraFollowerSetup(setup, quotes, regime));
+    else if (setup.kind === "infra_follower") results.push(evaluateInfraFollowerSetup(setup, quotes, regime, calibrated));
+    else if (setup.kind === "stack_reversal") results.push(evaluateStackReversalSetup(setup, quotes, regime, calibrated, SETUPS));
   });
 
   return { refreshedAt: Date.now(), marketRegime: regime, results: results.sort((a, b) => b.score - a.score) };
 }
+
+// Simulation, evaluators, and helpers removed — now in src/lib/evaluators/
+// Old functions removed: simulateLeaderPath, simulateFollowerPath, evaluateTouchBeforeStop,
+// runPairMonteCarlo, evaluatePairSetup, evaluateStandaloneSetup, evaluateBasketSetup,
+// runBEInfraMonteCarlo, evaluateInfraFollowerSetup, isTurningUp, groupStrength, getStage,
+// evaluateStackReversalSetup, _stackState, and the second runAllSetups.
+
 
 // =====================================================
 // UI
@@ -768,8 +369,8 @@ function RegimePanel({ regime }) {
 
 function SetupCard({ result, isSelected, onSelect }) {
   const stateColor = result.state === "GO" ? GREEN : result.state === "WATCH" ? AMBER : "#9ca3af";
-  const kindLabel = { pair: "PAIR", standalone: "SOLO", basket: "BASKET", infra_follower: "INFRA" }[result.kind] || "?";
-  const kindColor = { pair: PURPLE, standalone: CYAN, basket: BLUE, infra_follower: AMBER }[result.kind] || SLATE;
+  const kindLabel = { pair: "PAIR", standalone: "SOLO", basket: "BASKET", infra_follower: "INFRA", stack_reversal: "STACK" }[result.kind] || "?";
+  const kindColor = { pair: PURPLE, standalone: CYAN, basket: BLUE, infra_follower: AMBER, stack_reversal: "#f472b6" }[result.kind] || SLATE;
 
   return (
     <div onClick={onSelect} style={{
@@ -814,9 +415,9 @@ function SetupCard({ result, isSelected, onSelect }) {
 // DETAIL PANEL (selected setup)
 // ---------------------------
 
-function DetailPanel({ result, setupKey }) {
+function DetailPanel({ result, setupKey, setups }) {
   if (!result) return null;
-  const setup = SETUPS[setupKey];
+  const setup = setups[setupKey];
   if (!setup) return null;
 
   const charts = [];
@@ -948,6 +549,99 @@ function DetailPanel({ result, setupKey }) {
           </div>
         </>
       )}
+
+      {/* Stack reversal detail (NVDA_POWER_STACK) */}
+      {result.kind === "stack_reversal" && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 12, background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <ScoreRing score={result.score} />
+              <div style={{ fontSize: 9, color: "#9ca3af" }}>SCORE</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: result.state === "GO" ? GREEN : result.state === "WATCH" ? AMBER : RED, letterSpacing: "0.08em" }}>{result.state}</div>
+              {result.stage && result.stage !== "NO SIGNAL" && (
+                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em",
+                  color: result.stage === "EARLY" ? GREEN : result.stage === "MID" ? AMBER : RED,
+                  background: (result.stage === "EARLY" ? GREEN : result.stage === "MID" ? AMBER : RED) + "22",
+                  padding: "3px 8px", borderRadius: 4 }}>
+                  {result.score >= 90 ? "EARLY ENTRY" : result.stage}
+                </div>
+              )}
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em" }}>STACK REVERSAL SIGNALS</div>
+                {result.action && result.action !== "WAIT" && (
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", padding: "3px 8px", borderRadius: 4,
+                    color: result.action === "ENTER_AGGRESSIVE" ? GREEN : result.action === "ENTER_NORMAL" ? AMBER : RED,
+                    background: (result.action === "ENTER_AGGRESSIVE" ? GREEN : result.action === "ENTER_NORMAL" ? AMBER : RED) + "22" }}>
+                    {result.action.replace(/_/g, " ")}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, fontSize: 10, marginBottom: 12 }}>
+                <div style={{ background: result.leaderSignal ? GREEN + "18" : "#1e2530", border: `1px solid ${result.leaderSignal ? GREEN : "#1e2530"}`, borderRadius: 8, padding: 10, textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>LEADER (40pt)</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: result.leaderSignal ? GREEN : "#9ca3af" }}>{result.leaderSignal ? "TURNING UP" : "---"}</div>
+                  <div style={{ fontSize: 9, color: "#b0b8c4", marginTop: 2 }}>NVDA {pctFmt(result.leaderMomentum)}</div>
+                </div>
+                <div style={{ background: result.sectorSignal ? GREEN + "18" : "#1e2530", border: `1px solid ${result.sectorSignal ? GREEN : "#1e2530"}`, borderRadius: 8, padding: 10, textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>POWER ({fmt(result.powerStrength * 100, 0)}%) (30pt)</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: result.sectorSignal ? GREEN : "#9ca3af" }}>{result.sectorSignal ? "CONFIRM" : "---"}</div>
+                  <div style={{ fontSize: 9, color: "#b0b8c4", marginTop: 2 }}>{pctFmt(result.sectorStrength)}</div>
+                </div>
+                <div style={{ background: result.lagSignal ? GREEN + "18" : "#1e2530", border: `1px solid ${result.lagSignal ? GREEN : "#1e2530"}`, borderRadius: 8, padding: 10, textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>LAG (30pt)</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: result.lagSignal ? GREEN : "#9ca3af" }}>{result.lagSignal ? "LAGGING" : "---"}</div>
+                  <div style={{ fontSize: 9, color: "#b0b8c4", marginTop: 2 }}>Followers {pctFmt(result.followerAvg)}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, fontSize: 10, marginBottom: 12 }}>
+                <div><span style={{ color: "#9ca3af" }}>Dist T1 </span><span style={{ color: result.distToT1 > 3 ? GREEN : result.distToT1 > 1 ? AMBER : RED, fontWeight: 700 }}>{fmt(result.distToT1, 1)}%</span></div>
+                <div><span style={{ color: "#9ca3af" }}>Stage </span><span style={{ fontWeight: 700, color: result.stage === "EARLY" ? GREEN : result.stage === "MID" ? AMBER : result.stage === "LATE" ? RED : "#9ca3af" }}>{result.stage}</span></div>
+                <div><span style={{ color: "#9ca3af" }}>T weights </span><span style={{ color: "#b0b8c4" }}>{result.targetWeights.t1}/{result.targetWeights.t2}/{result.targetWeights.t3}</span></div>
+                {result.minutesSinceFlip !== null && (
+                  <div><span style={{ color: "#9ca3af" }}>Flip </span><span style={{ color: "#b0b8c4", fontWeight: 700 }}>{result.minutesSinceFlip}min ago</span></div>
+                )}
+              </div>
+
+              {result.label && result.label !== "NO_STACK_SIGNAL" && (
+                <div style={{ fontSize: 9, color: "#f472b6", fontFamily: "monospace", marginBottom: 8 }}>{result.label}</div>
+              )}
+
+              {result.bestFollower && (
+                <div style={{ background: GREEN + "12", border: `1px solid ${GREEN}44`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                  <div style={{ fontSize: 9, color: GREEN, fontWeight: 700, letterSpacing: "0.1em", marginBottom: 4 }}>BEST TRADE</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{result.bestFollower}</div>
+                  <div style={{ fontSize: 10, color: "#b0b8c4" }}>{result.bestFollowerReason}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 10 }}>CONDITION GATES</div>
+            <Gate label="A: NVDA turning up (price > prev, slope > 0)" ok={result.leaderSignal} value={result.leaderSignal ? "TURNING UP" : pctFmt(result.leaderMomentum)} />
+            <Gate label={`B: Power >= 50% turning (${(result.sectorSymbols || []).join("/")})`} ok={result.sectorSignal} value={`${fmt((result.powerStrength || 0) * 100, 0)}% turning`} />
+            <Gate label="C: Followers lagging leader" ok={result.lagSignal} value={`${pctFmt(result.followerAvg)} vs ${pctFmt(result.leaderMomentum)}`} />
+            <Gate label="Stack reversal active" ok={result.stackReversal} value={result.stackReversal ? "ALL 3 CONFIRMED" : "INCOMPLETE"} />
+            <Gate label="Market regime" ok={result.marketRegime !== "RISK-OFF"} value={result.marketRegime} />
+            <div style={{ borderTop: "1px solid #1e2530", marginTop: 8, paddingTop: 8 }}>
+              <Gate label="Dist T1: 3-8% = EARLY" ok={result.stage === "EARLY"} value={result.stage === "EARLY" ? `${fmt(result.distToT1, 1)}% -> ENTER AGGRESSIVE` : ""} />
+              <Gate label="Dist T1: 1-3% = MID" ok={result.stage === "MID"} value={result.stage === "MID" ? `${fmt(result.distToT1, 1)}% -> ENTER NORMAL` : ""} />
+              <Gate label="Dist T1: <= 1% = LATE" ok={result.stage === "LATE"} value={result.stage === "LATE" ? `${fmt(result.distToT1, 1)}% -> PROFIT/SKIP` : ""} />
+            </div>
+            <div style={{ borderTop: "1px solid #1e2530", marginTop: 8, paddingTop: 8 }}>
+              <Gate label="Score boost" ok={result.scoreBoost > 0} value={`${result.scoreBoost > 0 ? "+" : ""}${result.scoreBoost}`} />
+              <Gate label="FINAL SCORE" ok={result.score >= 75} value={`${result.score} / 100`} />
+            </div>
+            <div style={{ marginTop: 10, fontSize: 9, color: "#b0b8c4" }}>
+              Sector: {(result.sectorSymbols || []).join(", ")} | Followers: {(result.followers || []).join(", ")}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -956,25 +650,54 @@ function DetailPanel({ result, setupKey }) {
 // APP
 // =====================================================
 
-export default function App({ onOpenBuilder }) {
+export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setupCount }) {
+  // SETUPS comes from React state in main.jsx via engineSetups prop
+  const SETUPS = engineSetups || {};
+
   const [engineOutput, setEngineOutput] = useState(null);
   const [selectedSetup, setSelectedSetup] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [wsState, setWsState] = useState(WS_STATE.DISCONNECTED);
+  const [feedHealth, setFeedHealth] = useState(null);
   const autoRef = useRef(null);
+  const wsRef = useRef(null);
 
   const addAlert = useCallback((type, msg, meta) => {
     setAlerts(prev => [{ type, msg, meta, time: ts(), id: Date.now() + Math.random() }, ...prev].slice(0, 80));
   }, []);
 
+  // Symbols that need real slope data (evaluator-critical)
+  const trendSymbols = ["NVDA", "CEG", "GEV", "BE", "NBIS", "NEBX", "CRWV", "VRT", "ETN", "POWL"];
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const quotes = await fetchAllQuotes();
+      const polledQuotes = await fetchAllQuotes();
+
+      // Feed poll data into the unified quote store
+      updateFromPoll(polledQuotes);
+
+      // Use merged quotes (WS + poll) when WS is connected, poll-only otherwise
+      const quotes = wsState === WS_STATE.CONNECTED ? getQuotes() : polledQuotes;
+      setFeedHealth(getFeedHealth());
+
       const calibrated = calibrateParams(quotes);
-      const output = runAllSetups(quotes, calibrated);
+
+      // Fetch real slope from bars history (BQ > Polygon > cache)
+      if (!USE_MOCK) {
+        try {
+          calibrated.trendData = await getTrendBatch(trendSymbols, POLYGON_KEY, 60);
+        } catch {
+          calibrated.trendData = {};
+        }
+      } else {
+        calibrated.trendData = {};
+      }
+
+      const output = runAllSetups(quotes, calibrated, SETUPS);
       setEngineOutput(output);
       setLastRefresh(new Date());
 
@@ -989,7 +712,7 @@ export default function App({ onOpenBuilder }) {
       if (!selectedSetup && output.results.length > 0) {
         const topKey = Object.keys(SETUPS).find(k => {
           const s = SETUPS[k];
-          const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.leader.symbol;
+          const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.kind === "stack_reversal" ? "NVDA_POWER_STACK" : s.leader.symbol;
           return name === output.results[0].setup;
         });
         if (topKey) setSelectedSetup(topKey);
@@ -998,26 +721,61 @@ export default function App({ onOpenBuilder }) {
       addAlert("INFO", `Refresh failed: ${err.message}`, "");
     }
     setRefreshing(false);
-  }, [addAlert, selectedSetup]);
+  }, [addAlert, selectedSetup, SETUPS]);
+
+  // WebSocket lifecycle
+  useEffect(() => {
+    if (USE_MOCK || !POLYGON_KEY) return;
+
+    const symbols = getAllSymbols().filter(s => s !== "VIX"); // VIX uses index aggs, not WS
+    const socket = createPolygonSocket({
+      apiKey: POLYGON_KEY,
+      symbols,
+      onMessage: (msg) => {
+        updateFromWebSocket(msg);
+        setFeedHealth(getFeedHealth());
+      },
+      onStateChange: (newState) => {
+        setWsState(newState);
+        if (newState === WS_STATE.CONNECTED) {
+          addAlert("REFRESH", "WebSocket connected — live feed active", `${symbols.length} symbols streaming`);
+        } else if (newState === WS_STATE.UNSUPPORTED) {
+          addAlert("INFO", "WebSocket not supported on current Polygon tier — using polling", "");
+        }
+      },
+    });
+
+    wsRef.current = socket;
+    socket.connect();
+
+    return () => {
+      socket.disconnect();
+      wsRef.current = null;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Initial load
   useEffect(() => { refresh(); }, []);
 
-  // Auto-refresh
+  // Auto-refresh (polling baseline — runs regardless of WS)
   useEffect(() => {
+    // When WS is connected, poll less frequently (every 2 min for baseline)
+    // When WS is disconnected, poll at normal rate (every 60s)
+    const interval = wsState === WS_STATE.CONNECTED ? 120000 : 60000;
+
     if (autoRefresh) {
-      autoRef.current = setInterval(refresh, 60000);
+      autoRef.current = setInterval(refresh, interval);
       return () => clearInterval(autoRef.current);
     } else {
       if (autoRef.current) clearInterval(autoRef.current);
     }
-  }, [autoRefresh, refresh]);
+  }, [autoRefresh, refresh, wsState]);
 
   const regime = engineOutput?.marketRegime;
   const results = engineOutput?.results || [];
   const selectedResult = selectedSetup && results.find(r => {
     const s = SETUPS[selectedSetup];
-    const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.leader.symbol;
+    const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.kind === "stack_reversal" ? "NVDA_POWER_STACK" : s.leader.symbol;
     return r.setup === name;
   });
 
@@ -1064,6 +822,12 @@ export default function App({ onOpenBuilder }) {
             style={{ padding: "11px 16px", background: autoRefresh ? GREEN + "18" : "transparent", border: `1px solid ${autoRefresh ? GREEN : "#1e2530"}`, borderRadius: 8, color: autoRefresh ? GREEN : "#9ca3af", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
             {autoRefresh ? "AUTO: ON" : "AUTO: OFF"}
           </button>
+          {onOpenCreditVol && (
+            <button onClick={onOpenCreditVol}
+              style={{ padding: "11px 16px", background: CYAN + "18", border: `1px solid ${CYAN}`, borderRadius: 8, color: CYAN, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
+              CREDIT-VOL
+            </button>
+          )}
           {onOpenBuilder && (
             <button onClick={onOpenBuilder}
               style={{ padding: "11px 16px", background: PURPLE + "18", border: `1px solid ${PURPLE}`, borderRadius: 8, color: PURPLE, fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.07em" }}>
@@ -1072,8 +836,22 @@ export default function App({ onOpenBuilder }) {
           )}
         </div>
         {lastRefresh && (
-          <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 12, textAlign: "right" }}>
-            Last refresh: {lastRefresh.toLocaleTimeString()} {autoRefresh && "· auto every 60s"}
+          <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 12, textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            {wsState !== WS_STATE.DISCONNECTED && (
+              <span style={{
+                color: wsState === WS_STATE.CONNECTED ? GREEN : wsState === WS_STATE.RECONNECTING ? AMBER : "#9ca3af",
+                fontWeight: 700,
+              }}>
+                {wsState === WS_STATE.CONNECTED ? "● LIVE" : wsState === WS_STATE.RECONNECTING ? "● RECONNECTING" : wsState === WS_STATE.UNSUPPORTED ? "○ WS N/A" : `○ ${wsState}`}
+                {feedHealth && wsState === WS_STATE.CONNECTED && ` (${feedHealth.websocket}ws/${feedHealth.poll}poll)`}
+              </span>
+            )}
+            {(() => { const ps = getProviderStatus(); return ps.bqAvailable ? (
+              <span style={{ color: CYAN, fontWeight: 700 }}>BQ</span>
+            ) : null; })()}
+            <span>
+              Last refresh: {lastRefresh.toLocaleTimeString()} {autoRefresh && (wsState === WS_STATE.CONNECTED ? "· auto every 2m" : "· auto every 60s")}
+            </span>
           </div>
         )}
 
@@ -1085,7 +863,7 @@ export default function App({ onOpenBuilder }) {
         {results.map(r => {
           const key = Object.keys(SETUPS).find(k => {
             const s = SETUPS[k];
-            const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.leader.symbol;
+            const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.kind === "stack_reversal" ? "NVDA_POWER_STACK" : s.leader.symbol;
             return name === r.setup;
           });
           return (
@@ -1100,7 +878,7 @@ export default function App({ onOpenBuilder }) {
             <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 10 }}>
               DETAIL: {selectedResult.setup}
             </div>
-            <DetailPanel result={selectedResult} setupKey={selectedSetup} />
+            <DetailPanel result={selectedResult} setupKey={selectedSetup} setups={SETUPS} />
           </div>
         )}
 

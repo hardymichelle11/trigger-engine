@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Setup Definition",
+  "type": "object",
+  "required": ["id", "type", "enabled", "capital"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "type": "string", "enum": ["pair", "basket", "standalone", "stack_reversal", "infra_follower"] },
+    "enabled": { "type": "boolean" },
+    "capital": { "type": "number", "minimum": 0 },
+    "leader": {
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string" },
+        "exchange": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["symbol"]
+    },
+    "follower": {
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string" },
+        "exchange": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["symbol"]
+    },
+    "targets": { "type": "array", "items": { "type": "number" } },
+    "stop": { "type": "number" },
+    "leaderThreshold": { "type": "number" },
+    "drivers": { "type": "array", "items": { "type": "string" } },
+    "powerGroup": { "type": "array", "items": { "type": "string" } },
+    "followerGroup": { "type": "array", "items": { "type": "string" } },
+    "aiLeaders": { "type": "array", "items": { "type": "string" } },
+    "infraDrivers": { "type": "array", "items": { "type": "string" } },
+    "strategicPartners": { "type": "array", "items": { "type": "string" } },
+    "thresholds": { "type": "object" },
+    "tv": {
+      "type": "object",
+      "properties": {
+        "leader": { "type": "string" },
+        "follower": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Signal Engine Output (Trade Recommendation)",
+  "type": "object",
+  "required": ["trade", "action", "riskLevel"],
+  "properties": {
+    "trade": { "type": "string", "enum": ["YES", "NO"] },
+    "action": { "type": "string" },
+    "riskLevel": { "type": "string", "enum": ["LOW", "MED", "HIGH"] },
+    "strike": { "type": ["number", "null"] },
+    "strikeAlt": { "type": ["number", "null"] },
+    "expiration": { "type": ["string", "null"] },
+    "premium": { "type": "number" },
+    "probability": { "type": "string" },
+    "reason": { "type": "string" },
+    "sentiment": { "type": "string" },
+    "window": { "type": "string" }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Watchlist Entry",
+  "type": "object",
+  "required": ["symbol", "spreadQuality", "wheelSuit"],
+  "properties": {
+    "symbol": { "type": "string", "minLength": 1 },
+    "tier": { "type": ["integer", "null"], "enum": [1, 2, null] },
+    "assetType": { "type": "string", "enum": ["ETF", "Stock", "Index"] },
+    "spreadQuality": { "type": "string", "enum": ["A+", "A", "B"] },
+    "wheelSuit": { "type": "string", "enum": ["High", "Medium", "Low", "No"] },
+    "source": { "type": "string" },
+    "histRank": { "type": ["integer", "null"] },
+    "in2026": { "type": "boolean" }
+  }
+}

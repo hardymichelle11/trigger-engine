@@ -5,14 +5,15 @@ Cost-optimized incremental refresh for BigQuery market data.
 
 Design principles:
 - Never reprocess full history
-- Rolling overwrite only the recent correction window (3-5 days)
-- Append-only for live snapshots
-- Partition-pruned deletes (no full-table scans)
+- Rolling upsert via staging table + MERGE (streaming-buffer-safe)
+- Append-only for live snapshots (quotes_live)
+- Partition-pruned MERGE on (symbol, exchange, ts) for bars tables
+- Idempotent: re-running produces identical results, no duplicates
 - Minimal Polygon API calls per cycle
 
 Subcommands:
-  refresh-1m     Overwrite last 3 trading days of 1m bars (run every 15 min during market hours)
-  refresh-1d     Overwrite last 5 trading days of 1d bars (run once daily after close)
+  refresh-1m     Upsert last 3 trading days of 1m bars (run every 15 min during market hours)
+  refresh-1d     Upsert last 5 trading days of 1d bars (run once daily after close)
   refresh-live   Append current snapshots to quotes_live (run every 1 min during market hours)
 
 Usage:
@@ -46,14 +47,25 @@ from market_data_pipeline import (
     fetch_agg_bars,
     fetch_snapshot,
     load_json_rows,
+    upsert_bars,
     GCP_PROJECT,
     BQ_DATASET,
     POLYGON_API_KEY,
 )
 
 DEFAULT_SYMBOLS = [
+    # Trigger engine core
     "NBIS", "NEBX", "QQQM", "MSFT", "NVDA", "AAPL", "AMZN", "GOOGL",
     "IWM", "JEPI", "JEPQ", "CRWV", "BE", "VRT", "ETN", "POWL", "BAM", "BEPC",
+    "CORZ", "IREN",
+    # Commodity / energy setups
+    "OXY", "MOS", "CF",
+    # Credit-vol engine
+    "BX", "APO", "ARCC", "OWL", "OBDC", "COIN",
+    "HYG", "KRE", "LQD",
+    # 2026 options watchlist (Tier 1 ETFs + Tier 2 high-IV)
+    "SPY", "QQQ", "TLT", "SLV", "GLD", "XLF", "XLE", "FXI",
+    "TSLA", "GOOG", "AMD", "PLTR", "MSTR", "SMCI", "META", "HOOD", "BTDR",
 ]
 
 # ----------------------------
@@ -72,15 +84,15 @@ def is_market_hours() -> bool:
 
 
 # ----------------------------
-# Refresh: 1-minute bars (rolling 3-day overwrite)
+# Refresh: 1-minute bars (rolling 3-day upsert via staging + MERGE)
 # ----------------------------
 
 def refresh_1m(symbols: List[str], days: int = 3, force: bool = False) -> None:
     """
-    Overwrite last `days` trading days of 1m bars.
+    Upsert last `days` trading days of 1m bars.
     Cost: ~3 days * 390 bars * N symbols = ~21K rows per symbol per run.
     Polygon API: 1 call per symbol.
-    BQ: partition-pruned DELETE + streaming INSERT.
+    BQ: load job to staging → MERGE into bars_1m (streaming-buffer-safe).
     """
     if not force and not is_market_hours():
         print("Market closed, skipping 1m refresh (use --force to override)")
@@ -89,77 +101,62 @@ def refresh_1m(symbols: List[str], days: int = 3, force: bool = False) -> None:
     client = bq_client()
     today = dt.date.today()
     start = today - dt.timedelta(days=days)
-    table_fqn = f"{GCP_PROJECT}.{BQ_DATASET}.bars_1m"
+
+    ok_count = 0
+    err_count = 0
 
     for symbol in symbols:
-        print(f"Refreshing 1m bars for {symbol} from {start}")
+        print(f"Refreshing 1m bars for {symbol} [{start} → {today}]")
         try:
             rows = fetch_agg_bars(symbol, 1, "minute", start, today)
             if not rows:
                 print(f"  No data for {symbol}")
                 continue
 
-            # Partition-pruned delete: only touches recent partitions
-            delete_sql = f"""
-                DELETE FROM `{table_fqn}`
-                WHERE symbol = @symbol AND bar_date >= @start_date
-            """
-            from google.cloud import bigquery
-            job_config = bigquery.QueryJobConfig(query_parameters=[
-                bigquery.ScalarQueryParameter("symbol", "STRING", symbol),
-                bigquery.ScalarQueryParameter("start_date", "DATE", start.isoformat()),
-            ])
-            client.query(delete_sql, job_config=job_config).result()
-
-            load_json_rows(client, table_fqn, rows)
-            print(f"  {symbol}: {len(rows)} rows refreshed")
+            upsert_bars(client, "bars_1m", rows, symbol, start)
+            print(f"  {symbol}: {len(rows)} rows upserted")
+            ok_count += 1
         except Exception as e:
             print(f"  ERROR {symbol}: {e}", file=sys.stderr)
+            err_count += 1
 
-    print(f"1m refresh complete: {len(symbols)} symbols, {days}-day window")
+    print(f"1m refresh complete: {ok_count} ok, {err_count} errors, {days}-day window")
 
 
 # ----------------------------
-# Refresh: daily bars (rolling 5-day overwrite)
+# Refresh: daily bars (rolling 5-day upsert via staging + MERGE)
 # ----------------------------
 
 def refresh_1d(symbols: List[str], days: int = 5) -> None:
     """
-    Overwrite last `days` trading days of daily bars.
+    Upsert last `days` trading days of daily bars.
     Cost: ~5 rows per symbol per run. Extremely cheap.
     Polygon API: 1 call per symbol.
-    BQ: partition-pruned DELETE + streaming INSERT.
+    BQ: load job to staging → MERGE into bars_1d (streaming-buffer-safe).
     """
     client = bq_client()
     today = dt.date.today()
     start = today - dt.timedelta(days=days)
-    table_fqn = f"{GCP_PROJECT}.{BQ_DATASET}.bars_1d"
+
+    ok_count = 0
+    err_count = 0
 
     for symbol in symbols:
-        print(f"Refreshing 1d bars for {symbol} from {start}")
+        print(f"Refreshing 1d bars for {symbol} [{start} → {today}]")
         try:
             rows = fetch_agg_bars(symbol, 1, "day", start, today)
             if not rows:
                 print(f"  No data for {symbol}")
                 continue
 
-            from google.cloud import bigquery
-            delete_sql = f"""
-                DELETE FROM `{table_fqn}`
-                WHERE symbol = @symbol AND bar_date >= @start_date
-            """
-            job_config = bigquery.QueryJobConfig(query_parameters=[
-                bigquery.ScalarQueryParameter("symbol", "STRING", symbol),
-                bigquery.ScalarQueryParameter("start_date", "DATE", start.isoformat()),
-            ])
-            client.query(delete_sql, job_config=job_config).result()
-
-            load_json_rows(client, table_fqn, rows)
-            print(f"  {symbol}: {len(rows)} rows refreshed")
+            upsert_bars(client, "bars_1d", rows, symbol, start)
+            print(f"  {symbol}: {len(rows)} rows upserted")
+            ok_count += 1
         except Exception as e:
             print(f"  ERROR {symbol}: {e}", file=sys.stderr)
+            err_count += 1
 
-    print(f"1d refresh complete: {len(symbols)} symbols, {days}-day window")
+    print(f"1d refresh complete: {ok_count} ok, {err_count} errors, {days}-day window")
 
 
 # ----------------------------

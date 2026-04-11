@@ -1,89 +1,15 @@
 import React, { useMemo, useState } from "react";
-
-// ==========================================
-// 1) MASTER TICKER CATALOG
-// ==========================================
-
-const TICKER_CATALOG = [
-  { id: "NBIS", symbol: "NBIS", exchange: "NASDAQ", name: "Nebius Group", category: "AI", subcategory: "AI Infrastructure", tags: ["leader", "high_beta", "datacenter", "gpu", "core"], enabled: true },
-  { id: "NEBX", symbol: "NEBX", exchange: "CBOE", name: "Tradr 2X Long NBIS Daily ETF", category: "ETF", subcategory: "Leveraged ETF", tags: ["follower", "leveraged", "excursion"], enabled: true },
-  { id: "CRWV", symbol: "CRWV", exchange: "NASDAQ", name: "CoreWeave", category: "AI", subcategory: "AI Infrastructure", tags: ["leader", "high_beta", "datacenter", "power"], enabled: true },
-  { id: "BE", symbol: "BE", exchange: "NYSE", name: "Bloom Energy", category: "Infra", subcategory: "Power / Fuel Cell", tags: ["follower", "power", "datacenter", "ai_adjacent"], enabled: true },
-  { id: "VRT", symbol: "VRT", exchange: "NYSE", name: "Vertiv Holdings", category: "Infra", subcategory: "Data Center Cooling / Power", tags: ["driver", "datacenter", "power"], enabled: true },
-  { id: "ETN", symbol: "ETN", exchange: "NYSE", name: "Eaton Corporation", category: "Infra", subcategory: "Power Management", tags: ["driver", "grid", "power"], enabled: true },
-  { id: "POWL", symbol: "POWL", exchange: "NASDAQ", name: "Powell Industries", category: "Infra", subcategory: "Electrical Infrastructure", tags: ["driver", "power", "grid"], enabled: true },
-  { id: "QQQM", symbol: "QQQM", exchange: "NASDAQ", name: "Invesco NASDAQ 100 ETF", category: "ETF", subcategory: "Index ETF", tags: ["leader", "index", "core"], enabled: true },
-  { id: "MSFT", symbol: "MSFT", exchange: "NASDAQ", name: "Microsoft", category: "AI", subcategory: "Megacap Tech", tags: ["driver", "megacap", "cloud"], enabled: true },
-  { id: "NVDA", symbol: "NVDA", exchange: "NASDAQ", name: "NVIDIA", category: "AI", subcategory: "Semiconductor", tags: ["driver", "gpu", "megacap", "ai_core"], enabled: true },
-  { id: "AAPL", symbol: "AAPL", exchange: "NASDAQ", name: "Apple", category: "Tech", subcategory: "Megacap Tech", tags: ["driver", "megacap"], enabled: true },
-  { id: "AMZN", symbol: "AMZN", exchange: "NASDAQ", name: "Amazon", category: "Tech", subcategory: "Megacap Tech", tags: ["driver", "cloud", "megacap"], enabled: true },
-  { id: "GOOGL", symbol: "GOOGL", exchange: "NASDAQ", name: "Alphabet", category: "Tech", subcategory: "Megacap Tech", tags: ["driver", "cloud", "megacap"], enabled: true },
-  { id: "IWM", symbol: "IWM", exchange: "ARCA", name: "iShares Russell 2000 ETF", category: "Index", subcategory: "Risk Appetite", tags: ["regime", "breadth"], enabled: true },
-  { id: "VIX", symbol: "VIX", exchange: "CBOE", name: "CBOE Volatility Index", category: "Index", subcategory: "Volatility", tags: ["regime", "fear"], enabled: true },
-  { id: "JEPI", symbol: "JEPI", exchange: "ARCA", name: "JPMorgan Equity Premium Income ETF", category: "Income", subcategory: "Covered Call ETF", tags: ["income", "standalone"], enabled: true },
-  { id: "JEPQ", symbol: "JEPQ", exchange: "NASDAQ", name: "JPMorgan Nasdaq Equity Premium Income ETF", category: "Income", subcategory: "Covered Call ETF", tags: ["income", "standalone", "tech_income"], enabled: true },
-  { id: "OXY", symbol: "OXY", exchange: "NYSE", name: "Occidental Petroleum", category: "Energy", subcategory: "Oil & Gas", tags: ["energy", "driver"], enabled: true },
-  { id: "MOS", symbol: "MOS", exchange: "NYSE", name: "Mosaic", category: "Fertilizer", subcategory: "Ag Inputs", tags: ["fertilizer", "commodity"], enabled: true },
-  { id: "CF", symbol: "CF", exchange: "NYSE", name: "CF Industries", category: "Fertilizer", subcategory: "Nitrogen", tags: ["fertilizer", "commodity", "gas_sensitive"], enabled: true },
-  { id: "BAM", symbol: "BAM", exchange: "NYSE", name: "Brookfield Asset Management", category: "Infra", subcategory: "Strategic Partner", tags: ["partner", "renewables"], enabled: true },
-  { id: "BEPC", symbol: "BEPC", exchange: "NYSE", name: "Brookfield Renewable", category: "Infra", subcategory: "Strategic Partner", tags: ["partner", "renewables"], enabled: true },
-];
+import { TICKER_CATALOG, filterCatalog, getTickerById, createPairSetup, createBasketSetup, createInfraFollowerSetup, createStandaloneSetup } from "./tickerCatalog";
 
 const CATEGORIES = [...new Set(TICKER_CATALOG.map((t) => t.category))].sort();
 const ALL_TAGS = [...new Set(TICKER_CATALOG.flatMap((t) => t.tags))].sort();
-
-// ==========================================
-// 2) HELPERS
-// ==========================================
-
-function filterCatalog(catalog, { search, categories, tags, enabledOnly }) {
-  const q = search.trim().toLowerCase();
-  return catalog.filter((t) => {
-    if (enabledOnly && !t.enabled) return false;
-    if (categories.length > 0 && !categories.includes(t.category)) return false;
-    if (tags.length > 0 && !tags.every((tag) => t.tags.includes(tag))) return false;
-    if (!q) return true;
-    return (
-      t.symbol.toLowerCase().includes(q) ||
-      t.name.toLowerCase().includes(q) ||
-      t.exchange.toLowerCase().includes(q) ||
-      t.category.toLowerCase().includes(q) ||
-      t.subcategory.toLowerCase().includes(q) ||
-      t.tags.some((tag) => tag.toLowerCase().includes(q))
-    );
-  });
-}
 
 function toggleArrayValue(arr, value) {
   return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
 }
 
-function findTicker(id) {
-  return TICKER_CATALOG.find((t) => t.id === id) || null;
-}
-
 function uniqueSorted(ids) {
   return [...new Set(ids)].sort();
-}
-
-// ==========================================
-// 3) SETUP BUILDERS
-// ==========================================
-
-function createPairSetup({ id, leaderId, followerId, targets, stop, leaderThreshold, capital }) {
-  return { id, kind: "pair", leaderId, followerId, targets, stop, leaderThreshold, capital };
-}
-
-function createBasketSetup({ id, leaderId, driverIds, capital }) {
-  return { id, kind: "basket", leaderId, driverIds, capital };
-}
-
-function createInfraFollowerSetup({ id, followerId, aiLeaderIds, infraDriverIds, partnerIds, capital, lagThreshold, targetsPct, stopPct }) {
-  return { id, kind: "infra_follower", followerId, aiLeaderIds, infraDriverIds, partnerIds, capital, lagThreshold, targetsPct, stopPct };
-}
-
-function createStandaloneSetup({ id, leaderId, capital }) {
-  return { id, kind: "standalone", leaderId, capital };
 }
 
 // ==========================================
@@ -153,7 +79,7 @@ function MultiSelectField({ label, values, onToggle, options }) {
 // 5) MAIN BUILDER UI
 // ==========================================
 
-export default function TickerSetupBuilder({ onBack }) {
+export default function TickerSetupBuilder({ onBack, onAddSetup, onToggleSetup, onRemoveSetup, runtimeSetups }) {
   const [search, setSearch] = useState("");
   const [categoryFilters, setCategoryFilters] = useState([]);
   const [tagFilters, setTagFilters] = useState([]);
@@ -161,7 +87,7 @@ export default function TickerSetupBuilder({ onBack }) {
   const [selectedTickerIds, setSelectedTickerIds] = useState([]);
 
   const [setupType, setSetupType] = useState("pair");
-  const [setupId, setSetupId] = useState("NBIS_NEBX");
+  const [setupId, setSetupId] = useState("");
   const [capital, setCapital] = useState(1000);
 
   const [leaderId, setLeaderId] = useState("");
@@ -178,13 +104,14 @@ export default function TickerSetupBuilder({ onBack }) {
   const [stopPct, setStopPct] = useState("0.04");
   const [lagThreshold, setLagThreshold] = useState("0.0075");
 
-  const [savedSetups, setSavedSetups] = useState([]);
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [successMsg, setSuccessMsg] = useState("");
 
   const filteredTickers = useMemo(() => {
-    return filterCatalog(TICKER_CATALOG, { search, categories: categoryFilters, tags: tagFilters, enabledOnly });
+    return filterCatalog({ search, categories: categoryFilters, tags: tagFilters, enabledOnly });
   }, [search, categoryFilters, tagFilters, enabledOnly]);
 
-  const selectedTickers = useMemo(() => selectedTickerIds.map(findTicker).filter(Boolean), [selectedTickerIds]);
+  const selectedTickers = useMemo(() => selectedTickerIds.map(getTickerById).filter(Boolean), [selectedTickerIds]);
 
   const leaderOptions = selectedTickers.filter((t) => t.tags.includes("leader") || t.tags.includes("core") || t.tags.includes("income") || t.tags.includes("standalone"));
   const followerOptions = selectedTickers.filter((t) => t.tags.includes("follower"));
@@ -208,14 +135,25 @@ export default function TickerSetupBuilder({ onBack }) {
     return createStandaloneSetup({ id: setupId, leaderId, capital: Number(capital) });
   }
 
-  function saveSetup() {
-    setSavedSetups((prev) => [...prev, buildSetupPayload()]);
-  }
+  function addToScanner() {
+    setValidationErrors([]);
+    setSuccessMsg("");
+    const payload = buildSetupPayload();
 
-  function sendToBackend() {
-    const payload = { tickerCatalogVersion: 1, selectedTickerIds, setups: savedSetups.length ? savedSetups : [buildSetupPayload()] };
-    console.log("BACKEND PAYLOAD:", payload);
-    alert("Payload logged to console. Replace with your backend endpoint.");
+    if (!payload.id) {
+      setValidationErrors(["Setup ID is required"]);
+      return;
+    }
+
+    if (onAddSetup) {
+      const result = onAddSetup(payload);
+      if (result.ok) {
+        setSuccessMsg(`Setup "${payload.id}" added to scanner`);
+        setSetupId("");
+      } else {
+        setValidationErrors(result.errors || ["Unknown error"]);
+      }
+    }
   }
 
   return (
@@ -374,14 +312,25 @@ export default function TickerSetupBuilder({ onBack }) {
               <SelectField label="Leader" value={leaderId} onChange={setLeaderId} options={leaderOptions} />
             )}
 
+            {/* VALIDATION FEEDBACK */}
+            {validationErrors.length > 0 && (
+              <div style={{ background: "#1c0000", border: "1px solid #ef4444", borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, marginBottom: 4 }}>Validation errors</div>
+                {validationErrors.map((e, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "#fca5a5" }}>{e}</div>
+                ))}
+              </div>
+            )}
+            {successMsg && (
+              <div style={{ background: "#001c0f", border: "1px solid #22c55e", borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 12, color: "#86efac" }}>
+                {successMsg}
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-              <button type="button" onClick={saveSetup}
-                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #374151", background: "#1d4ed8", color: "white", cursor: "pointer" }}>
-                Save setup
-              </button>
-              <button type="button" onClick={sendToBackend}
-                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #374151", background: "#065f46", color: "white", cursor: "pointer" }}>
-                Send to backend
+              <button type="button" onClick={addToScanner}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #22c55e", background: "#065f46", color: "white", cursor: "pointer", fontWeight: 700 }}>
+                Add to Scanner
               </button>
             </div>
 
@@ -392,12 +341,35 @@ export default function TickerSetupBuilder({ onBack }) {
               </pre>
             </div>
 
-            <div style={{ background: "#0b1220", border: "1px solid #1f2937", borderRadius: 12, padding: 12 }}>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>Saved setups ({savedSetups.length})</div>
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, color: "#d1d5db" }}>
-                {JSON.stringify(savedSetups, null, 2)}
-              </pre>
-            </div>
+            {/* ACTIVE SETUPS (from registry) */}
+            {runtimeSetups && runtimeSetups.length > 0 && (
+              <div style={{ background: "#0b1220", border: "1px solid #1f2937", borderRadius: 12, padding: 12 }}>
+                <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>Active setups ({runtimeSetups.filter(s => s.enabled).length} enabled / {runtimeSetups.length} total)</div>
+                {runtimeSetups.map(s => (
+                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderBottom: "1px solid #1f2937", fontSize: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ color: s.enabled ? "#22c55e" : "#6b7280", fontWeight: 700 }}>{s.id}</span>
+                      <span style={{ color: "#9ca3af", fontSize: 10 }}>{s.type}</span>
+                      {s._source === "runtime" && <span style={{ color: "#a78bfa", fontSize: 9, background: "#a78bfa22", padding: "1px 5px", borderRadius: 3 }}>RUNTIME</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {onToggleSetup && (
+                        <button type="button" onClick={() => onToggleSetup(s.id)}
+                          style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #374151", background: s.enabled ? "#065f46" : "#111827", color: s.enabled ? "#86efac" : "#9ca3af", fontSize: 10, cursor: "pointer" }}>
+                          {s.enabled ? "ON" : "OFF"}
+                        </button>
+                      )}
+                      {onRemoveSetup && s._source === "runtime" && (
+                        <button type="button" onClick={() => onRemoveSetup(s.id)}
+                          style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #ef444444", background: "transparent", color: "#ef4444", fontSize: 10, cursor: "pointer" }}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

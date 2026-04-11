@@ -70,8 +70,17 @@ if not GCP_PROJECT:
     print("Missing GOOGLE_CLOUD_PROJECT", file=sys.stderr)
 
 DEFAULT_SYMBOLS = [
+    # Trigger engine core
     "NBIS", "NEBX", "QQQM", "MSFT", "NVDA", "AAPL", "AMZN", "GOOGL",
-    "IWM", "JEPI", "JEPQ", "CRWV"
+    "IWM", "JEPI", "JEPQ", "CRWV", "CORZ", "IREN",
+    # Commodity / energy setups
+    "OXY", "MOS", "CF",
+    # Credit-vol engine
+    "BX", "APO", "ARCC", "OWL", "OBDC", "COIN",
+    "HYG", "KRE", "LQD",
+    # 2026 options watchlist (Tier 1 ETFs + Tier 2 high-IV)
+    "SPY", "QQQ", "TLT", "SLV", "GLD", "XLF", "XLE", "FXI",
+    "TSLA", "GOOG", "AMD", "PLTR", "MSTR", "SMCI", "META", "HOOD", "BTDR",
 ]
 
 REQUEST_TIMEOUT = 30
@@ -306,6 +315,7 @@ def fetch_snapshot(symbol: str) -> Dict[str, Any]:
 # ----------------------------
 
 def load_json_rows(client: bigquery.Client, table_fqn: str, rows: List[Dict[str, Any]], batch_size: int = 5000) -> None:
+    """Stream rows via insertAll (append-only, used for quotes_live and backfill)."""
     if not rows:
         return
     for i in range(0, len(rows), batch_size):
@@ -326,19 +336,106 @@ def load_json_rows(client: bigquery.Client, table_fqn: str, rows: List[Dict[str,
                 else:
                     raise
 
-def overwrite_recent_window(client: bigquery.Client, table_name: str, rows: List[Dict[str, Any]], start_date: dt.date) -> None:
-    table_fqn = f"{GCP_PROJECT}.{BQ_DATASET}.{table_name}"
-    delete_sql = f"""
-      DELETE FROM `{table_fqn}`
-      WHERE bar_date >= @start_date
+# ----------------------------
+# Staging + MERGE (streaming-buffer-safe)
+# ----------------------------
+
+def _staging_table_id(base_table: str) -> str:
+    return f"{GCP_PROJECT}.{BQ_DATASET}.{base_table}_staging"
+
+def _ensure_staging_table(client: bigquery.Client, base_table: str) -> str:
+    """Create staging table matching the base schema (no partitioning needed — it's temp)."""
+    staging_fqn = _staging_table_id(base_table)
+    base_fqn = f"{GCP_PROJECT}.{BQ_DATASET}.{base_table}"
+
+    ddl = f"""
+        CREATE TABLE IF NOT EXISTS `{staging_fqn}`
+        AS SELECT * FROM `{base_fqn}` WHERE FALSE
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("start_date", "DATE", start_date.isoformat())
-        ]
+    client.query(ddl).result()
+    return staging_fqn
+
+def _load_to_staging(client: bigquery.Client, staging_fqn: str, rows: List[Dict[str, Any]]) -> None:
+    """Load rows into staging via load job (NOT streaming — avoids buffer issues)."""
+    import io
+    ndjson = "\n".join(json.dumps(r) for r in rows)
+    job_config = bigquery.LoadJobConfig(
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
-    client.query(delete_sql, job_config=job_config).result()
-    load_json_rows(client, table_fqn, rows)
+    job = client.load_table_from_file(
+        io.BytesIO(ndjson.encode("utf-8")),
+        staging_fqn,
+        job_config=job_config,
+    )
+    job.result()  # wait for completion
+    print(f"  Staging: loaded {len(rows)} rows into {staging_fqn.split('.')[-1]}")
+
+def merge_from_staging(client: bigquery.Client, base_table: str, merge_keys: List[str], symbol: str, start_date: dt.date) -> int:
+    """
+    MERGE staging into canonical table.
+    - Matched rows: update all columns
+    - Unmatched rows: insert
+    - Bounded to symbol + date window for partition pruning
+    Returns number of rows affected.
+    """
+    base_fqn = f"{GCP_PROJECT}.{BQ_DATASET}.{base_table}"
+    staging_fqn = _staging_table_id(base_table)
+
+    # Build ON clause from merge keys
+    on_clause = " AND ".join(f"T.{k} = S.{k}" for k in merge_keys)
+
+    # Get column list from staging (exclude merge keys for UPDATE SET)
+    table_ref = client.get_table(staging_fqn)
+    all_cols = [f.name for f in table_ref.schema]
+    update_cols = [c for c in all_cols if c not in merge_keys]
+    update_set = ", ".join(f"T.{c} = S.{c}" for c in update_cols)
+    insert_cols = ", ".join(all_cols)
+    insert_vals = ", ".join(f"S.{c}" for c in all_cols)
+
+    merge_sql = f"""
+        MERGE `{base_fqn}` T
+        USING `{staging_fqn}` S
+        ON {on_clause}
+          AND T.bar_date >= @start_date
+          AND T.symbol = @symbol
+        WHEN MATCHED THEN
+          UPDATE SET {update_set}
+        WHEN NOT MATCHED THEN
+          INSERT ({insert_cols})
+          VALUES ({insert_vals})
+    """
+
+    job_config = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date.isoformat()),
+        bigquery.ScalarQueryParameter("symbol", "STRING", symbol),
+    ])
+
+    result = client.query(merge_sql, job_config=job_config).result()
+    affected = result.num_dml_affected_rows or 0
+    print(f"  Merge: {affected} rows affected in {base_table} for {symbol}")
+    return affected
+
+def upsert_bars(client: bigquery.Client, base_table: str, rows: List[Dict[str, Any]], symbol: str, start_date: dt.date) -> None:
+    """
+    Full staging + MERGE pipeline for bars tables.
+    Safe against streaming buffer conflicts.
+    Idempotent: re-running produces the same result.
+    """
+    if not rows:
+        print(f"  No rows to upsert for {symbol}")
+        return
+
+    staging_fqn = _ensure_staging_table(client, base_table)
+    _load_to_staging(client, staging_fqn, rows)
+    merge_from_staging(client, base_table, ["symbol", "exchange", "ts"], symbol, start_date)
+
+def overwrite_recent_window(client: bigquery.Client, table_name: str, rows: List[Dict[str, Any]], start_date: dt.date) -> None:
+    """Legacy wrapper — now uses staging + MERGE instead of DELETE+INSERT."""
+    if not rows:
+        return
+    symbol = rows[0].get("symbol", "UNKNOWN")
+    upsert_bars(client, table_name, rows, symbol, start_date)
 
 # ----------------------------
 # Pipeline tasks
@@ -348,7 +445,10 @@ def init_db() -> None:
     client = bq_client()
     ensure_dataset(client)
     ensure_tables(client)
-    print(f"Initialized {GCP_PROJECT}.{BQ_DATASET}")
+    # Create staging tables for MERGE-based refresh
+    _ensure_staging_table(client, "bars_1m")
+    _ensure_staging_table(client, "bars_1d")
+    print(f"Initialized {GCP_PROJECT}.{BQ_DATASET} (including staging tables)")
 
 def backfill(symbols: Iterable[str], days_1m: int, days_1d: int) -> None:
     client = bq_client()
