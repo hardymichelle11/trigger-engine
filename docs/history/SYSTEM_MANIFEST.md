@@ -696,6 +696,26 @@ Note: Developer tier allows unlimited API calls. Watch for rate limiting at high
 
 ## 11. Changelog
 
+### 2026-04-12 (session 26 — CV Scanner registry target wiring)
+- **CreditVolScanner.jsx**: `buildSetups` now reads real T1/T2/T3 targets and stop levels from setup registry via `_buildTargetLookup()`. `distT1Pct` computed from actual target prices. `leaderPrice`, `isLeveraged`, `targets`, `stop` passed to liveState engine.
+
+### 2026-04-12 (session 25 — Landing page user-tested redesign)
+- **LandingPage.jsx**: Rebuilt through 6 iterations based on user feedback. About Us + 10 product capabilities (feature+benefit). Trading chart SVG visualization. Tagline strip with divider lines. Mobile responsive. No proprietary engine details. Single Launch Dashboard button.
+
+### 2026-04-12 (sessions 22-24 — Live-state recalibration + observability + BQ ops)
+- **liveStateEngine.js**: Universal recalibration framework. 3-layer architecture (setupDefinition → liveMarketState → derivedState). Recalc triggers: price drift, regime change, IV/ATR shift, leverage gap, TTL. `shouldRecalculate`, `buildLiveState`, `renderSafeCardState`, `isAlertSafe`, `getFreshnessStatus`. Reason codes, telemetry log, debug mode.
+- **recalcMonitor.js**: `computeFreshnessMetrics`, `computeRecalcAnalytics`, `computeInvalidationAnalytics`, `getHealthSnapshot`.
+- **opsEventCollector.js**: localStorage-backed event buffer for recalc/invalidation/alert events. 4 event types, rolling 5000 max, drain/clear APIs.
+- **alertEngine.js**: Gate 0 freshness safety blocks stale cards. `blockedByFreshness` + `freshnessReason`.
+- **CreditVolScanner.jsx**: `HealthPanel`, `FreshnessBadge`, per-card STALE/BLOCKED badges.
+- **flush-ops-metrics.js**: Drains events to JSON + BQ (3 tables: `ops_recalc_events`, `ops_invalidation_events`, `ops_alert_events`). Windows Task Scheduler: `MarketData-OpsFlush` daily 4:10 PM.
+
+### 2026-04-12 (sessions 19-21 — Regime calibration + knowledge bot + landing page)
+- **Regime context in calibration**: `regimeContext` wired into `buildUiCard` and calibration snapshots. Regime-grouped stats. Quarterly regime-conditioned recommendations. CSV export with 6 regime columns.
+- **Knowledge bot**: 4 modes (OFF/FAQ_ONLY/SEARCH_ONLY/FULL_CHAT), budget guardrails, usage tracker, 14 FAQs + glossary, Vertex AI backend (Gemini 2.5 Flash), `KnowledgeBotPanel` in scanner sidebar.
+- **Landing page**: Initial build with Tailwind CSS v4, framer-motion, lucide-react. Later redesigned through multiple iterations.
+- **npm run validate**: 17 test suites, 746 total assertions.
+
 ### 2026-04-11 (session 18 — Self-calibration tracking system)
 - **Calibration tracker** (`src/lib/calibration/calibrationTracker.js`):
   - `recordCalibrationSnapshot(cards)`: Inspects scored cards after each scan, records per-symbol observations with baseline vs enhanced scores, ATR penalty flag, positive bonus flag, chart adjustments. 5-minute dedup window.
