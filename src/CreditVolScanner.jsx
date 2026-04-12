@@ -23,6 +23,7 @@ import {
 } from "./optionsWatchlist.js";
 import { runDiscoveryScan, getDiscoveryPreview } from "./lib/discoveryScanner.js";
 import { recordCalibrationSnapshot, markAlertsFired, getCalibrationStats } from "./lib/calibration/calibrationTracker.js";
+import KnowledgeBotPanel from "./lib/knowledgeBot/KnowledgeBotPanel.jsx";
 
 // --------------------------------------------------
 // COLORS (matching App.jsx theme)
@@ -1287,6 +1288,11 @@ export default function CreditVolScanner({ onBack }) {
               Select a setup to view details
             </div>
           )}
+
+          {/* Knowledge Bot */}
+          <div style={{ padding: 12, borderTop: "1px solid #1e2530" }}>
+            <KnowledgeBotPanel />
+          </div>
 
           {/* Alerts */}
           <div style={{ padding: 12, borderTop: "1px solid #1e2530" }}>
