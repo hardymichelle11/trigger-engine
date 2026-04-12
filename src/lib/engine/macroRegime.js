@@ -2,10 +2,49 @@
 // SECTION 1: MARKET REGIME ENGINE (GO / NO-GO)
 // SECTION 7: TRADING WINDOW CHECK
 // =====================================================
+// V2: Uses creditVolRegimeV2 when history series are available.
+// Falls back to V1 binary logic when only snapshot data exists.
+// =====================================================
 
 import { CONFIG, round2 } from "./config.js";
+import { buildCreditVolRegime } from "./creditVolRegimeV2.js";
 
-export function evaluateMarketRegime({ hyg, kre, lqd, vix, vixPrev, atrExpansionMultiple }) {
+// --------------------------------------------------
+// V2 REGIME (weighted composite, needs history series)
+// --------------------------------------------------
+
+/**
+ * Evaluate market regime using V2 composite model.
+ * Call this when you have price history arrays.
+ *
+ * @param {object} history — { HYG: number[], KRE: number[], XLF: number[], VIX: number[], QQQ: number[], TNX: number[] }
+ * @returns {object} regime result (backward compatible with V1 shape)
+ */
+export function evaluateMarketRegimeV2(history) {
+  return buildCreditVolRegime(history);
+}
+
+// --------------------------------------------------
+// V1 REGIME (binary thresholds, snapshot only — legacy fallback)
+// --------------------------------------------------
+
+/**
+ * Legacy V1 regime evaluation from snapshot values.
+ * Used by App.jsx trigger engine (VIX + IWM) and as fallback
+ * when history series are not available.
+ *
+ * @param {object} inputs — { hyg, kre, lqd, vix, vixPrev, atrExpansionMultiple }
+ * @returns {object} regime result
+ */
+export function evaluateMarketRegime(inputs) {
+  // If inputs look like history arrays, route to V2
+  if (inputs.HYG && Array.isArray(inputs.HYG)) {
+    return evaluateMarketRegimeV2(inputs);
+  }
+
+  // V1 binary logic (for trigger engine + backward compat)
+  const { hyg, kre, lqd, vix, vixPrev, atrExpansionMultiple } = inputs;
+
   const hygWeak = hyg < CONFIG.macro.hygBreak;
   const kreWeak = kre < CONFIG.macro.kreBreak;
   const creditStress = hygWeak || kreWeak;
@@ -54,8 +93,13 @@ export function evaluateMarketRegime({ hyg, kre, lqd, vix, vixPrev, atrExpansion
     fearBand, fearSpike, vixRising,
     flags: { hygWeak, kreWeak, atrExpanded },
     indicators: { hyg, kre, lqd, vix, vixPrev },
+    engineVersion: 1,
   };
 }
+
+// --------------------------------------------------
+// TRADING WINDOW CHECK
+// --------------------------------------------------
 
 export function getTradingWindow() {
   const now = new Date();

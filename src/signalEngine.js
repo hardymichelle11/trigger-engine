@@ -7,7 +7,7 @@
 export { CONFIG, pctChange, round2, safeNumber, midpoint } from "./lib/engine/config.js";
 
 // Re-export modules
-export { evaluateMarketRegime, getTradingWindow } from "./lib/engine/macroRegime.js";
+export { evaluateMarketRegime, evaluateMarketRegimeV2, getTradingWindow } from "./lib/engine/macroRegime.js";
 export { classifyTiming, scoreSetup, interpretSentiment, chooseAction } from "./lib/engine/setupScoring.js";
 export { selectPutLadder } from "./lib/engine/strikeSelection.js";
 export { buildProfitPlan } from "./lib/engine/profitManagement.js";

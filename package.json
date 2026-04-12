@@ -28,7 +28,8 @@
     "calibration:export": "node scripts/export-calibration.js",
     "calibration:update": "node scripts/update-calibration-outcome.js",
     "test:calibration": "node scripts/test-calibration.js",
-    "validate": "node scripts/validate-setups.js && node scripts/test-signal-engine.js && node scripts/test-options-watchlist.js && node scripts/test-slope.js && node scripts/test-iv.js && node scripts/test-mc.js && node scripts/test-alerts.js && node scripts/test-backtest.js && node scripts/test-websocket.js && node scripts/test-history.js && node scripts/test-stack-backtest.js && node scripts/test-discovery.js && node scripts/test-structure.js && node scripts/test-calibration.js"
+    "test:regime": "node scripts/test-regime-v2.js",
+    "validate": "node scripts/validate-setups.js && node scripts/test-signal-engine.js && node scripts/test-options-watchlist.js && node scripts/test-slope.js && node scripts/test-iv.js && node scripts/test-mc.js && node scripts/test-alerts.js && node scripts/test-backtest.js && node scripts/test-websocket.js && node scripts/test-history.js && node scripts/test-stack-backtest.js && node scripts/test-discovery.js && node scripts/test-structure.js && node scripts/test-calibration.js && node scripts/test-regime-v2.js"
   },
   "dependencies": {
     "react": "^19.2.4",

@@ -74,7 +74,7 @@ async function fetchAllSnapshots(symbols) {
 // SYMBOL UNIVERSE (from optionsWatchlist.js)
 // --------------------------------------------------
 
-const MACRO_SYMBOLS = ["HYG", "KRE", "LQD", "VIX"];
+const MACRO_SYMBOLS = ["HYG", "KRE", "LQD", "VIX", "XLF", "QQQ", "TNX"];
 
 // Credit signal tickers (sentiment, not trade vehicles)
 const CREDIT_SIGNALS = ["BX", "APO", "ARCC", "OWL", "OBDC"];
@@ -106,25 +106,45 @@ const SYMBOL_NAMES = {
   GOOGL: "Alphabet", GOOG: "Alphabet C", META: "Meta",
 };
 
-function buildMarketInputs(snapshots) {
-  const get = (sym) => snapshots[sym]?.day?.c || snapshots[sym]?.prevDay?.c || 0;
-  const getPrev = (sym) => snapshots[sym]?.prevDay?.c || 0;
-  const getATR = (sym) => {
-    const day = snapshots[sym]?.day;
-    if (!day) return 1;
-    const range = (day.h || 0) - (day.l || 0);
-    const prevRange = (snapshots[sym]?.prevDay?.h || 0) - (snapshots[sym]?.prevDay?.l || 0);
-    return prevRange > 0 ? range / prevRange : 1;
-  };
+// V2 regime history builder: creates price series from snapshots
+// When historyProvider data is available, merges it for richer series.
+// TODO: Pull longer series from historyProvider.getCloses() for each regime ticker
+function buildRegimeHistory(snapshots, historicalCloses) {
+  const regimeTickers = ["HYG", "KRE", "XLF", "VIX", "QQQ", "TNX"];
+  const history = {};
 
-  return {
-    hyg: get("HYG"),
-    kre: get("KRE"),
-    lqd: get("LQD"),
-    vix: get("VIX"),
-    vixPrev: getPrev("VIX"),
-    atrExpansionMultiple: getATR("VIX"),
-  };
+  for (const sym of regimeTickers) {
+    // Start with historical closes if available (oldest → newest)
+    const closes = historicalCloses?.[sym] ? [...historicalCloses[sym]] : [];
+
+    // Append snapshot data (prevDay close + current day close)
+    const snap = snapshots[sym];
+    if (snap) {
+      const prevClose = snap.prevDay?.c;
+      const dayClose = snap.day?.c || prevClose;
+      if (prevClose && (!closes.length || closes[closes.length - 1] !== prevClose)) {
+        closes.push(prevClose);
+      }
+      if (dayClose && dayClose !== prevClose) {
+        closes.push(dayClose);
+      }
+    }
+
+    // QQQM adapter: if QQQ not available but QQQM is, use QQQM
+    if (sym === "QQQ" && closes.length < 2) {
+      const qqqmSnap = snapshots["QQQM"];
+      if (qqqmSnap) {
+        const pc = qqqmSnap.prevDay?.c;
+        const dc = qqqmSnap.day?.c || pc;
+        if (pc) closes.push(pc);
+        if (dc && dc !== pc) closes.push(dc);
+      }
+    }
+
+    history[sym] = closes.filter(c => c > 0);
+  }
+
+  return history;
 }
 
 function classifySymbol(sym) {
@@ -968,7 +988,10 @@ export default function CreditVolScanner({ onBack }) {
       updateFromPoll(snapshots);
       setFeedHealth(getFeedHealth());
 
-      const marketInputs = buildMarketInputs(snapshots);
+      // Build V2 regime from history series (snapshot-derived, 2+ bars)
+      // TODO: Enrich with historyProvider.getCloses() for 20+ bar z-scores
+      const regimeHistory = buildRegimeHistory(snapshots, null);
+      const marketInputs = regimeHistory;  // V2 accepts history arrays directly
 
       // Fetch IV rank data through adapter (cache-aware, graceful fallback)
       let ivData = {};
@@ -976,10 +999,10 @@ export default function CreditVolScanner({ onBack }) {
         const tradeableSymbols = [...new Set([...HIGH_IV_VEHICLES, ...CREDIT_SIGNALS, ...TIER1_ETFS, ...MEGACAP_VEHICLES])];
         ivData = await getIvRankBatch(tradeableSymbols, {
           apiKey: getPolygonKey(),
-          atrExpansionMultiple: 1, // fallback params filled per-symbol in buildSetups
+          atrExpansionMultiple: 1,
         });
       } catch {
-        // IV adapter failure is non-fatal — scoring degrades gracefully
+        // IV adapter failure is non-fatal
       }
 
       const setups = buildSetups(snapshots, ivData);
