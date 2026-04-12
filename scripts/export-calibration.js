@@ -25,12 +25,13 @@ const jsonPath = `${OUT_DIR}/calibration-log.json`;
 writeFileSync(jsonPath, JSON.stringify(getExportData(), null, 2));
 console.log(`  Exported ${obs.length} observations to ${jsonPath}`);
 
-// 2. CSV export
+// 2. CSV export (includes regime columns when present)
 const csvPath = `${OUT_DIR}/calibration-log.csv`;
-const headers = "id,date,symbol,setupType,baselineScore,enhancedScore,delta,hadAtrPenalty,hadPositiveBonus,alertFired,sessionsOut,outcome,justified,notes";
-const rows = obs.map(o =>
-  `${o.id},${o.date},${o.symbol},${o.setupType},${o.baselineScore},${o.enhancedScore},${o.delta},${o.hadAtrPenalty},${o.hadPositiveBonus},${o.alertFired},${o.sessionsOut || ""},${o.outcome || ""},${o.justified || ""},${(o.notes || "").replace(/,/g, ";")}`
-);
+const headers = "id,date,symbol,setupType,baselineScore,enhancedScore,delta,hadAtrPenalty,hadPositiveBonus,alertFired,sessionsOut,outcome,justified,notes,regime,regimeBias,regimeScore,regimeConfidence,vixState,earlyStress";
+const rows = obs.map(o => {
+  const rc = o.regimeContext || {};
+  return `${o.id},${o.date},${o.symbol},${o.setupType},${o.baselineScore},${o.enhancedScore},${o.delta},${o.hadAtrPenalty},${o.hadPositiveBonus},${o.alertFired},${o.sessionsOut || ""},${o.outcome || ""},${o.justified || ""},${(o.notes || "").replace(/,/g, ";")},${rc.regime || ""},${rc.bias || ""},${rc.regimeScore ?? ""},${rc.confidence || ""},${rc.vixState || ""},${rc.earlyStress ?? ""}`;
+});
 writeFileSync(csvPath, [headers, ...rows].join("\n"));
 console.log(`  Exported CSV to ${csvPath}`);
 

@@ -67,6 +67,8 @@ export function recordCalibrationSnapshot(cards, meta = {}) {
       outcome: null,
       justified: null,
       notes: "",
+      // V2: regime context at time of observation (optional, backward-compatible)
+      regimeContext: card.regimeContext || null,
     });
   }
 
@@ -207,6 +209,9 @@ export function getCalibrationStats(options = {}) {
     Object.entries(typeRollup).map(([type, s]) => [type, _r2(s.totalDelta / s.total)])
   );
 
+  // ---- Regime-grouped stats (V2) ----
+  const regimeStats = _buildRegimeGroupedStats(obs);
+
   // Needs review: unreviewed, prioritized by alert-fired first, then largest |delta|
   const needsReview = obs
     .filter(o => o.sessionsOut === null)
@@ -237,6 +242,7 @@ export function getCalibrationStats(options = {}) {
     topBonusSymbols,
     avgDeltaByType,
     needsReviewCount: needsReview.length,
+    regimeStats,
   };
 }
 
@@ -273,15 +279,19 @@ export function getNeedsReview(options = {}) {
 export function getQuarterlyCalibrationReport(options = {}) {
   const stats = getCalibrationStats(options);
 
-  // Recommendation
+  // Base recommendation (existing logic)
   let recommendation = "keep weights";
   if (stats.pctAtrPenalty > 0.8) recommendation = "reduce ATR penalty (firing > 80% of setups)";
   else if (stats.pctPositiveBonus < 0.1 && stats.total > 20) recommendation = "increase positive bonus weight (< 10% getting bonuses)";
   else if (Math.abs(stats.avgDelta) > 8) recommendation = "review weight balance (avg delta > ±8)";
 
+  // Regime-conditioned recommendations (V2)
+  const regimeRecommendations = _buildRegimeRecommendations(stats.regimeStats);
+
   return {
     ...stats,
     recommendation,
+    regimeRecommendations,
     generatedAt: new Date().toISOString(),
     dateRange: { from: options.from || "all", to: options.to || "now" },
   };
@@ -354,6 +364,46 @@ export function formatCalibrationReport(report) {
     }
   }
 
+  // Regime-grouped stats (V2)
+  if (report.regimeStats) {
+    const rs = report.regimeStats;
+    lines.push(``, `  ── Regime Analysis (${rs.totalWithRegime} observations with regime context) ──`);
+
+    if (rs.byRegime && Object.keys(rs.byRegime).length > 0) {
+      lines.push(``, `  By regime:`);
+      for (const [regime, s] of Object.entries(rs.byRegime)) {
+        const wr = s.winRate !== null ? `, win ${(s.winRate * 100).toFixed(0)}%` : "";
+        lines.push(`    ${regime}: ${s.count} obs, avg delta ${s.avgDelta > 0 ? "+" : ""}${s.avgDelta}, alert ${(s.alertRate * 100).toFixed(0)}%, ATR pen ${(s.atrPenaltyRate * 100).toFixed(0)}%${wr}`);
+      }
+    }
+
+    if (rs.byConfidence && Object.keys(rs.byConfidence).length > 0) {
+      lines.push(``, `  By confidence:`);
+      for (const [conf, s] of Object.entries(rs.byConfidence)) {
+        const wr = s.winRate !== null ? `, win ${(s.winRate * 100).toFixed(0)}%` : "";
+        lines.push(`    ${conf}: ${s.count} obs, avg delta ${s.avgDelta > 0 ? "+" : ""}${s.avgDelta}${wr}`);
+      }
+    }
+
+    if (rs.earlyStress) {
+      const esTrue = rs.earlyStress.true;
+      const esFalse = rs.earlyStress.false;
+      if (esTrue.count > 0 || esFalse.count > 0) {
+        lines.push(``, `  Early stress:`);
+        lines.push(`    earlyStress=true:  ${esTrue.count} obs, avg delta ${esTrue.avgDelta > 0 ? "+" : ""}${esTrue.avgDelta}${esTrue.winRate !== null ? `, win ${(esTrue.winRate * 100).toFixed(0)}%` : ""}`);
+        lines.push(`    earlyStress=false: ${esFalse.count} obs, avg delta ${esFalse.avgDelta > 0 ? "+" : ""}${esFalse.avgDelta}${esFalse.winRate !== null ? `, win ${(esFalse.winRate * 100).toFixed(0)}%` : ""}`);
+      }
+    }
+  }
+
+  // Regime-conditioned recommendations
+  if (report.regimeRecommendations && report.regimeRecommendations.length > 0) {
+    lines.push(``, `  ── Regime-Conditioned Recommendations ──`);
+    for (const rec of report.regimeRecommendations) {
+      lines.push(`  • ${rec}`);
+    }
+  }
+
   // Needs review
   if (report.needsReviewCount > 0) {
     lines.push(``, `  Needs review: ${report.needsReviewCount} observations pending outcome`);
@@ -383,5 +433,150 @@ function _emptyStats() {
     alertFiredCount: 0, alertRateBaseline: 0, alertRateEnhanced: 0,
     reviewed: 0, outcomeBreakdown: {}, justifiedBreakdown: {},
     topPenalties: [], topBonuses: [],
+    regimeStats: null,
   };
+}
+
+// --------------------------------------------------
+// REGIME-GROUPED STATS (V2)
+// --------------------------------------------------
+
+/**
+ * Build grouped stats by regime, confidence, and earlyStress.
+ * Only includes observations that have regimeContext.
+ */
+function _buildRegimeGroupedStats(obs) {
+  const withRegime = obs.filter(o => o.regimeContext);
+  if (withRegime.length === 0) return null;
+
+  // --- By regime ---
+  const byRegime = _groupBy(withRegime, o => o.regimeContext.regime);
+  const regimeSummaries = {};
+  for (const [regime, group] of Object.entries(byRegime)) {
+    regimeSummaries[regime] = _summarizeGroup(group);
+  }
+
+  // --- By confidence ---
+  const byConfidence = _groupBy(withRegime, o => o.regimeContext.confidence || "unknown");
+  const confidenceSummaries = {};
+  for (const [conf, group] of Object.entries(byConfidence)) {
+    confidenceSummaries[conf] = _summarizeGroup(group);
+  }
+
+  // --- By earlyStress ---
+  const earlyStressGroup = withRegime.filter(o => o.regimeContext.earlyStress);
+  const noEarlyStressGroup = withRegime.filter(o => !o.regimeContext.earlyStress);
+
+  // --- High regimeScore (>65) outcomes ---
+  const highRegimeScore = withRegime.filter(o => (o.regimeContext.regimeScore || 0) > 65);
+
+  return {
+    totalWithRegime: withRegime.length,
+    byRegime: regimeSummaries,
+    byConfidence: confidenceSummaries,
+    earlyStress: {
+      true: _summarizeGroup(earlyStressGroup),
+      false: _summarizeGroup(noEarlyStressGroup),
+    },
+    highRegimeScore: _summarizeGroup(highRegimeScore),
+  };
+}
+
+function _summarizeGroup(group) {
+  if (!group || group.length === 0) {
+    return { count: 0, avgDelta: 0, avgBaseline: 0, avgEnhanced: 0, alertRate: 0, atrPenaltyRate: 0, bonusRate: 0, outcomes: {} };
+  }
+  const n = group.length;
+  const reviewed = group.filter(o => o.outcome !== null);
+  const outcomes = {};
+  for (const o of reviewed) {
+    outcomes[o.outcome] = (outcomes[o.outcome] || 0) + 1;
+  }
+
+  const winOutcomes = ["HIT_T1", "HIT_T2", "IMPROVED"];
+  const wins = reviewed.filter(o => winOutcomes.includes(o.outcome)).length;
+
+  return {
+    count: n,
+    avgDelta: _r2(group.reduce((s, o) => s + o.delta, 0) / n),
+    avgBaseline: _r2(group.reduce((s, o) => s + o.baselineScore, 0) / n),
+    avgEnhanced: _r2(group.reduce((s, o) => s + o.enhancedScore, 0) / n),
+    alertRate: _r2(group.filter(o => o.alertFired).length / n),
+    atrPenaltyRate: _r2(group.filter(o => o.hadAtrPenalty).length / n),
+    bonusRate: _r2(group.filter(o => o.hadPositiveBonus).length / n),
+    outcomes,
+    reviewed: reviewed.length,
+    winRate: reviewed.length > 0 ? _r2(wins / reviewed.length) : null,
+  };
+}
+
+function _groupBy(arr, keyFn) {
+  const groups = {};
+  for (const item of arr) {
+    const key = keyFn(item) || "UNKNOWN";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(item);
+  }
+  return groups;
+}
+
+/**
+ * Generate natural-language recommendations from regime-grouped stats.
+ * Returns an array of recommendation strings.
+ */
+function _buildRegimeRecommendations(regimeStats) {
+  if (!regimeStats || !regimeStats.byRegime) return [];
+
+  const recs = [];
+  const byRegime = regimeStats.byRegime;
+  const byConf = regimeStats.byConfidence;
+
+  // Compare win rates across regimes
+  for (const [regime, summary] of Object.entries(byRegime)) {
+    if (summary.reviewed >= 3 && summary.winRate !== null) {
+      if (summary.winRate < 0.3) {
+        recs.push(`Alerts during ${regime} had low win rate (${(summary.winRate * 100).toFixed(0)}%) — consider tightening entry criteria in this regime.`);
+      } else if (summary.winRate > 0.7) {
+        recs.push(`Enhanced scoring during ${regime} showed strong win rate (${(summary.winRate * 100).toFixed(0)}%) — current weights are well-calibrated for this regime.`);
+      }
+    }
+
+    // ATR penalty overuse in benign regimes
+    if (regime === "RISK_ON" || regime === "VOLATILE_BUT_CONTAINED") {
+      if (summary.atrPenaltyRate > 0.5 && summary.count >= 5) {
+        recs.push(`ATR penalty was over-applied during ${regime} (${(summary.atrPenaltyRate * 100).toFixed(0)}% of setups) — may be reducing valid alerts.`);
+      }
+    }
+
+    // Bonus effectiveness by regime
+    if (summary.bonusRate > 0.3 && summary.reviewed >= 3 && summary.winRate !== null) {
+      if (summary.winRate > 0.6) {
+        recs.push(`Positive bonus was justified more often in ${regime} (${(summary.bonusRate * 100).toFixed(0)}% bonus rate, ${(summary.winRate * 100).toFixed(0)}% win rate).`);
+      }
+    }
+  }
+
+  // earlyStress analysis
+  const es = regimeStats.earlyStress;
+  if (es.true.reviewed >= 3 && es.true.winRate !== null && es.false.reviewed >= 3 && es.false.winRate !== null) {
+    const diff = es.false.winRate - es.true.winRate;
+    if (diff > 0.15) {
+      recs.push(`Early stress states had below-average outcomes (${(es.true.winRate * 100).toFixed(0)}% vs ${(es.false.winRate * 100).toFixed(0)}% win rate) — consider reducing position size when earlyStress is flagged.`);
+    }
+  }
+
+  // Confidence-level analysis
+  if (byConf.high && byConf.low && byConf.high.reviewed >= 3 && byConf.low.reviewed >= 3) {
+    if (byConf.low.winRate !== null && byConf.low.winRate < 0.35) {
+      recs.push(`Low-confidence regimes had poor outcomes (${(byConf.low.winRate * 100).toFixed(0)}% win rate) — false positives likely elevated when confidence is low.`);
+    }
+  }
+
+  // High regimeScore analysis
+  const highRS = regimeStats.highRegimeScore;
+  if (highRS.reviewed >= 3 && highRS.winRate !== null && highRS.winRate < 0.4) {
+    recs.push(`Outcomes were below average when regimeScore > 65 (${(highRS.winRate * 100).toFixed(0)}% win rate) — aggressive put selling during high-stress may need tighter filters.`);
+  }
+
+  return recs;
 }

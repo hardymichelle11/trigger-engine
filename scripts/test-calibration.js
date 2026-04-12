@@ -142,5 +142,126 @@ assert("Export: observations count matches", exported.observations.length === 3)
 clearCalibrationData();
 assert("After clear: empty", loadObservations().length === 0);
 
+// ============================================================
+// 13. Regime context: snapshot with regimeContext
+// ============================================================
+console.log("\n  Regime Context Tests");
+console.log("  ────────────────────\n");
+
+const regimeCards = [
+  {
+    symbol: "SPY", category: "ETF", score: 82, baselineScore: 85,
+    scoreTrace: [{ pts: -3, reason: "ATR context: extended", source: "chart_context" }],
+    regimeContext: {
+      regime: "RISK_ON",
+      bias: "SELL_PUTS_NORMAL",
+      regimeScore: 25,
+      confidence: "high",
+      vixState: "calm",
+      earlyStress: false,
+      componentScores: { HYG: 10, KRE: 15, XLF: 12, VIX: 20, QQQ: 8, TNX: 5 },
+    },
+  },
+  {
+    symbol: "NVDA", category: "HIGH_IV", score: 70, baselineScore: 78,
+    scoreTrace: [{ pts: -8, reason: "ATR context: overextended", source: "chart_context" }],
+    regimeContext: {
+      regime: "CREDIT_STRESS_WATCH",
+      bias: "WAIT_OR_SMALL_FAR_OTM",
+      regimeScore: 58,
+      confidence: "medium",
+      vixState: "watch",
+      earlyStress: true,
+      componentScores: { HYG: 44, KRE: 52, XLF: 39, VIX: 28, QQQ: 21, TNX: 17 },
+    },
+  },
+  {
+    symbol: "TSLA", category: "HIGH_IV", score: 88, baselineScore: 80,
+    scoreTrace: [{ pts: 5, reason: "Resistance: clear air to T1", source: "chart_context" }, { pts: 3, reason: "Demand zone: fresh", source: "chart_context" }],
+    regimeContext: {
+      regime: "RISK_ON",
+      bias: "SELL_PUTS_NORMAL",
+      regimeScore: 22,
+      confidence: "high",
+      vixState: "calm",
+      earlyStress: false,
+      componentScores: { HYG: 8, KRE: 10, XLF: 9, VIX: 18, QQQ: 6, TNX: 4 },
+    },
+  },
+];
+
+// Use a different scanTime window to avoid dedup with earlier tests
+recordCalibrationSnapshot(regimeCards, { scanTime: Date.now() + 600000 });
+
+const regimeObs = loadObservations();
+assert("Regime: 3 observations stored", regimeObs.length === 3);
+
+const spyObs = regimeObs.find(o => o.symbol === "SPY");
+assert("SPY: has regimeContext", spyObs.regimeContext !== null);
+assert("SPY: regime = RISK_ON", spyObs.regimeContext.regime === "RISK_ON");
+assert("SPY: bias = SELL_PUTS_NORMAL", spyObs.regimeContext.bias === "SELL_PUTS_NORMAL");
+assert("SPY: regimeScore = 25", spyObs.regimeContext.regimeScore === 25);
+assert("SPY: confidence = high", spyObs.regimeContext.confidence === "high");
+assert("SPY: vixState = calm", spyObs.regimeContext.vixState === "calm");
+assert("SPY: earlyStress = false", spyObs.regimeContext.earlyStress === false);
+assert("SPY: componentScores.HYG = 10", spyObs.regimeContext.componentScores.HYG === 10);
+
+const nvdaRegime = regimeObs.find(o => o.symbol === "NVDA");
+assert("NVDA: earlyStress = true", nvdaRegime.regimeContext.earlyStress === true);
+assert("NVDA: regime = CREDIT_STRESS_WATCH", nvdaRegime.regimeContext.regime === "CREDIT_STRESS_WATCH");
+
+// 14. Legacy snapshot without regimeContext
+const legacyCards = [
+  {
+    symbol: "ARCC", category: "CREDIT", score: 65, baselineScore: 65,
+    scoreTrace: [],
+    // No regimeContext — simulates pre-V2 card
+  },
+];
+recordCalibrationSnapshot(legacyCards, { scanTime: Date.now() + 1200000 });
+const allObs = loadObservations();
+const arccLegacy = allObs.find(o => o.symbol === "ARCC");
+assert("Legacy ARCC: regimeContext = null", arccLegacy.regimeContext === null);
+
+// 15. Regime-grouped stats
+const regimeStatsFull = getCalibrationStats();
+assert("RegimeStats: regimeStats exists", regimeStatsFull.regimeStats !== null);
+assert("RegimeStats: totalWithRegime = 3", regimeStatsFull.regimeStats.totalWithRegime === 3);
+assert("RegimeStats: byRegime has RISK_ON", regimeStatsFull.regimeStats.byRegime.RISK_ON !== undefined);
+assert("RegimeStats: RISK_ON count = 2", regimeStatsFull.regimeStats.byRegime.RISK_ON.count === 2);
+assert("RegimeStats: CREDIT_STRESS_WATCH count = 1", regimeStatsFull.regimeStats.byRegime.CREDIT_STRESS_WATCH.count === 1);
+assert("RegimeStats: byConfidence has high", regimeStatsFull.regimeStats.byConfidence.high !== undefined);
+assert("RegimeStats: high confidence count = 2", regimeStatsFull.regimeStats.byConfidence.high.count === 2);
+assert("RegimeStats: earlyStress true count = 1", regimeStatsFull.regimeStats.earlyStress.true.count === 1);
+assert("RegimeStats: earlyStress false count = 2", regimeStatsFull.regimeStats.earlyStress.false.count === 2);
+assert("RegimeStats: RISK_ON has alertRate", typeof regimeStatsFull.regimeStats.byRegime.RISK_ON.alertRate === "number");
+assert("RegimeStats: RISK_ON has avgDelta", typeof regimeStatsFull.regimeStats.byRegime.RISK_ON.avgDelta === "number");
+
+// 16. Quarterly report with regime recommendations
+// Add some outcomes to enable regime-conditioned analysis
+const obsForOutcome = loadObservations();
+for (const o of obsForOutcome) {
+  if (o.regimeContext?.regime === "RISK_ON") {
+    updateObservation(o.id, { sessionsOut: 2, outcome: "HIT_T1", justified: "YES" });
+  }
+  if (o.regimeContext?.regime === "CREDIT_STRESS_WATCH") {
+    updateObservation(o.id, { sessionsOut: 4, outcome: "FAILED", justified: "NO" });
+  }
+}
+
+const regimeReport = getQuarterlyCalibrationReport();
+assert("Report: has regimeRecommendations array", Array.isArray(regimeReport.regimeRecommendations));
+assert("Report: regimeStats in report", regimeReport.regimeStats !== null);
+
+const formattedRegime = formatCalibrationReport(regimeReport);
+assert("Formatted: contains Regime Analysis", formattedRegime.includes("Regime Analysis"));
+assert("Formatted: contains RISK_ON", formattedRegime.includes("RISK_ON"));
+assert("Formatted: contains confidence section", formattedRegime.includes("By confidence"));
+assert("Formatted: contains early stress section", formattedRegime.includes("Early stress"));
+
+// 17. Clean up
+clearCalibrationData();
+assert("Final clear: empty", loadObservations().length === 0);
+
 console.log(`\n  Results: ${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);

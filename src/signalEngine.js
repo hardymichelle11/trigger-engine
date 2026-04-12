@@ -177,6 +177,16 @@ export function buildUiCard(setup, market) {
     diagnostics: scored.diagnostics,
     scoreTrace: combinedTrace,
     narrative,
+    // Regime context for calibration tracking (V2 fields)
+    regimeContext: market.engineVersion === 2 ? {
+      regime: market.mode,
+      bias: market.sellPutsAction || market.bias,
+      regimeScore: market.regimeScore,
+      confidence: typeof market.confidence === "object" ? market.confidence.label : market.confidence,
+      vixState: market.vixState,
+      earlyStress: market.flags?.earlyStress ?? false,
+      componentScores: market.componentScores || null,
+    } : null,
   };
 }
 
