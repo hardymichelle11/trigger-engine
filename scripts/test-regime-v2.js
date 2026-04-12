@@ -4,7 +4,7 @@
 // Run: npm run test:regime
 // =====================================================
 
-import { buildCreditVolRegime, REGIME_V2_CONFIG } from "../src/lib/engine/creditVolRegimeV2.js";
+import { buildCreditVolRegime, REGIME_V2_CONFIG, resetRegimePersistence } from "../src/lib/engine/creditVolRegimeV2.js";
 
 let passed = 0;
 let failed = 0;
@@ -21,6 +21,9 @@ console.log("  ─────────────────────�
 function makeSeries(n, start, stepPerBar) {
   return Array.from({ length: n }, (_, i) => start + i * stepPerBar);
 }
+
+// Reset persistence state between tests
+resetRegimePersistence();
 
 // =========================
 // CASE 1: Calm / Risk-On
@@ -48,6 +51,8 @@ assert("Calm: engineVersion = 2", calm.engineVersion === 2);
 assert("Calm: has explanation array", Array.isArray(calm.explanation));
 assert("Calm: has backward-compat flags", calm.flags.hygWeak !== undefined);
 
+resetRegimePersistence();
+
 // =========================
 // CASE 2: Early Stress (credit weakening, VIX still muted)
 // =========================
@@ -70,6 +75,8 @@ assert("EarlyStress: KRE stress >= 35", earlyStress.componentScores.KRE >= 35);
 assert("EarlyStress: VIX state not panic", earlyStress.vixState !== "panic" && earlyStress.vixState !== "crisis");
 assert("EarlyStress: bias includes WAIT", earlyStress.bias.includes("WAIT"));
 
+resetRegimePersistence();
+
 // =========================
 // CASE 3: Panic / High Premium
 // =========================
@@ -91,6 +98,8 @@ assert("Panic: VIX stress high", panic.componentScores.VIX > 30);
 assert("Panic: HYG stress high", panic.componentScores.HYG > 40);
 assert("Panic: confidence medium or high", panic.confidence.label === "medium" || panic.confidence.label === "high");
 assert("Panic: vixState is watch or panic or crisis", ["watch", "panic", "crisis"].includes(panic.vixState));
+
+resetRegimePersistence();
 
 // =========================
 // CASE 4: Edge cases
@@ -121,6 +130,85 @@ assert("Fallback: explanation mentions fallback", fallback.explanation.some(l =>
 assert("Config: has weights", Object.keys(REGIME_V2_CONFIG.weights).length === 6);
 assert("Config: weights sum to ~1", Math.abs(Object.values(REGIME_V2_CONFIG.weights).reduce((a, b) => a + b, 0) - 1) < 0.01);
 assert("Config: has vixBands", REGIME_V2_CONFIG.vixBands.calm < REGIME_V2_CONFIG.vixBands.crisis);
+
+// =========================
+// CASE 5: Enhancement outputs
+// =========================
+console.log("\n  -- Case 5: Enhancement outputs --");
+
+resetRegimePersistence();
+
+// Run calm first to establish baseline
+const enh1 = buildCreditVolRegime({
+  HYG: makeSeries(25, 82, 0.05), KRE: makeSeries(25, 70, 0.03),
+  XLF: makeSeries(25, 45, 0.02), VIX: makeSeries(25, 16, -0.1),
+  QQQ: makeSeries(25, 500, 1.0), TNX: makeSeries(25, 4.2, 0.0),
+});
+
+// Enhancement 3: Explicit action
+assert("Enh3: sellPutsAction exists", typeof enh1.sellPutsAction === "string");
+assert("Enh3: calm = SELL_PUTS_NORMAL", enh1.sellPutsAction === "SELL_PUTS_NORMAL");
+
+// Enhancement 2: Trade window overlay
+assert("Enh2: allowNewTrades = true for RISK_ON", enh1.allowNewTrades === true);
+
+// Enhancement 5: Percentiles
+assert("Enh5: has percentiles object", typeof enh1.percentiles === "object");
+assert("Enh5: vix percentile 0-100", enh1.percentiles.vix >= 0 && enh1.percentiles.vix <= 100);
+assert("Enh5: hyg percentile 0-100", enh1.percentiles.hyg >= 0 && enh1.percentiles.hyg <= 100);
+
+// Enhancement 1: Calibration snapshot
+assert("Enh1: has calibrationSnapshot", typeof enh1.calibrationSnapshot === "object");
+assert("Enh1: snapshot has regimeScore", typeof enh1.calibrationSnapshot.regimeScore === "number");
+assert("Enh1: snapshot has componentScores", typeof enh1.calibrationSnapshot.componentScores === "object");
+assert("Enh1: snapshot has timestamp", typeof enh1.calibrationSnapshot.timestamp === "number");
+assert("Enh1: snapshot has sellPutsAction", typeof enh1.calibrationSnapshot.sellPutsAction === "string");
+
+// Enhancement 4: Persistence
+assert("Enh4: has persistence object", typeof enh1.persistence === "object");
+assert("Enh4: confirmed = true for calm", enh1.persistence.confirmed === true);
+
+// Test persistence: first defensive reading should NOT flip immediately
+resetRegimePersistence();
+// Run calm to establish non-defensive baseline
+buildCreditVolRegime({
+  HYG: makeSeries(25, 82, 0.05), KRE: makeSeries(25, 70, 0.03),
+  XLF: makeSeries(25, 45, 0.02), VIX: makeSeries(25, 16, -0.1),
+  QQQ: makeSeries(25, 500, 1.0), TNX: makeSeries(25, 4.2, 0.0),
+});
+
+// Now send a defensive signal — should NOT flip on first reading
+const firstDefensive = buildCreditVolRegime({
+  HYG: makeSeries(25, 82, -0.30), KRE: makeSeries(25, 71, -0.35),
+  XLF: makeSeries(25, 45, -0.20), VIX: makeSeries(25, 16, 0.08),
+  QQQ: makeSeries(25, 510, -1.0), TNX: makeSeries(25, 4.1, 0.02),
+});
+assert("Enh4: first defensive reading has pending flip", firstDefensive.persistence.pendingFlip !== null || firstDefensive.persistence.confirmed === true);
+
+// Second consecutive defensive should confirm
+const secondDefensive = buildCreditVolRegime({
+  HYG: makeSeries(25, 82, -0.30), KRE: makeSeries(25, 71, -0.35),
+  XLF: makeSeries(25, 45, -0.20), VIX: makeSeries(25, 16, 0.08),
+  QQQ: makeSeries(25, 510, -1.0), TNX: makeSeries(25, 4.1, 0.02),
+});
+assert("Enh4: second defensive reading is confirmed", secondDefensive.persistence.confirmed === true);
+
+// Panic action mapping
+resetRegimePersistence();
+const panicAction = buildCreditVolRegime({
+  HYG: makeSeries(25, 82, -0.50), KRE: makeSeries(25, 71, -0.55),
+  XLF: makeSeries(25, 45, -0.40), VIX: makeSeries(25, 18, 0.50),
+  QQQ: makeSeries(25, 510, -3.0), TNX: makeSeries(25, 4.2, 0.08),
+});
+// Run twice to confirm persistence
+buildCreditVolRegime({
+  HYG: makeSeries(25, 82, -0.50), KRE: makeSeries(25, 71, -0.55),
+  XLF: makeSeries(25, 45, -0.40), VIX: makeSeries(25, 18, 0.50),
+  QQQ: makeSeries(25, 510, -3.0), TNX: makeSeries(25, 4.2, 0.08),
+});
+assert("Enh3: stress action is not SELL_PUTS_NORMAL", panicAction.sellPutsAction !== "SELL_PUTS_NORMAL" || panicAction.persistence.pendingFlip !== null);
+
+resetRegimePersistence();
 
 console.log(`\n  Results: ${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);

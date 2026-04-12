@@ -59,6 +59,55 @@ export const REGIME_V2_CONFIG = {
 // UTILITY FUNCTIONS
 // --------------------------------------------------
 
+// --------------------------------------------------
+// ENHANCEMENT 4: REGIME PERSISTENCE STATE
+// Requires 2 consecutive defensive readings before flipping
+// --------------------------------------------------
+
+let _prevRegimeRaw = null;  // previous raw regime before persistence filter
+let _confirmedRegime = null; // current confirmed regime
+
+function applyRegimePersistence(rawMode) {
+  const defensiveModes = ["CREDIT_STRESS_WATCH", "CREDIT_STRESS_HIGH_PREMIUM", "HIGH_PREMIUM_ENVIRONMENT"];
+  const isDefensive = defensiveModes.includes(rawMode);
+  const wasDefensive = _confirmedRegime ? defensiveModes.includes(_confirmedRegime) : false;
+
+  // No prior state — accept first reading as-is
+  if (_confirmedRegime === null) {
+    _confirmedRegime = rawMode;
+    _prevRegimeRaw = rawMode;
+    return { mode: rawMode, pending: null, confirmed: true };
+  }
+
+  if (isDefensive && !wasDefensive) {
+    // Trying to flip into defensive — require 2 consecutive bars
+    if (_prevRegimeRaw === rawMode || defensiveModes.includes(_prevRegimeRaw)) {
+      // Second consecutive defensive reading — confirm the flip
+      _confirmedRegime = rawMode;
+    } else {
+      // First defensive reading — hold current regime, note pending
+      _prevRegimeRaw = rawMode;
+      return { mode: _confirmedRegime, pending: rawMode, confirmed: false };
+    }
+  } else {
+    // Non-defensive or already defensive — apply immediately
+    _confirmedRegime = rawMode;
+  }
+
+  _prevRegimeRaw = rawMode;
+  return { mode: _confirmedRegime, pending: null, confirmed: true };
+}
+
+/** Reset persistence state (for testing). */
+export function resetRegimePersistence() {
+  _prevRegimeRaw = null;
+  _confirmedRegime = null;
+}
+
+// --------------------------------------------------
+// UTILITY FUNCTIONS
+// --------------------------------------------------
+
 function last(arr) { return arr[arr.length - 1]; }
 
 function safeSliceTail(arr, n) { return arr.slice(Math.max(0, arr.length - n)); }
@@ -111,6 +160,42 @@ function scaleTo100(x) { return Math.round(clamp(x, 0, 1) * 100); }
 function r2(n) { return Math.round(n * 100) / 100; }
 
 // --------------------------------------------------
+// ENHANCEMENT 5: ROLLING PERCENTILE RANK
+// --------------------------------------------------
+
+/**
+ * Compute percentile rank of current value within a rolling window.
+ * 0 = lowest in window, 100 = highest in window.
+ * @param {number[]} series — price history (oldest → newest)
+ * @param {number} lookback — window size (default 20)
+ * @returns {number} percentile 0-100
+ */
+function rollingPercentile(series, lookback = 20) {
+  const window = safeSliceTail(series, lookback);
+  if (window.length < 2) return 50;
+  const current = last(window);
+  const below = window.filter(v => v < current).length;
+  return Math.round((below / (window.length - 1)) * 100);
+}
+
+// --------------------------------------------------
+// ENHANCEMENT 3: EXPLICIT ACTION MAPPING
+// --------------------------------------------------
+
+const ACTION_MAP = {
+  "RISK_ON": "SELL_PUTS_NORMAL",
+  "LOW_EDGE": "SELL_PUTS_NORMAL",
+  "VOLATILE_BUT_CONTAINED": "WAIT_OR_SMALL_FAR_OTM",
+  "CREDIT_STRESS_WATCH": "WAIT_OR_SMALL_FAR_OTM",
+  "CREDIT_STRESS_HIGH_PREMIUM": "SELL_PUTS_INTO_FEAR",
+  "HIGH_PREMIUM_ENVIRONMENT": "DEFEND_NO_NEW_PUTS",
+};
+
+function getExplicitAction(mode) {
+  return ACTION_MAP[mode] || "WAIT_OR_SMALL_FAR_OTM";
+}
+
+// --------------------------------------------------
 // FEATURE EXTRACTION
 // --------------------------------------------------
 
@@ -125,6 +210,7 @@ function extractFeatures(series, cfg) {
     slope5: slopeAsPctPerBar(safeSliceTail(series, cfg.lookbackSlope)),
     pct1: prev1 != null ? pctChange(current, prev1) : 0,
     pct5: prev5 != null ? pctChange(current, prev5) : 0,
+    percentile: rollingPercentile(series, cfg.lookbackZ),  // Enhancement 5
   };
 }
 
@@ -289,8 +375,29 @@ export function buildCreditVolRegime(history, userConfig = {}) {
   const vixState = getVixState(features.VIX.current, cfg);
   const earlyStress = detectEarlyStress(scores, vixState, cfg);
   const confidence = computeConfidence(scores);
-  const { mode, bias } = mapRegime(compositeScore, scores, vixState, earlyStress, cfg);
+  const { mode: rawMode, bias } = mapRegime(compositeScore, scores, vixState, earlyStress, cfg);
+
+  // Enhancement 4: Regime persistence — require 2 consecutive bars before defensive flip
+  const persistence = applyRegimePersistence(rawMode);
+  const mode = persistence.mode;
+
   const explanation = buildExplanation(features, scores, compositeScore, vixState, earlyStress, confidence);
+
+  // Enhancement 3: Explicit action label
+  const sellPutsAction = getExplicitAction(mode);
+
+  // Enhancement 2: Trade-window overlay
+  // NOTE: getTradingWindow() is imported by macroRegime.js and attached there.
+  // Here we just flag whether regime allows new trades.
+  const allowNewTrades = !["HIGH_PREMIUM_ENVIRONMENT"].includes(mode);
+
+  // Enhancement 5: Rolling percentiles for key tickers
+  const percentiles = {
+    vix: features.VIX.percentile,
+    hyg: features.HYG.percentile,
+    kre: features.KRE.percentile,
+    xlf: features.XLF.percentile,
+  };
 
   // Backward-compatible flags (V1 consumers expect these)
   const creditStress = scores.HYG >= 35 || scores.KRE >= 35;
@@ -313,7 +420,7 @@ export function buildCreditVolRegime(history, userConfig = {}) {
       kreWeak: scores.KRE >= 35,
       xlfWeak: scores.XLF >= 35,
       qqqWeak: scores.QQQ >= 35,
-      atrExpanded: false, // V2 doesn't use ATR directly; kept for compat
+      atrExpanded: false,
       vixElevated: features.VIX.current >= cfg.vixBands.watch,
       vixPanic: features.VIX.current >= cfg.vixBands.panic,
       ratesStress: scores.TNX >= 35,
@@ -326,8 +433,8 @@ export function buildCreditVolRegime(history, userConfig = {}) {
       vix: features.VIX.current,
       qqq: features.QQQ.current,
       tnx: features.TNX.current,
-      vixPrev: null, // V2 uses z-score instead of prev comparison
-      lqd: null, // LQD not used in V2; kept for compat
+      vixPrev: null,
+      lqd: null,
     },
 
     // === New V2 fields ===
@@ -338,6 +445,32 @@ export function buildCreditVolRegime(history, userConfig = {}) {
     features,
     explanation,
     engineVersion: 2,
+
+    // === Enhancement outputs ===
+    sellPutsAction,         // Enhancement 3: SELL_PUTS_NORMAL / WAIT_OR_SMALL_FAR_OTM / SELL_PUTS_INTO_FEAR / DEFEND_NO_NEW_PUTS
+    allowNewTrades,         // Enhancement 2: false when regime = DEFEND mode
+    percentiles,            // Enhancement 5: rolling percentile rank for key tickers
+    persistence: {          // Enhancement 4: regime flip confirmation
+      rawRegime: rawMode,
+      confirmedRegime: mode,
+      pendingFlip: persistence.pending,
+      confirmed: persistence.confirmed,
+    },
+
+    // Enhancement 1: Calibration snapshot — persist this for quarterly review
+    // Hook: pass this to calibrationTracker.recordRegimeSnapshot()
+    calibrationSnapshot: {
+      timestamp: Date.now(),
+      regimeScore: compositeScore,
+      componentScores: { ...scores },
+      regime: mode,
+      rawRegime: rawMode,
+      confidence: confidence.label,
+      vixState,
+      earlyStress,
+      sellPutsAction,
+      percentiles,
+    },
   };
 }
 
