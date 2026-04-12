@@ -60,13 +60,22 @@ export default function LandingPage({ onOpenDashboard }) {
       {/* ═══════════════════════════════════════════
           TAGLINE STRIP — directly under header
          ═══════════════════════════════════════════ */}
-      <section className="border-b border-[#1e2530] bg-[#0d1117]">
-        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-2 lg:grid-cols-4">
+      <section className="bg-[#0d1117]">
+        {/* Top line */}
+        <div className="mx-auto w-full max-w-[1200px] px-4 md:px-8">
+          <div className="h-[6px] rounded-full bg-white/10" />
+        </div>
+        {/* Taglines — stack on mobile, 4-col on desktop */}
+        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {taglines.map((text, i) => (
-            <div key={text} className={`px-8 py-5 text-center ${i > 0 ? "border-l border-[#1e2530]" : ""}`}>
-              <div className="text-[13px] font-semibold leading-5 text-white">{text}</div>
+            <div key={text} className={`px-6 py-4 text-center md:px-8 md:py-5 ${i > 0 ? "border-t border-[#1e2530] sm:border-t-0 sm:border-l" : ""}`}>
+              <div className="text-[12px] font-semibold leading-5 text-white md:text-[13px]">{text}</div>
             </div>
           ))}
+        </div>
+        {/* Bottom line */}
+        <div className="mx-auto w-full max-w-[1200px] px-4 md:px-8">
+          <div className="h-[6px] rounded-full bg-white/10" />
         </div>
       </section>
 
@@ -77,8 +86,8 @@ export default function LandingPage({ onOpenDashboard }) {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_30%,rgba(34,197,94,0.07),transparent_50%),radial-gradient(ellipse_at_80%_70%,rgba(56,189,248,0.05),transparent_50%)]" />
 
         <div className="relative mx-auto w-full max-w-[1200px] px-8 py-20">
-          {/* Chart box with about copy */}
-          <div className="grid items-stretch gap-6 md:grid-cols-[1.1fr_0.9fr]">
+          {/* Chart box with about copy — stacks on mobile */}
+          <div className="grid items-stretch gap-6 grid-cols-1 md:grid-cols-[1.1fr_0.9fr]">
             {/* Left: trading chart visualization */}
             <div className="rounded-xl border border-[#1e2530] bg-[#0d1117] p-5">
               <div className="mb-3 flex items-center justify-between">
@@ -160,7 +169,7 @@ export default function LandingPage({ onOpenDashboard }) {
           <div className="my-12 h-[6px] rounded-full bg-white/10/10" />
 
           {/* Three pillars */}
-          <div className="grid gap-5 md:grid-cols-3">
+          <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
             {[
               ["Signal Quality", "Surface what actually matters — ranked, scored, and filtered so you focus on the strongest setups first."],
               ["Explainability", "Every signal comes with a trace. Know exactly what contributed to the score, not just the number."],
