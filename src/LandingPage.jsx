@@ -1,360 +1,249 @@
 // =====================================================
-// LANDING PAGE — Beyond the Symbols
+// LANDING PAGE — Trigger Engine
 // =====================================================
-// Clean, minimal, proportional. Inspired by Fintax style.
-// Each slide = full viewport. Limited content per slide.
+// About Us + Product Features (benefit-focused).
+// Divider lines between sections. No duplicate CTAs.
+// Single "Launch Dashboard" in header only.
 // =====================================================
-
-import { useState } from "react";
-import { motion } from "framer-motion";
-import {
-  ArrowRight,
-  Bell,
-  Bot,
-  Brain,
-  ChartCandlestick,
-  Gauge,
-  LineChart,
-  PlayCircle,
-  ShieldCheck,
-} from "lucide-react";
-
-// ── FADE ────────────────────────────────────────────
-
-function FadeIn({ children, delay = 0, className = "" }) {
-  return (
-    <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }} transition={{ duration: 0.6, delay }} className={className}>
-      {children}
-    </motion.div>
-  );
-}
-
-// ── MAIN ────────────────────────────────────────────
 
 export default function LandingPage({ onOpenDashboard }) {
-  const [aiInput, setAiInput] = useState("");
+  const capabilities = [
+    { title: "Deep Market Scanning", benefit: "Surface the setups that matter most across stocks and options — ranked, filtered, and ready to review." },
+    { title: "Options Intelligence", benefit: "Evaluate premium opportunities with strike selection, probability context, and risk-aware put ladder guidance." },
+    { title: "Explainable Signals", benefit: "Every signal comes with a clear trace showing what contributed to the score — so you know why, not just what." },
+    { title: "Probability Modeling", benefit: "Monte Carlo simulations estimate touch risk, expected move, and drawdown before you commit to a position." },
+    { title: "Smart Alerts", benefit: "Multi-gate alerts fire only when quality thresholds are met — reducing noise and surfacing what deserves attention." },
+    { title: "Backtesting & Calibration", benefit: "Replay setups against history to see what worked, refine your rules, and build evidence-based confidence." },
+    { title: "Market Regime Awareness", benefit: "The dashboard adapts to shifting conditions — so your workflow reflects what the market is actually doing." },
+    { title: "Chart Context Analysis", benefit: "Automatic support, resistance, demand zones, and ATR context improve entry and exit quality without manual effort." },
+    { title: "Polished Dashboard Experience", benefit: "A clean, dark-mode workspace with ranked cards, detail panels, and guided flow — designed for speed and clarity." },
+    { title: "Decision Support Workflow", benefit: "From scan to signal to risk to action — a structured path that replaces guesswork with disciplined process." },
+  ];
+
+  const taglines = [
+    "Take the guess out of investing",
+    "Signals that you can trust",
+    "Tools dynamically adjust to market conditions",
+    "Invest like institutional investors",
+  ];
+
+  // Reusable divider
+  const Divider = () => (
+    <div className="mx-auto w-full max-w-[1200px] px-8">
+      <div className="h-px bg-[#1e2530]" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#1a2332] text-white" style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}>
+    <div className="min-h-screen bg-[#060a0f] text-[#e2e8f0]" style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}>
 
-      {/* ── NAV ──────────────────────────────────── */}
-      <header className="fixed top-0 z-50 w-full bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-10 py-5">
-          <div className="text-xl font-bold tracking-[0.15em] text-[#1a2332]" style={{ fontFamily: "'Georgia', serif" }}>
-            BEYOND THE SYMBOLS
+      {/* ── HEADER ───────────────────────────────── */}
+      <header className="sticky top-0 z-50 border-b border-[#1e2530] bg-[#060a0f]/95 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-8 py-4">
+          <div className="flex items-center gap-6">
+            <div>
+              <div className="text-lg font-bold tracking-wide text-white">TRIGGER ENGINE</div>
+              <div className="text-[10px] uppercase tracking-[0.3em] text-[#94a3b8]">Market Intelligence Platform</div>
+            </div>
+            <div className="hidden rounded-lg border border-[#1e2530] bg-[#0d1117] px-5 py-2.5 md:block">
+              <div className="text-[12px] font-semibold leading-tight text-white">Built for clarity, not hype.</div>
+              <div className="mt-0.5 text-[11px] text-[#22c55e]">Invest like institutional investors.</div>
+            </div>
           </div>
-          <nav className="hidden items-center gap-8 text-[13px] text-[#4a5568] md:flex" style={{ fontFamily: "system-ui, sans-serif" }}>
-            <a href="#home" className="hover:text-[#1a2332]">Home</a>
-            <a href="#services" className="hover:text-[#1a2332]">Services</a>
-            <a href="#learn" className="hover:text-[#1a2332]">Learn</a>
-            <a href="#docs" className="hover:text-[#1a2332]">Docs</a>
-            <a href="#ai-help" className="hover:text-[#1a2332]">AI Help</a>
-          </nav>
           <button onClick={onOpenDashboard}
-            className="border border-[#1a2332] px-6 py-2 text-[12px] font-semibold tracking-[0.15em] text-[#1a2332] hover:bg-[#1a2332] hover:text-white"
-            style={{ fontFamily: "system-ui, sans-serif" }}>
-            OPEN DASHBOARD
+            className="rounded-lg bg-[#22c55e] px-5 py-2 text-[13px] font-semibold text-[#060a0f] transition hover:bg-[#16a34a]">
+            Launch Dashboard
           </button>
         </div>
       </header>
 
       {/* ═══════════════════════════════════════════
-          SLIDE 1 — HERO
+          TAGLINE STRIP — directly under header
          ═══════════════════════════════════════════ */}
-      <section id="home" className="relative flex min-h-screen items-center justify-center overflow-hidden">
-        {/* Background image overlay */}
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1600&q=80')] bg-cover bg-center" />
-        <div className="absolute inset-0 bg-[#1a2332]/80" />
-
-        <FadeIn className="relative z-10 px-8 text-center">
-          <div className="text-[13px] tracking-[0.4em] text-white/60" style={{ fontFamily: "system-ui, sans-serif" }}>
-            AI-POWERED TRADING INTELLIGENCE
-          </div>
-
-          <h1 className="mx-auto mt-8 max-w-3xl text-4xl leading-snug tracking-wide md:text-6xl md:leading-snug">
-            Stock &amp; Options<br />Market Intelligence
-          </h1>
-
-          <p className="mx-auto mt-8 max-w-xl text-base leading-relaxed text-white/60" style={{ fontStyle: "italic", fontFamily: "Georgia, serif" }}>
-            A smarter way to scan, score, and understand trade setups.
-            Built for traders who want clarity before action.
-          </p>
-
-          <div className="mt-12 flex justify-center gap-5">
-            <button onClick={onOpenDashboard}
-              className="bg-white px-10 py-4 text-[12px] font-semibold tracking-[0.2em] text-[#1a2332] hover:bg-white/90"
-              style={{ fontFamily: "system-ui, sans-serif" }}>
-              EXPLORE DASHBOARD
-            </button>
-            <a href="#services"
-              className="border border-white/40 px-10 py-4 text-[12px] font-semibold tracking-[0.2em] text-white hover:bg-white/10"
-              style={{ fontFamily: "system-ui, sans-serif" }}>
-              OUR SERVICES
-            </a>
-          </div>
-        </FadeIn>
+      <section className="border-b border-[#1e2530] bg-[#0d1117]">
+        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-2 lg:grid-cols-4">
+          {taglines.map((text, i) => (
+            <div key={text} className={`px-8 py-5 text-center ${i > 0 ? "border-l border-[#1e2530]" : ""}`}>
+              <div className="text-[13px] font-semibold leading-5 text-white">{text}</div>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* ═══════════════════════════════════════════
-          SLIDE 2 — SERVICES (6 cards, 3x2)
+          ABOUT US
          ═══════════════════════════════════════════ */}
-      <section id="services" className="flex min-h-screen items-center bg-white">
-        <div className="mx-auto w-full max-w-5xl px-10 py-20">
-          <FadeIn className="text-center">
-            <div className="text-[12px] tracking-[0.4em] text-[#8a9bb5]" style={{ fontFamily: "system-ui, sans-serif" }}>
-              WHAT WE OFFER
-            </div>
-            <h2 className="mt-4 text-3xl tracking-wide text-[#1a2332] md:text-4xl">
-              Market Intelligence Services
-            </h2>
-            <div className="mx-auto mt-5 h-px w-12 bg-[#1a2332]" />
-          </FadeIn>
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_30%,rgba(34,197,94,0.07),transparent_50%),radial-gradient(ellipse_at_80%_70%,rgba(56,189,248,0.05),transparent_50%)]" />
 
-          <div className="mt-16 grid gap-12 md:grid-cols-3">
-            {[
-              [ChartCandlestick, "Smart Scanner", "Ranks setups by score across your full watchlist."],
-              [Brain, "Explainable Scoring", "See exactly why a setup is strong or weak."],
-              [Gauge, "Risk Modeling", "Monte Carlo simulations for touch risk and drawdown."],
-              [Bell, "Live Alerts", "Get notified when quality gates are passed."],
-              [LineChart, "Backtesting", "Replay setups against history to build confidence."],
-              [ShieldCheck, "Chart Context", "Support, resistance, and demand zone analysis."],
-            ].map(([Icon, title, desc], i) => (
-              <FadeIn key={title} delay={i * 0.06}>
-                <div className="text-center">
-                  <Icon className="mx-auto h-7 w-7 text-[#1a2332]/40" strokeWidth={1.5} />
-                  <h3 className="mt-5 text-lg tracking-wide text-[#1a2332]">{title}</h3>
-                  <p className="mt-3 text-[13px] leading-relaxed text-[#6b7c93]" style={{ fontFamily: "system-ui, sans-serif" }}>
-                    {desc}
-                  </p>
+        <div className="relative mx-auto w-full max-w-[1200px] px-8 py-20">
+          {/* Chart box with about copy */}
+          <div className="grid items-stretch gap-6 md:grid-cols-[1.1fr_0.9fr]">
+            {/* Left: trading chart visualization */}
+            <div className="rounded-xl border border-[#1e2530] bg-[#0d1117] p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-2 w-2 rounded-full bg-[#22c55e]" />
+                  <span className="text-[12px] font-semibold text-white">Market Overview</span>
                 </div>
-              </FadeIn>
+                <span className="text-[10px] text-[#94a3b8]">Live</span>
+              </div>
+              {/* Chart area */}
+              <div className="relative h-[220px] overflow-hidden rounded-lg border border-[#1e2530] bg-[#060a0f] p-4">
+                {/* Grid lines */}
+                <div className="absolute inset-4 flex flex-col justify-between">
+                  {[0,1,2,3,4].map(i => <div key={i} className="h-px bg-[#1e2530]" />)}
+                </div>
+                {/* Price labels */}
+                <div className="absolute right-4 top-4 bottom-4 flex flex-col justify-between text-[9px] text-[#94a3b8]/50">
+                  <span>192</span><span>188</span><span>184</span><span>180</span><span>176</span>
+                </div>
+                {/* Candlestick-style bars */}
+                <svg className="absolute inset-4 right-12" viewBox="0 0 400 180" preserveAspectRatio="none">
+                  {/* Uptrend candles */}
+                  {[
+                    [20,120,90,130,80],  [45,100,70,110,60],  [70,80,55,90,45],
+                    [95,90,65,100,55],   [120,70,40,80,30],   [145,55,30,65,20],
+                    [170,60,45,70,35],   [195,45,20,55,10],   [220,50,30,60,20],
+                    [245,35,15,45,5],    [270,40,25,50,15],   [295,30,10,40,5],
+                    [320,25,8,35,3],     [345,35,20,45,12],   [370,20,5,30,0],
+                  ].map(([x, o, c, h, l], i) => {
+                    const isUp = c < o;
+                    const color = isUp ? "#22c55e" : "#ef4444";
+                    const top = Math.min(o, c);
+                    const body = Math.abs(o - c);
+                    return (
+                      <g key={i}>
+                        <line x1={x} y1={l} x2={x} y2={h} stroke={color} strokeWidth="1.5" opacity="0.6" />
+                        <rect x={x - 8} y={top} width="16" height={Math.max(body, 2)} fill={color} opacity="0.8" rx="1" />
+                      </g>
+                    );
+                  })}
+                  {/* Moving average line */}
+                  <polyline
+                    points="20,105 45,85 70,68 95,78 120,55 145,43 170,53 195,33 220,40 245,25 270,33 295,20 320,17 345,28 370,13"
+                    fill="none" stroke="#38bdf8" strokeWidth="2" opacity="0.5" />
+                </svg>
+                {/* Volume bars at bottom */}
+                <div className="absolute bottom-4 left-4 right-12 flex items-end gap-[10px] h-[30px]">
+                  {[60,45,80,35,90,70,55,95,40,85,50,75,65,45,80].map((h, i) => (
+                    <div key={i} className="flex-1 rounded-sm bg-[#22c55e]/15" style={{ height: `${h}%` }} />
+                  ))}
+                </div>
+              </div>
+              {/* Bottom ticker strip */}
+              <div className="mt-3 flex gap-4 text-[11px]">
+                {[["NVDA", "+2.4%", "#22c55e"], ["SPY", "+0.8%", "#22c55e"], ["QQQ", "-0.3%", "#ef4444"], ["XLF", "+1.1%", "#22c55e"]].map(([sym, chg, color]) => (
+                  <div key={sym} className="flex items-center gap-2">
+                    <span className="font-semibold text-white">{sym}</span>
+                    <span style={{ color }}>{chg}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right: about copy */}
+            <div className="flex flex-col justify-center rounded-xl border border-[#1e2530] bg-[#0d1117] p-8">
+              <p className="text-[15px] leading-7 text-[#94a3b8]">
+                Trigger Engine is a market intelligence platform built for traders who want more than
+                raw data and basic scanners. We combine signal scanning, risk interpretation, and
+                structured workflow into one dashboard so users can evaluate opportunities with clarity
+                and act with confidence.
+              </p>
+              <p className="mt-5 text-[15px] leading-7 text-[#94a3b8]">
+                Our focus is delivering signal quality, explainability, and disciplined decision support
+                — the three things most platforms skip.
+              </p>
+            </div>
+          </div>
+
+          <div className="my-12 h-[6px] rounded-full bg-white/10/10" />
+
+          {/* Three pillars */}
+          <div className="grid gap-5 md:grid-cols-3">
+            {[
+              ["Signal Quality", "Surface what actually matters — ranked, scored, and filtered so you focus on the strongest setups first."],
+              ["Explainability", "Every signal comes with a trace. Know exactly what contributed to the score, not just the number."],
+              ["Decision Support", "A structured path from scan to signal to risk to action — replacing guesswork with disciplined process."],
+            ].map(([title, desc]) => (
+              <div key={title} className="rounded-xl border border-[#1e2530] bg-[#0d1117] p-6 text-center">
+                <div className="text-[16px] font-bold text-[#22c55e]">{title}</div>
+                <p className="mt-3 text-[13px] leading-6 text-[#94a3b8]">{desc}</p>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════
-          SLIDE 3 — DASHBOARD PREVIEW
-         ═══════════════════════════════════════════ */}
-      <section className="flex min-h-screen items-center bg-[#f7f8fa]">
-        <div className="mx-auto w-full max-w-4xl px-10 py-20">
-          <FadeIn className="text-center">
-            <div className="text-[12px] tracking-[0.4em] text-[#8a9bb5]" style={{ fontFamily: "system-ui, sans-serif" }}>
-              LIVE PREVIEW
-            </div>
-            <h2 className="mt-4 text-3xl tracking-wide text-[#1a2332] md:text-4xl">
-              Inside the Dashboard
-            </h2>
-            <div className="mx-auto mt-5 h-px w-12 bg-[#1a2332]" />
-          </FadeIn>
-
-          <FadeIn delay={0.1}>
-            <div className="mt-16 bg-[#1a2332] p-10 text-white shadow-2xl">
-              {/* Top row */}
-              <div className="flex items-start justify-between border-b border-white/10 pb-8">
-                <div>
-                  <div className="text-[11px] tracking-[0.3em] text-white/40" style={{ fontFamily: "system-ui, sans-serif" }}>TOP SETUP</div>
-                  <div className="mt-2 text-2xl tracking-wide">NVDA_POWER_STACK</div>
-                  <div className="mt-1 text-[14px] text-emerald-400" style={{ fontFamily: "system-ui, sans-serif" }}>GO &middot; Strong confluence</div>
-                </div>
-                <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-emerald-400/50">
-                  <span className="text-3xl font-light text-emerald-400">90</span>
-                </div>
-              </div>
-
-              {/* Metrics */}
-              <div className="mt-8 grid grid-cols-3 text-center">
-                <div>
-                  <div className="text-[10px] tracking-[0.3em] text-white/30" style={{ fontFamily: "system-ui, sans-serif" }}>PROBABILITY</div>
-                  <div className="mt-2 text-3xl font-light">74%</div>
-                </div>
-                <div className="border-x border-white/10">
-                  <div className="text-[10px] tracking-[0.3em] text-white/30" style={{ fontFamily: "system-ui, sans-serif" }}>TOUCH RISK</div>
-                  <div className="mt-2 text-3xl font-light">22%</div>
-                </div>
-                <div>
-                  <div className="text-[10px] tracking-[0.3em] text-white/30" style={{ fontFamily: "system-ui, sans-serif" }}>RISK LEVEL</div>
-                  <div className="mt-2 text-3xl font-light text-amber-400">Medium</div>
-                </div>
-              </div>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
+      {/* ── GREEN LINE ABOVE CAPABILITIES ─────── */}
+      <div className="bg-[#060a0f] py-6" />
+      <div className="mx-auto w-full max-w-[1200px] px-8">
+        <div className="h-[6px] rounded-full bg-white/10" />
+      </div>
+      <div className="bg-[#060a0f] py-6" />
 
       {/* ═══════════════════════════════════════════
-          SLIDE 4 — LEARN (videos)
+          PRODUCT CAPABILITIES
          ═══════════════════════════════════════════ */}
-      <section id="learn" className="flex min-h-screen items-center bg-white">
-        <div className="mx-auto w-full max-w-5xl px-10 py-20">
-          <FadeIn className="text-center">
-            <div className="text-[12px] tracking-[0.4em] text-[#8a9bb5]" style={{ fontFamily: "system-ui, sans-serif" }}>
-              EDUCATION
-            </div>
-            <h2 className="mt-4 text-3xl tracking-wide text-[#1a2332] md:text-4xl">
-              Learn With Quick Videos
+      <section>
+        <div className="mx-auto w-full max-w-[1200px] px-8 py-20">
+          <div className="mb-14 text-center">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[#94a3b8]">Product Capabilities</div>
+            <h2 className="mt-4 text-[2rem] font-bold leading-tight text-white md:text-[2.4rem]">
+              Everything you need in one workflow.
             </h2>
-            <div className="mx-auto mt-5 h-px w-12 bg-[#1a2332]" />
-          </FadeIn>
+            <p className="mt-4 text-[15px] leading-7 text-[#94a3b8]">
+              Each capability is designed to reduce noise, improve clarity, and help you make better decisions.
+              Tools dynamically adjust to market conditions.
+            </p>
+          </div>
 
-          <div className="mt-16 grid gap-8 md:grid-cols-2">
-            {[
-              ["How to Read a GO Signal", "2:14"],
-              ["Using the Credit-Vol Scanner", "3:08"],
-              ["Touch Probability Explained", "1:52"],
-              ["Backtesting in Plain English", "2:41"],
-            ].map(([title, dur], i) => (
-              <FadeIn key={title} delay={i * 0.06}>
-                <div className="group flex items-center gap-6 border border-[#e2e8f0] p-6 transition hover:border-[#1a2332]/30">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1a2332]">
-                    <PlayCircle className="h-6 w-6 text-white/70" />
+          <div className="grid gap-px overflow-hidden rounded-xl border border-[#1e2530] bg-[#1e2530] md:grid-cols-2">
+            {capabilities.map((cap, i) => (
+              <div key={cap.title} className="bg-[#0d1117] p-8">
+                <div className="flex items-start gap-5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#22c55e]/10 text-[13px] font-bold text-[#22c55e]">
+                    {String(i + 1).padStart(2, "0")}
                   </div>
                   <div>
-                    <div className="text-lg tracking-wide text-[#1a2332]">{title}</div>
-                    <div className="mt-1 text-[12px] text-[#8a9bb5]" style={{ fontFamily: "system-ui, sans-serif" }}>{dur}</div>
+                    <h3 className="text-[15px] font-semibold text-white">{cap.title}</h3>
+                    <p className="mt-2 text-[13px] leading-6 text-[#94a3b8]">{cap.benefit}</p>
                   </div>
-                  <ArrowRight className="ml-auto h-4 w-4 text-[#cbd5e0] transition group-hover:text-[#1a2332]" />
                 </div>
-              </FadeIn>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════
-          SLIDE 5 — DOCS
-         ═══════════════════════════════════════════ */}
-      <section id="docs" className="flex min-h-screen items-center bg-[#f7f8fa]">
-        <div className="mx-auto w-full max-w-5xl px-10 py-20">
-          <FadeIn className="text-center">
-            <div className="text-[12px] tracking-[0.4em] text-[#8a9bb5]" style={{ fontFamily: "system-ui, sans-serif" }}>
-              DOCUMENTATION
-            </div>
-            <h2 className="mt-4 text-3xl tracking-wide text-[#1a2332] md:text-4xl">
-              Guides &amp; Reference
-            </h2>
-            <div className="mx-auto mt-5 h-px w-12 bg-[#1a2332]" />
-          </FadeIn>
-
-          <div className="mt-16 grid gap-6 md:grid-cols-3">
-            {[
-              ["Beginner Guide", "Step-by-step dashboard overview for new users."],
-              ["Trigger Engine", "How the scanner ranks setups and highlights signals."],
-              ["Credit-Vol Scanner", "Premium selling ideas, risk, and quality."],
-            ].map(([title, desc], i) => (
-              <FadeIn key={title} delay={i * 0.05}>
-                <div className="border border-[#e2e8f0] bg-white p-8">
-                  <h3 className="text-lg tracking-wide text-[#1a2332]">{title}</h3>
-                  <p className="mt-3 text-[13px] leading-relaxed text-[#6b7c93]" style={{ fontFamily: "system-ui, sans-serif" }}>
-                    {desc}
-                  </p>
-                  <a href="#" className="mt-6 inline-block text-[12px] tracking-[0.15em] text-[#1a2332] underline underline-offset-4 hover:no-underline"
-                    style={{ fontFamily: "system-ui, sans-serif" }}>
-                    READ MORE
-                  </a>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
-            {[
-              ["Alerts & Backtesting", "How alerts fire and how replay improves decisions."],
-              ["Glossary", "Quick definitions for GO, IV Rank, ATR, and more."],
-            ].map(([title, desc], i) => (
-              <FadeIn key={title} delay={(i + 3) * 0.05}>
-                <div className="border border-[#e2e8f0] bg-white p-8">
-                  <h3 className="text-lg tracking-wide text-[#1a2332]">{title}</h3>
-                  <p className="mt-3 text-[13px] leading-relaxed text-[#6b7c93]" style={{ fontFamily: "system-ui, sans-serif" }}>
-                    {desc}
-                  </p>
-                  <a href="#" className="mt-6 inline-block text-[12px] tracking-[0.15em] text-[#1a2332] underline underline-offset-4 hover:no-underline"
-                    style={{ fontFamily: "system-ui, sans-serif" }}>
-                    READ MORE
-                  </a>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* ── DIVIDER ──────────────────────────────── */}
+      <Divider />
 
       {/* ═══════════════════════════════════════════
-          SLIDE 6 — AI HELP
+          CLOSING
          ═══════════════════════════════════════════ */}
-      <section id="ai-help" className="flex min-h-screen items-center bg-[#1a2332]">
-        <div className="mx-auto w-full max-w-3xl px-10 py-20">
-          <FadeIn className="text-center">
-            <div className="text-[12px] tracking-[0.4em] text-white/40" style={{ fontFamily: "system-ui, sans-serif" }}>
-              SUPPORT ASSISTANT
+      <section>
+        <div className="mx-auto w-full max-w-[1200px] px-8 py-20">
+          <div className="relative overflow-hidden rounded-xl border border-[#1e2530] bg-[#0d1117]">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(34,197,94,0.05),transparent_60%)]" />
+
+            <div className="relative px-10 py-12 md:px-14">
+              <p className="text-[18px] leading-8 text-[#94a3b8] md:text-[20px]">
+                Explore the dashboard, review the workflow, and see how
+                Trigger Engine is designed to support better decisions.
+              </p>
+              <p className="mt-5 text-[11px] leading-5 text-[#94a3b8]/50">
+                Users should always apply their own judgment and risk management when making trading decisions.
+              </p>
             </div>
-            <h2 className="mt-4 text-3xl tracking-wide md:text-4xl">
-              Ask the Dashboard
-            </h2>
-            <p className="mx-auto mt-5 max-w-md text-[14px] leading-relaxed text-white/50" style={{ fontStyle: "italic" }}>
-              AI-powered assistant that explains scores, alerts, and features in plain language.
-            </p>
-          </FadeIn>
-
-          <FadeIn delay={0.1}>
-            <div className="mt-14 border border-white/10 bg-white/[0.03]">
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-white/10 px-8 py-5">
-                <div className="flex items-center gap-3">
-                  <Bot className="h-5 w-5 text-white/50" />
-                  <span className="text-[14px] text-white/70" style={{ fontFamily: "system-ui, sans-serif" }}>AI Help Agent</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                  <span className="text-[11px] text-white/30" style={{ fontFamily: "system-ui, sans-serif" }}>Online</span>
-                </div>
-              </div>
-
-              {/* Chat */}
-              <div className="space-y-4 px-8 py-8">
-                <div className="ml-auto max-w-[65%] border border-white/10 bg-white/[0.05] px-5 py-3 text-[14px] text-white/80">
-                  What does GO mean?
-                </div>
-                <div className="max-w-[75%] bg-white/[0.03] px-5 py-3 text-[14px] leading-relaxed text-white/60" style={{ fontFamily: "system-ui, sans-serif" }}>
-                  <span className="text-white">GO</span> means the setup passed enough quality checks to be considered
-                  actionable. Multiple signals are confirming.
-                </div>
-              </div>
-
-              {/* Input */}
-              <div className="flex items-center border-t border-white/10 px-8 py-5">
-                <input type="text" value={aiInput} onChange={(e) => setAiInput(e.target.value)}
-                  placeholder="Ask a question..."
-                  className="w-full bg-transparent text-[14px] text-white outline-none placeholder:text-white/20"
-                  style={{ fontFamily: "system-ui, sans-serif" }} />
-                <button className="ml-4 bg-white px-6 py-2 text-[11px] font-semibold tracking-[0.15em] text-[#1a2332] hover:bg-white/90"
-                  style={{ fontFamily: "system-ui, sans-serif" }}>
-                  ASK
-                </button>
-              </div>
-            </div>
-          </FadeIn>
+          </div>
         </div>
       </section>
 
       {/* ── FOOTER ───────────────────────────────── */}
-      <footer className="bg-[#141c28] py-16">
-        <div className="mx-auto max-w-5xl px-10 text-center">
-          <div className="text-2xl tracking-[0.15em]">BEYOND THE SYMBOLS</div>
-          <p className="mx-auto mt-4 max-w-md text-[13px] leading-relaxed text-white/40" style={{ fontStyle: "italic" }}>
-            AI-enhanced market intelligence and trade decision support.
-          </p>
-          <div className="mx-auto mt-8 h-px w-12 bg-white/10" />
-          <nav className="mt-8 flex justify-center gap-8 text-[12px] tracking-[0.15em] text-white/30" style={{ fontFamily: "system-ui, sans-serif" }}>
-            <button onClick={onOpenDashboard} className="hover:text-white">Dashboard</button>
-            <a href="#services" className="hover:text-white">Services</a>
-            <a href="#docs" className="hover:text-white">Docs</a>
-            <a href="#ai-help" className="hover:text-white">AI Help</a>
-          </nav>
-          <div className="mt-10 text-[11px] text-white/15" style={{ fontFamily: "system-ui, sans-serif" }}>
-            &copy; 2026 Beyond the Symbols
-          </div>
+      <footer className="border-t border-[#1e2530]">
+        <div className="mx-auto w-full max-w-[1200px] px-8 py-6 text-right text-[11px] text-[#94a3b8]/40">
+          &copy; 2026 Trigger Engine
         </div>
       </footer>
     </div>
