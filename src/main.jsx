@@ -4,6 +4,7 @@ import './index.css'
 import App from './App.jsx'
 import TickerSetupBuilder from './TickerSetupBuilder.jsx'
 import CreditVolScanner from './CreditVolScanner.jsx'
+import LandingPage from './LandingPage.jsx'
 import {
   getAllSetups,
   addSetup,
@@ -114,7 +115,7 @@ function Root() {
       setCheckingProxy(false);
     });
   }, []);
-  const [page, setPage] = useState("scanner");
+  const [page, setPage] = useState("landing");
 
   // React owns the setup list. Registry is the mutation layer.
   const [setups, setSetups] = useState(() => getAllSetups());
@@ -161,6 +162,10 @@ function Root() {
   }
 
   // --- Page routing ---
+
+  if (page === "landing") {
+    return <LandingPage onOpenDashboard={() => setPage("scanner")} />;
+  }
 
   if (page === "builder") {
     return (

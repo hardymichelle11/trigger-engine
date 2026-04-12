@@ -29,11 +29,21 @@
     "calibration:update": "node scripts/update-calibration-outcome.js",
     "test:calibration": "node scripts/test-calibration.js",
     "test:regime": "node scripts/test-regime-v2.js",
-    "validate": "node scripts/validate-setups.js && node scripts/test-signal-engine.js && node scripts/test-options-watchlist.js && node scripts/test-slope.js && node scripts/test-iv.js && node scripts/test-mc.js && node scripts/test-alerts.js && node scripts/test-backtest.js && node scripts/test-websocket.js && node scripts/test-history.js && node scripts/test-stack-backtest.js && node scripts/test-discovery.js && node scripts/test-structure.js && node scripts/test-calibration.js && node scripts/test-regime-v2.js"
+    "test:knowledgebot": "node scripts/test-knowledge-bot.js",
+    "bot:server": "node server/knowledgeBotServer.js",
+    "validate": "node scripts/validate-setups.js && node scripts/test-signal-engine.js && node scripts/test-options-watchlist.js && node scripts/test-slope.js && node scripts/test-iv.js && node scripts/test-mc.js && node scripts/test-alerts.js && node scripts/test-backtest.js && node scripts/test-websocket.js && node scripts/test-history.js && node scripts/test-stack-backtest.js && node scripts/test-discovery.js && node scripts/test-structure.js && node scripts/test-calibration.js && node scripts/test-regime-v2.js && node scripts/test-knowledge-bot.js"
   },
   "dependencies": {
+    "@google/genai": "^1.49.0",
+    "@tailwindcss/vite": "^4.2.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.8.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
