@@ -6,6 +6,11 @@ import {
   buildProfitPlan,
   round2,
   safeNumber,
+  shouldRecalculate,
+  extractLiveMarketState,
+  renderSafeCardState,
+  getHealthSnapshot,
+  isAlertSafe,
 } from "./signalEngine.js";
 import { loadPositions, savePositions, computeEconomics } from "./lib/storage/positionStorage.js";
 import { syncPositions, pushPositions } from "./lib/storage/positionSync.js";
@@ -410,19 +415,21 @@ function CreditRegimePanel({ market, tradingWindow }) {
 // SETUP CARD
 // --------------------------------------------------
 
-function SetupCard({ card, isSelected, onSelect }) {
+function SetupCard({ card, isSelected, onSelect, stale, blockReason }) {
   const signalColor = card.signal === "GO" ? GREEN : card.signal === "WATCH" ? AMBER : RED;
   const catColor = card.category === "HIGH_IV" ? PURPLE : card.category === "CREDIT" ? CYAN : BLUE;
 
   return (
     <div onClick={onSelect} style={{
       background: isSelected ? "#0d1520" : "#0d1117",
-      border: `1px solid ${isSelected ? signalColor + "66" : "#1e2530"}`,
+      border: `1px solid ${isSelected ? signalColor + "66" : stale ? AMBER + "44" : "#1e2530"}`,
       borderRadius: 10, padding: 14, cursor: "pointer",
       transition: "all 0.2s", marginBottom: 8,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {stale && <span title={blockReason || "stale"} style={{ fontSize: 7, fontWeight: 700, color: AMBER, background: AMBER + "22", padding: "2px 4px", borderRadius: 3, letterSpacing: "0.08em", cursor: "help" }}>STALE</span>}
+          {blockReason && !stale && <span title={blockReason} style={{ fontSize: 7, fontWeight: 700, color: RED, background: RED + "22", padding: "2px 4px", borderRadius: 3, letterSpacing: "0.08em", cursor: "help" }}>BLOCKED</span>}
           <span style={{ fontSize: 8, fontWeight: 700, color: catColor, background: catColor + "22", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.1em" }}>
             {card.category}
           </span>
@@ -469,8 +476,99 @@ function SetupCard({ card, isSelected, onSelect }) {
 }
 
 // --------------------------------------------------
+// HEALTH PANEL — operational monitoring
+// --------------------------------------------------
+
+function HealthPanel({ cards }) {
+  const health = useMemo(() => getHealthSnapshot(cards || []), [cards]);
+  if (!health || health.freshness.total === 0) return null;
+
+  const f = health.freshness;
+  const healthColor = f.healthLabel === "HEALTHY" ? GREEN : f.healthLabel === "DEGRADED" ? AMBER : RED;
+
+  return (
+    <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em" }}>ENGINE HEALTH</span>
+        <span style={{ fontSize: 9, fontWeight: 700, color: healthColor, letterSpacing: "0.08em" }}>{f.healthLabel} {f.healthPct}%</span>
+      </div>
+      {/* Card freshness row */}
+      <div style={{ display: "flex", gap: 8, fontSize: 10, marginBottom: 4 }}>
+        <span style={{ color: GREEN }}>{f.live} live</span>
+        <span style={{ color: AMBER }}>{f.aging} aging</span>
+        <span style={{ color: RED }}>{f.stale} stale</span>
+        <span style={{ color: SLATE }}>{f.total} total</span>
+      </div>
+      {/* Alert safety row */}
+      <div style={{ display: "flex", gap: 8, fontSize: 10, marginBottom: 4 }}>
+        <span style={{ color: GREEN }}>{f.alertSafe} alert-safe</span>
+        <span style={{ color: f.alertBlocked > 0 ? RED : SLATE }}>{f.alertBlocked} blocked</span>
+      </div>
+      {/* Blocked reasons */}
+      {f.alertBlocked > 0 && Object.keys(f.blockedReasons).length > 0 && (
+        <div style={{ fontSize: 9, color: SLATE, marginTop: 2 }}>
+          blocked: {Object.entries(f.blockedReasons).map(([r, c]) => `${r}(${c})`).join(", ")}
+        </div>
+      )}
+      {/* Top recalc/invalidation reason */}
+      {(health.topRecalcReason || health.topInvalidationReason) && (
+        <div style={{ fontSize: 9, color: CYAN, marginTop: 2 }}>
+          {health.topRecalcReason && <span>top recalc: {health.topRecalcReason}</span>}
+          {health.topRecalcReason && health.topInvalidationReason && <span> &middot; </span>}
+          {health.topInvalidationReason && <span>top invalidation: {health.topInvalidationReason}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --------------------------------------------------
 // DETAIL PANEL
 // --------------------------------------------------
+
+function FreshnessBadge({ card }) {
+  const ls = card?.liveState;
+  if (!ls) return null;
+
+  const now = Date.now();
+  const ageMs = now - (ls.calculatedAt || 0);
+  const ageSec = Math.round(ageMs / 1000);
+  const anchorDrift = ls.anchorPrice > 0 && card.price > 0
+    ? Math.abs(card.price - ls.anchorPrice) / ls.anchorPrice : 0;
+
+  const stale = ls.stale || ageMs >= 90000 || anchorDrift >= 0.02;
+  const aging = !stale && ageMs >= 72000;
+
+  const color = stale ? RED : aging ? AMBER : GREEN;
+  const label = stale ? "STALE" : aging ? "AGING" : "LIVE";
+
+  // Recalc reasons from last refresh
+  const recalcReasons = ls.lastRecalcReasonCodes || [];
+  const invalidation = card.invalidation;
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 9 }}>
+        <span style={{ color, fontWeight: 700, letterSpacing: "0.1em" }}>{label}</span>
+        <span style={{ color: SLATE }}>anchor ${ls.anchorPrice?.toFixed(2) || "—"}</span>
+        {anchorDrift > 0.005 && <span style={{ color: AMBER }}>drift {(anchorDrift * 100).toFixed(1)}%</span>}
+        <span style={{ color: SLATE }}>{ageSec}s ago</span>
+        <span style={{ color: SLATE }}>{ls.regime || ""}</span>
+        <span style={{ color: SLATE }}>{ls.volSource || ""}</span>
+      </div>
+      {recalcReasons.length > 0 && (
+        <div style={{ fontSize: 8, color: CYAN, marginTop: 2 }}>
+          recalc: {recalcReasons.join(", ")}
+        </div>
+      )}
+      {invalidation && (
+        <div style={{ fontSize: 8, color: RED, marginTop: 2 }}>
+          invalidated: {invalidation.reasons.join(", ")} — suppressed: {invalidation.suppressedFields.join(", ")}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DetailPanel({ card }) {
   if (!card) return null;
@@ -480,6 +578,9 @@ function DetailPanel({ card }) {
 
   return (
     <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 16 }}>
+      {/* Freshness status */}
+      <FreshnessBadge card={card} />
+
       {/* SECTION 12: Trade Recommendation */}
       <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.12em", marginBottom: 10 }}>
         TRADE RECOMMENDATION — {card.symbol}
@@ -577,6 +678,34 @@ function DetailPanel({ card }) {
               <span style={{ color: AMBER, fontWeight: 700 }}>${card.ladder.secondary}</span>
               <span style={{ color: SLATE }}> ({card.ladder.pctBelowSpot?.secondary}% below)</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic targets from liveState */}
+      {card.liveState?.dynamicTargets?.targets && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em", marginBottom: 6 }}>
+            LIVE TARGETS ({card.liveState.dynamicTargets.method === "static_validated" ? "validated" : "dynamic"})
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, fontSize: 11 }}>
+            {card.liveState.dynamicTargets.targets.map(t => (
+              <div key={t.label} style={{ background: t.reachable ? "#0d2818" : "#1e2530", padding: "4px 8px", borderRadius: 4 }}>
+                <span style={{ color: SLATE, fontSize: 9 }}>{t.label}</span>
+                <span style={{ color: t.reachable ? GREEN : RED, fontWeight: 700, marginLeft: 4 }}>${t.level}</span>
+                <span style={{ color: SLATE, fontSize: 9, marginLeft: 4 }}>{t.distPct > 0 ? "+" : ""}{t.distPct}%</span>
+              </div>
+            ))}
+          </div>
+          {card.liveState.dynamicTargets.stop && (
+            <div style={{ fontSize: 10, color: RED, marginTop: 4 }}>
+              Stop: ${card.liveState.dynamicTargets.stop.level} ({card.liveState.dynamicTargets.stop.distPct}% below)
+            </div>
+          )}
+          <div style={{ fontSize: 9, color: SLATE, marginTop: 4 }}>
+            Expected move: ${card.liveState.dynamicTargets.expectedMove} &middot;
+            IV: {(card.liveState.annualizedIV * 100).toFixed(0)}% &middot;
+            Vol: {card.liveState.volSource}
           </div>
         </div>
       )}
@@ -1084,7 +1213,31 @@ export default function CreditVolScanner({ onBack }) {
     return allCards;
   }, [allCards, scanFilter, premiumSymbols, wheelSymbols, trapSymbols]);
 
-  const detail = selectedCard ? allCards.find(c => c.symbol === selectedCard) : null;
+  const rawDetail = selectedCard ? allCards.find(c => c.symbol === selectedCard) : null;
+  const detail = rawDetail ? renderSafeCardState(rawDetail) : null;
+
+  // Track previous liveMarketState per symbol for recalc detection
+  const prevLiveRef = useRef({});
+  const staleSymbols = useMemo(() => {
+    const stale = new Set();
+    for (const card of allCards) {
+      if (!card.liveState) continue;
+      const prev = prevLiveRef.current[card.symbol];
+      const next = extractLiveMarketState({
+        price: card.price,
+        leaderPrice: card.liveState?.leaderPrice,
+        ivPercentile: card.liveState?.ivPercentile,
+        atrExpansion: card.liveState?.atrExpansion,
+        regime: card.liveState?.regime,
+      });
+      if (prev) {
+        const { recalc } = shouldRecalculate(prev, next, card.liveState);
+        if (recalc) stale.add(card.symbol);
+      }
+      prevLiveRef.current[card.symbol] = next;
+    }
+    return stale;
+  }, [allCards]);
 
   return (
     <div style={{ minHeight: "100vh", background: "#060a0f", color: "#e2e8f0", fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace" }}>
@@ -1230,6 +1383,8 @@ export default function CreditVolScanner({ onBack }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
             {cards.map(card => (
               <SetupCard key={card.symbol} card={card} isSelected={selectedCard === card.symbol}
+                stale={staleSymbols.has(card.symbol)}
+                blockReason={isAlertSafe(card).safe ? null : isAlertSafe(card).reason}
                 onSelect={() => setSelectedCard(card.symbol)} />
             ))}
           </div>
@@ -1288,6 +1443,11 @@ export default function CreditVolScanner({ onBack }) {
               Select a setup to view details
             </div>
           )}
+
+          {/* Engine Health */}
+          <div style={{ padding: 12, borderTop: "1px solid #1e2530" }}>
+            <HealthPanel cards={allCards} />
+          </div>
 
           {/* Knowledge Bot */}
           <div style={{ padding: 12, borderTop: "1px solid #1e2530" }}>

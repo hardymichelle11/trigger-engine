@@ -32,15 +32,22 @@ REM   ~90 rows total per run, extremely cheap
 schtasks /create /tn "MarketData-Bars1d" /tr "cmd /c \"set POLYGON_API_KEY=%POLYGON_API_KEY%&& set GOOGLE_CLOUD_PROJECT=%GOOGLE_CLOUD_PROJECT%&& set GOOGLE_APPLICATION_CREDENTIALS=%GOOGLE_APPLICATION_CREDENTIALS%&& %PYTHON% %PIPELINE% refresh-1d\"" /sc daily /st 17:00 /d MON,TUE,WED,THU,FRI /f
 echo Created: Bars1d (daily at 5:00 PM)
 
+REM 4) Ops metrics flush: once at 16:10 ET (after market close)
+REM   Drains recalc/invalidation/alert events from localStorage to BQ
+schtasks /create /tn "MarketData-OpsFlush" /tr "cmd /c \"set GOOGLE_CLOUD_PROJECT=%GOOGLE_CLOUD_PROJECT%&& set GOOGLE_APPLICATION_CREDENTIALS=%GOOGLE_APPLICATION_CREDENTIALS%&& cd /d C:\Users\Louise\my-app && node scripts/flush-ops-metrics.js\"" /sc daily /st 16:10 /d MON,TUE,WED,THU,FRI /f
+echo Created: OpsFlush (daily at 4:10 PM)
+
 echo.
 echo =====================================================
 echo All tasks created. Verify with:
 echo   schtasks /query /tn "MarketData-LiveSnapshot"
 echo   schtasks /query /tn "MarketData-Bars1m"
 echo   schtasks /query /tn "MarketData-Bars1d"
+echo   schtasks /query /tn "MarketData-OpsFlush"
 echo.
 echo To delete tasks:
 echo   schtasks /delete /tn "MarketData-LiveSnapshot" /f
 echo   schtasks /delete /tn "MarketData-Bars1m" /f
 echo   schtasks /delete /tn "MarketData-Bars1d" /f
+echo   schtasks /delete /tn "MarketData-OpsFlush" /f
 echo =====================================================

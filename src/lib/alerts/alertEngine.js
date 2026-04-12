@@ -4,7 +4,11 @@
 // Evaluates scanner cards against configurable thresholds.
 // Only fires when multiple quality gates pass simultaneously.
 // Produces structured alert objects for any transport layer.
+// Alert safety: stale cards are blocked before gate evaluation.
 // =====================================================
+
+import { isAlertSafe, getFreshnessStatus } from "../engine/liveStateEngine.js";
+import { recordAlertBlockEvent, recordAlertFireEvent } from "../engine/opsEventCollector.js";
 
 // --------------------------------------------------
 // DEFAULT THRESHOLDS (configurable per instance)
@@ -56,6 +60,30 @@ export function evaluateAlert(card, thresholds = {}, recentAlerts = new Set()) {
   const t = { ...DEFAULT_ALERT_THRESHOLDS, ...thresholds };
   const passed = [];
   const failed = [];
+
+  // 0. Freshness safety gate — block stale cards before any evaluation
+  const safety = isAlertSafe(card);
+  if (!safety.safe) {
+    const freshness = getFreshnessStatus(card);
+    recordAlertBlockEvent({
+      symbol: card.symbol,
+      blockReason: safety.reason,
+      score: card.score,
+      anchorDriftPct: freshness.anchorDrift,
+      freshnessAgeSec: freshness.ageSec,
+    });
+    return {
+      shouldAlert: false,
+      priority: "low",
+      passedGates: [],
+      failedGates: [`Freshness: ${safety.reason}`],
+      card,
+      summary: `${card.symbol}: blocked — ${safety.reason}`,
+      timestamp: Date.now(),
+      blockedByFreshness: true,
+      freshnessReason: safety.reason,
+    };
+  }
 
   // 1. Score gate
   if (card.score >= t.minScore) {
@@ -131,6 +159,18 @@ export function evaluateAlert(card, thresholds = {}, recentAlerts = new Set()) {
   let priority = "low";
   if (shouldAlert && card.score >= t.minScore) priority = "high";
   else if (shouldAlert) priority = "medium";
+
+  // Persist alert-fire event for BQ
+  if (shouldAlert) {
+    recordAlertFireEvent({
+      symbol: card.symbol,
+      score: card.score,
+      priority,
+      action: card.action,
+      regime: card.liveState?.regime || card.regime,
+      anchorPrice: card.liveState?.anchorPrice || card.price,
+    });
+  }
 
   // Summary
   const summary = shouldAlert

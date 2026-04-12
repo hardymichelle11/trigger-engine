@@ -24,8 +24,10 @@ console.log("  ──────────────────\n");
 
 // --- Mock card builder ---
 function makeCard(overrides = {}) {
+  const price = overrides.price || 188;
   return {
     symbol: "NVDA",
+    price,
     score: 85,
     signal: "GO",
     action: "SELL_PUTS",
@@ -43,6 +45,12 @@ function makeCard(overrides = {}) {
       ivConfidence: "medium",
     },
     scoreTrace: [{ pts: 20, reason: "Regime: RISK_ON" }],
+    // Fresh liveState so cards pass the freshness safety gate
+    liveState: {
+      calculatedAt: Date.now(),
+      anchorPrice: price,
+      stale: false,
+    },
     ...overrides,
   };
 }

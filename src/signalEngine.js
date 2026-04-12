@@ -14,12 +14,17 @@ export { buildProfitPlan } from "./lib/engine/profitManagement.js";
 export { buildRollPlan } from "./lib/engine/defenseLogic.js";
 export { estimateProbability, monteCarloEstimate } from "./lib/engine/probabilityLayer.js";
 
+// Re-export live state engine
+export { shouldRecalculate, getFreshnessStatus, renderSafeCardState, buildLiveState, mcCacheValid, extractLiveMarketState, buildDynamicTargets, isAlertSafe, enableDebugMode, getRecalcLog, clearRecalcLog, RECALC_THRESHOLDS, RECALC_REASON_CODES } from "./lib/engine/liveStateEngine.js";
+export { computeFreshnessMetrics, computeRecalcAnalytics, computeInvalidationAnalytics, getHealthSnapshot } from "./lib/engine/recalcMonitor.js";
+
 // Local imports for orchestrators
 import { CONFIG, round2, safeNumber, midpoint } from "./lib/engine/config.js";
 import { evaluateMarketRegime, getTradingWindow } from "./lib/engine/macroRegime.js";
 import { scoreSetup, interpretSentiment, chooseAction } from "./lib/engine/setupScoring.js";
 import { selectPutLadder } from "./lib/engine/strikeSelection.js";
 import { estimateProbability } from "./lib/engine/probabilityLayer.js";
+import { buildLiveState } from "./lib/engine/liveStateEngine.js";
 
 // --------------------------------------------------
 // SECTION 12: TRADE RECOMMENDATION OUTPUT
@@ -187,6 +192,20 @@ export function buildUiCard(setup, market) {
       earlyStress: market.flags?.earlyStress ?? false,
       componentScores: market.componentScores || null,
     } : null,
+    // Live state — recalibration metadata for freshness tracking
+    liveState: buildLiveState({
+      price: setup.price,
+      leaderPrice: setup.leaderPrice || setup.price,
+      ivPercentile: setup.ivPercentile,
+      atrExpansion: setup.atrExpansionMultiple,
+      regime: market.mode,
+      regimeScore: market.regimeScore,
+      vixState: market.vixState,
+      staticTargets: setup.targets || null,
+      staticStop: setup.stop || null,
+      isLeveraged: setup.isLeveraged || false,
+      leverageGap: setup.leverageGap ?? null,
+    }),
   };
 }
 
