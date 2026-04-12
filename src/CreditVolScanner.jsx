@@ -27,6 +27,7 @@ import {
   filterTrapNames,
 } from "./optionsWatchlist.js";
 import { runDiscoveryScan, getDiscoveryPreview } from "./lib/discoveryScanner.js";
+import { getAllSetups } from "./lib/setupRegistry.js";
 import { recordCalibrationSnapshot, markAlertsFired, getCalibrationStats } from "./lib/calibration/calibrationTracker.js";
 import KnowledgeBotPanel from "./lib/knowledgeBot/KnowledgeBotPanel.jsx";
 
@@ -161,12 +162,33 @@ function classifySymbol(sym) {
   return "HIGH_IV";
 }
 
+// Build a lookup of real targets/stops from setup registry
+function _buildTargetLookup() {
+  const lookup = {};
+  try {
+    const registrySetups = getAllSetups();
+    for (const s of registrySetups) {
+      if (s.targets && s.targets.length > 0) {
+        // Map leader symbol to targets (for pair setups, targets are for follower)
+        if (s.leader?.symbol) lookup[s.leader.symbol] = { targets: s.targets, stop: s.stop, follower: s.follower?.symbol, leaderThreshold: s.leaderThreshold };
+        if (s.follower?.symbol) lookup[s.follower.symbol] = { targets: s.targets, stop: s.stop, leader: s.leader?.symbol, leaderThreshold: s.leaderThreshold };
+        // For standalone/basket, map the main symbol
+        if (s.symbol) lookup[s.symbol] = { targets: s.targets, stop: s.stop };
+      }
+    }
+  } catch { /* registry not available */ }
+  return lookup;
+}
+
 function buildSetups(snapshots, ivData) {
   const setups = [];
   const nvdaChange = snapshots["NVDA"]?.todaysChangePerc || 0;
   const msftChange = snapshots["MSFT"]?.todaysChangePerc || 0;
   const bxChange = snapshots["BX"]?.todaysChangePerc || 0;
   const spyChange = snapshots["SPY"]?.todaysChangePerc || 0;
+
+  // Real targets from setup registry
+  const targetLookup = _buildTargetLookup();
 
   const tradeableSymbols = [...HIGH_IV_VEHICLES, ...CREDIT_SIGNALS, ...TIER1_ETFS, ...MEGACAP_VEHICLES];
   const seen = new Set();
@@ -196,12 +218,34 @@ function buildSetups(snapshots, ivData) {
     const iv = ivData?.[sym];
     const ivPercentile = (iv && iv.ivRank != null) ? iv.ivRank : estimateIVPercentile(atrMult, snap.todaysChangePerc);
 
+    // Real targets from registry if available, else generic percentage
+    const registryTargets = targetLookup[sym];
+    const hasRealTargets = registryTargets?.targets?.length > 0;
+
+    // Compute distT1Pct from real T1 target if available
+    let distT1Pct;
+    if (hasRealTargets) {
+      distT1Pct = round2(((registryTargets.targets[0] - price) / price) * 100);
+    } else {
+      distT1Pct = round2(((price * (category === "CREDIT" ? 0.97 : 0.95)) - price) / price * 100);
+    }
+
+    // Leader price for pair setups (e.g. NBIS price when building NEBX card)
+    let leaderPrice = price;
+    if (registryTargets?.leader) {
+      const leaderSnap = snapshots[registryTargets.leader];
+      if (leaderSnap) {
+        leaderPrice = leaderSnap.day?.c || leaderSnap.prevDay?.c || price;
+      }
+    }
+
     setups.push({
       symbol: sym,
       name: SYMBOL_NAMES[sym] || sym,
       category,
       price,
       prevClose,
+      leaderPrice,
       leaderMovePct: leaderRef,
       powerMovePct: category === "CREDIT" ? spyChange : msftChange,
       followerMovePct: snap.todaysChangePerc || 0,
@@ -209,11 +253,16 @@ function buildSetups(snapshots, ivData) {
       ivPercentile,
       ivSource: iv?.source || "atr_estimate",
       ivConfidence: iv?.confidence || "low",
-      distT1Pct: round2(((price * (category === "CREDIT" ? 0.97 : 0.95)) - price) / price * 100),
+      distT1Pct,
       nearSupport: isNearSupport(price, day.l, prev.l),
       putCallRatio: 1 + Math.random() * 0.4,  // placeholder until options data feed
       bid: 0, ask: 0,
       strikeCandidates: generateStrikes(price),
+      // Real targets/stop from registry (for liveState engine)
+      targets: hasRealTargets ? registryTargets.targets : null,
+      stop: registryTargets?.stop || null,
+      isLeveraged: !!registryTargets?.leader, // has a leader = is a leveraged follower
+      leaderThreshold: registryTargets?.leaderThreshold || null,
     });
   }
 
