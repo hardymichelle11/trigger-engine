@@ -93,6 +93,9 @@ function toEngineFormat(setup) {
     return {
       ...base,
       leader: setup.leader,
+      setupBehavior: setup.setupBehavior || null,
+      targets: setup.targets || null,
+      stop: setup.stop || null,
       tvLeader: setup.tv?.leader,
     };
   }

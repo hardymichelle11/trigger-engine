@@ -31,9 +31,10 @@
     "test:regime": "node scripts/test-regime-v2.js",
     "test:knowledgebot": "node scripts/test-knowledge-bot.js",
     "test:livestate": "node scripts/test-live-state.js",
+    "test:timing": "node scripts/test-timing.js",
     "ops:flush": "node scripts/flush-ops-metrics.js",
     "bot:server": "node server/knowledgeBotServer.js",
-    "validate": "node scripts/validate-setups.js && node scripts/test-signal-engine.js && node scripts/test-options-watchlist.js && node scripts/test-slope.js && node scripts/test-iv.js && node scripts/test-mc.js && node scripts/test-alerts.js && node scripts/test-backtest.js && node scripts/test-websocket.js && node scripts/test-history.js && node scripts/test-stack-backtest.js && node scripts/test-discovery.js && node scripts/test-structure.js && node scripts/test-calibration.js && node scripts/test-regime-v2.js && node scripts/test-knowledge-bot.js && node scripts/test-live-state.js"
+    "validate": "node scripts/validate-setups.js && node scripts/test-signal-engine.js && node scripts/test-options-watchlist.js && node scripts/test-slope.js && node scripts/test-iv.js && node scripts/test-mc.js && node scripts/test-alerts.js && node scripts/test-backtest.js && node scripts/test-websocket.js && node scripts/test-history.js && node scripts/test-stack-backtest.js && node scripts/test-discovery.js && node scripts/test-structure.js && node scripts/test-calibration.js && node scripts/test-regime-v2.js && node scripts/test-knowledge-bot.js && node scripts/test-live-state.js && node scripts/test-timing.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",

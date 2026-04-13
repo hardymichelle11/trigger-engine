@@ -500,13 +500,58 @@ function DetailPanel({ result, setupKey, setups }) {
       {/* Standalone detail */}
       {result.kind === "standalone" && (
         <div style={{ background: "#0d1117", border: "1px solid #1e2530", borderRadius: 10, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em", marginBottom: 10 }}>STANDALONE ANALYSIS</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.12em" }}>STANDALONE ANALYSIS</div>
+            {result.marketType && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
+                color: result.marketType === "MOMENTUM" ? GREEN : result.marketType === "RANGE" ? CYAN : result.marketType === "INCOME" ? AMBER : "#9ca3af",
+                background: (result.marketType === "MOMENTUM" ? GREEN : result.marketType === "RANGE" ? CYAN : result.marketType === "INCOME" ? AMBER : "#9ca3af") + "18",
+                padding: "2px 8px", borderRadius: 4,
+              }}>
+                {result.marketType}
+              </span>
+            )}
+          </div>
+          {result.strategy && (
+            <div style={{ fontSize: 10, color: CYAN, marginBottom: 8, fontWeight: 600 }}>{result.strategy}</div>
+          )}
           <Gate label="Price constructive" ok={result.change >= 0} value={pctFmt(result.change || 0)} />
           <Gate label="Volatility active" ok={(result.vol || 0) > 0.002} value={`${((result.vol || 0) * 100).toFixed(3)}%`} />
           <Gate label="Market regime" ok={result.marketRegime !== "RISK-OFF"} value={result.marketRegime} />
-          <div style={{ borderTop: "1px solid #1e2530", marginTop: 10, paddingTop: 10 }}>
-            <Gate label="SCORE >= 70 -> GO" ok={result.score >= 70} value={`${result.score} / 100`} />
+          {result.trendStrength != null && (
+            <Gate label="Trend strength" ok={result.trendStrength > 0.5} value={`${(result.trendStrength * 100).toFixed(0)}%`} />
+          )}
+          {result.rangePosition != null && (
+            <Gate label="Range position" ok={result.marketType === "RANGE" ? result.rangePosition < 0.4 : result.rangePosition > 0.5}
+              value={result.rangePosition < 0.3 ? "Near support" : result.rangePosition > 0.7 ? "Near resistance" : "Mid-range"} />
+          )}
+          {result.targets && result.targets.length > 0 && (
+            <>
+              <div style={{ borderTop: "1px solid #1e2530", marginTop: 8, paddingTop: 8 }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.1em", marginBottom: 6 }}>TARGETS</div>
+                <div style={{ display: "flex", gap: 10, fontSize: 10 }}>
+                  {result.targets.map((t, i) => (
+                    <span key={i} style={{ color: GREEN }}>T{i+1}: ${t}</span>
+                  ))}
+                  {result.stop && <span style={{ color: RED }}>Stop: ${result.stop}</span>}
+                </div>
+                {result.distT1Pct != null && (
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+                    Distance to T1: {result.distT1Pct > 0 ? "+" : ""}{result.distT1Pct.toFixed(1)}%
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          <div style={{ borderTop: "1px solid #1e2530", marginTop: 8, paddingTop: 8 }}>
+            <Gate label={`SCORE >= ${result.marketType === "INCOME" ? "60 -> WATCH" : "70 -> GO"}`} ok={result.score >= (result.marketType === "INCOME" ? 60 : 70)} value={`${result.score} / 100`} />
           </div>
+          {result.narrative && (
+            <div style={{ marginTop: 8, fontSize: 10, color: "#9ca3af", lineHeight: 1.6, borderTop: "1px solid #1e2530", paddingTop: 8 }}>
+              {result.narrative}
+            </div>
+          )}
         </div>
       )}
 
@@ -663,6 +708,7 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
 
   const [engineOutput, setEngineOutput] = useState(null);
   const [selectedSetup, setSelectedSetup] = useState(null);
+  const [teSearchQuery, setTeSearchQuery] = useState("");
   const [alerts, setAlerts] = useState([]);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -882,8 +928,33 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
           {/* Compact regime for mobile */}
           <RegimePanel regime={regime} />
 
+          {/* Search bar */}
+          <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
+            <input
+              value={teSearchQuery}
+              onChange={e => setTeSearchQuery(e.target.value)}
+              placeholder="Search symbol or name..."
+              style={{
+                flex: 1, padding: "6px 10px", fontSize: 11,
+                background: "#0d1117", border: "1px solid #1e2530",
+                borderRadius: 6, color: "#e2e8f0", outline: "none",
+                fontFamily: "inherit",
+              }}
+            />
+            {teSearchQuery && (
+              <button onClick={() => setTeSearchQuery("")}
+                style={{ padding: "4px 8px", fontSize: 9, background: "#1e2530", border: "none", borderRadius: 4, color: "#94a3b8", cursor: "pointer" }}>
+                CLEAR
+              </button>
+            )}
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
-            {results.map(r => {
+            {results.filter(r => {
+              if (!teSearchQuery.trim()) return true;
+              const q = teSearchQuery.trim().toUpperCase();
+              return r.setup.toUpperCase().includes(q);
+            }).map(r => {
               const key = Object.keys(SETUPS).find(k => {
                 const s = SETUPS[k];
                 const name = s.kind === "pair" ? `${s.leader.symbol}/${s.follower.symbol}` : s.kind === "infra_follower" ? "BE_INFRA" : s.kind === "stack_reversal" ? "NVDA_POWER_STACK" : s.leader.symbol;

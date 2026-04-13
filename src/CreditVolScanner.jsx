@@ -27,6 +27,7 @@ import {
   filterTrapNames,
 } from "./optionsWatchlist.js";
 import { runDiscoveryScan, getDiscoveryPreview } from "./lib/discoveryScanner.js";
+import { evaluateCardTiming } from "./lib/timing/premiumTimingEngine.js";
 import { getAllSetups } from "./lib/setupRegistry.js";
 import { recordCalibrationSnapshot, markAlertsFired, getCalibrationStats } from "./lib/calibration/calibrationTracker.js";
 import KnowledgeBotPanel from "./lib/knowledgeBot/KnowledgeBotPanel.jsx";
@@ -168,12 +169,14 @@ function _buildTargetLookup() {
   try {
     const registrySetups = getAllSetups();
     for (const s of registrySetups) {
-      if (s.targets && s.targets.length > 0) {
-        // Map leader symbol to targets (for pair setups, targets are for follower)
-        if (s.leader?.symbol) lookup[s.leader.symbol] = { targets: s.targets, stop: s.stop, follower: s.follower?.symbol, leaderThreshold: s.leaderThreshold };
-        if (s.follower?.symbol) lookup[s.follower.symbol] = { targets: s.targets, stop: s.stop, leader: s.leader?.symbol, leaderThreshold: s.leaderThreshold };
-        // For standalone/basket, map the main symbol
-        if (s.symbol) lookup[s.symbol] = { targets: s.targets, stop: s.stop };
+      const entry = { targets: s.targets || null, stop: s.stop || null, setupBehavior: s.setupBehavior || null };
+      // Map leader symbol
+      if (s.leader?.symbol) {
+        lookup[s.leader.symbol] = { ...entry, follower: s.follower?.symbol, leaderThreshold: s.leaderThreshold };
+      }
+      // Map follower symbol (pair setups)
+      if (s.follower?.symbol) {
+        lookup[s.follower.symbol] = { ...entry, leader: s.leader?.symbol, leaderThreshold: s.leaderThreshold };
       }
     }
   } catch { /* registry not available */ }
@@ -258,10 +261,11 @@ function buildSetups(snapshots, ivData) {
       putCallRatio: 1 + Math.random() * 0.4,  // placeholder until options data feed
       bid: 0, ask: 0,
       strikeCandidates: generateStrikes(price),
-      // Real targets/stop from registry (for liveState engine)
+      // Real targets/stop/behavior from registry
       targets: hasRealTargets ? registryTargets.targets : null,
       stop: registryTargets?.stop || null,
-      isLeveraged: !!registryTargets?.leader, // has a leader = is a leveraged follower
+      setupBehavior: registryTargets?.setupBehavior || null,
+      isLeveraged: !!registryTargets?.leader,
       leaderThreshold: registryTargets?.leaderThreshold || null,
     });
   }
@@ -482,6 +486,14 @@ function SetupCard({ card, isSelected, onSelect, stale, blockReason }) {
           <span style={{ fontSize: 8, fontWeight: 700, color: catColor, background: catColor + "22", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.1em" }}>
             {card.category}
           </span>
+          {card.marketType && (
+            <span style={{ fontSize: 7, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 5px", borderRadius: 3,
+              color: card.marketType === "MOMENTUM" ? GREEN : card.marketType === "RANGE" ? CYAN : card.marketType === "INCOME" ? AMBER : SLATE,
+              background: (card.marketType === "MOMENTUM" ? GREEN : card.marketType === "RANGE" ? CYAN : card.marketType === "INCOME" ? AMBER : SLATE) + "18",
+            }}>
+              {card.marketType}
+            </span>
+          )}
           <span style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{card.symbol}</span>
           <span style={{ fontSize: 11, color: SLATE }}>{card.name}</span>
         </div>
@@ -495,6 +507,20 @@ function SetupCard({ card, isSelected, onSelect, stale, blockReason }) {
         <StageBadge stage={card.stage} />
         <ActionBadge action={card.action} />
         <RiskBadge level={card.recommendation.riskLevel} />
+        {(() => {
+          const timing = evaluateCardTiming(card);
+          const tColor = timing.timingState === "PEAK_WINDOW" ? GREEN
+            : timing.timingState === "FAVORABLE" ? CYAN
+            : timing.timingState === "EARLY" ? AMBER
+            : timing.timingState === "LATE" ? AMBER
+            : RED;
+          return (
+            <span title={`Timing ${timing.timingScore} · ${timing.suggestedAction.replace(/_/g, " ")} · ${timing.premiumContext.symbolBestWindow?.label || ""}`}
+              style={{ fontSize: 8, fontWeight: 700, color: tColor, background: tColor + "18", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.06em", cursor: "help" }}>
+              {timing.timingState.replace("_", " ")} {timing.timingScore}
+            </span>
+          );
+        })()}
         {card.watchlist && (
           <>
             <span style={{ fontSize: 8, color: card.watchlist.spreadQuality?.startsWith("A") ? GREEN : SLATE, background: "#1e253044", padding: "2px 6px", borderRadius: 4 }}>
@@ -630,6 +656,23 @@ function DetailPanel({ card }) {
       {/* Freshness status */}
       <FreshnessBadge card={card} />
 
+      {/* Market type + strategy */}
+      {card.marketType && (
+        <div style={{ marginBottom: 10, padding: "8px 10px", background: "#060a0f", borderRadius: 6, border: "1px solid #1e2530" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+              color: card.marketType === "MOMENTUM" ? GREEN : card.marketType === "RANGE" ? CYAN : card.marketType === "INCOME" ? AMBER : SLATE,
+            }}>
+              {card.marketType}
+            </span>
+            <span style={{ fontSize: 9, color: SLATE }}>{card.symbol}</span>
+          </div>
+          {card.strategy && (
+            <div style={{ fontSize: 10, color: CYAN, fontWeight: 600 }}>{card.strategy}</div>
+          )}
+        </div>
+      )}
+
       {/* SECTION 12: Trade Recommendation */}
       <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.12em", marginBottom: 10 }}>
         TRADE RECOMMENDATION — {card.symbol}
@@ -758,6 +801,39 @@ function DetailPanel({ card }) {
           </div>
         </div>
       )}
+
+      {/* Premium Timing */}
+      {(() => {
+        const timing = evaluateCardTiming(card);
+        const tColor = timing.timingState === "PEAK_WINDOW" ? GREEN
+          : timing.timingState === "FAVORABLE" ? CYAN
+          : timing.timingState === "EARLY" ? AMBER
+          : timing.timingState === "LATE" ? AMBER
+          : RED;
+        return (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 9, color: SLATE, letterSpacing: "0.1em", marginBottom: 6 }}>PREMIUM TIMING</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: tColor }}>{timing.timingState.replace(/_/g, " ")}</span>
+              <span style={{ fontSize: 10, color: SLATE }}>Score {timing.timingScore}</span>
+              <span style={{ fontSize: 10, color: SLATE }}>Premium {timing.premiumContext.currentVsHistoricalPercentile}th %ile</span>
+              <span style={{ fontSize: 9, color: SLATE }}>({timing.confidence})</span>
+            </div>
+            <div style={{ fontSize: 10, color: tColor, marginBottom: 4 }}>
+              {timing.suggestedAction.replace(/_/g, " ")}
+            </div>
+            <div style={{ fontSize: 9, color: SLATE, marginBottom: 4 }}>
+              Best window: {timing.premiumContext.symbolBestWindow?.label || "—"}
+              {timing.clockContext?.timeET && <span> &middot; Now: {timing.clockContext.timeET} ET</span>}
+            </div>
+            {timing.rationale.length > 0 && (
+              <div style={{ fontSize: 9, color: SLATE, lineHeight: 1.5 }}>
+                {timing.rationale.map((r, i) => <div key={i}>• {r}</div>)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Diagnostics */}
       <div style={{ marginBottom: 12 }}>
@@ -1122,6 +1198,7 @@ export default function CreditVolScanner({ onBack }) {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [error, setError] = useState(null);
   const [scanFilter, setScanFilter] = useState("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [alertLog, setAlertLog] = useState(() => loadAlertHistory());
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [discoveryMode, setDiscoveryMode] = useState(false);
@@ -1252,15 +1329,25 @@ export default function CreditVolScanner({ onBack }) {
   const trapSymbols = useMemo(() => new Set(filterTrapNames().map(w => w.symbol)), []);
 
   const cards = useMemo(() => {
-    if (scanFilter === "ALL") return allCards;
-    if (scanFilter === "PREMIUM") return allCards.filter(c => premiumSymbols.has(c.symbol));
-    if (scanFilter === "WHEEL") return allCards.filter(c => wheelSymbols.has(c.symbol));
-    if (scanFilter === "HIGH_IV") return allCards.filter(c => c.category === "HIGH_IV");
-    if (scanFilter === "CREDIT") return allCards.filter(c => c.category === "CREDIT");
-    if (scanFilter === "ETF") return allCards.filter(c => c.category === "ETF");
-    if (scanFilter === "TRAPS") return allCards.filter(c => trapSymbols.has(c.symbol));
-    return allCards;
-  }, [allCards, scanFilter, premiumSymbols, wheelSymbols, trapSymbols]);
+    let filtered = allCards;
+    if (scanFilter === "PREMIUM") filtered = allCards.filter(c => premiumSymbols.has(c.symbol));
+    else if (scanFilter === "WHEEL") filtered = allCards.filter(c => wheelSymbols.has(c.symbol));
+    else if (scanFilter === "HIGH_IV") filtered = allCards.filter(c => c.category === "HIGH_IV");
+    else if (scanFilter === "CREDIT") filtered = allCards.filter(c => c.category === "CREDIT");
+    else if (scanFilter === "ETF") filtered = allCards.filter(c => c.category === "ETF");
+    else if (scanFilter === "TRAPS") filtered = allCards.filter(c => trapSymbols.has(c.symbol));
+
+    // Search filter — matches symbol or name
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toUpperCase();
+      filtered = filtered.filter(c =>
+        c.symbol.toUpperCase().includes(q) ||
+        (c.name && c.name.toUpperCase().includes(q))
+      );
+    }
+
+    return filtered;
+  }, [allCards, scanFilter, searchQuery, premiumSymbols, wheelSymbols, trapSymbols]);
 
   const rawDetail = selectedCard ? allCards.find(c => c.symbol === selectedCard) : null;
   const detail = rawDetail ? renderSafeCardState(rawDetail) : null;
@@ -1426,6 +1513,27 @@ export default function CreditVolScanner({ onBack }) {
               }}>
               {discoveryLoading ? "..." : discoveryMode ? `DISC (${discoveryState?.cards?.length || 0})` : "DISC"}
             </button>
+          </div>
+
+          {/* Search bar */}
+          <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search symbol or name..."
+              style={{
+                flex: 1, padding: "6px 10px", fontSize: 11,
+                background: "#0d1117", border: "1px solid #1e2530",
+                borderRadius: 6, color: "#e2e8f0", outline: "none",
+                fontFamily: "inherit",
+              }}
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")}
+                style={{ padding: "4px 8px", fontSize: 9, background: "#1e2530", border: "none", borderRadius: 4, color: SLATE, cursor: "pointer" }}>
+                CLEAR
+              </button>
+            )}
           </div>
 
           {/* Setup card grid */}

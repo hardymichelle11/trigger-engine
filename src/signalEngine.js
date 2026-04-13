@@ -138,11 +138,18 @@ export function buildUiCard(setup, market) {
     else finalSignal = "NO_TRADE";
   }
 
+  // Market type classification from setupBehavior or category
+  const marketType = setup.setupBehavior || (setup.category === "CREDIT" ? "INCOME" : setup.category === "ETF" ? "RANGE" : null);
+  const strategyMap = { MOMENTUM: "Breakout / follow trend", RANGE: "Sell puts at support / mean reversion", INCOME: "Covered calls / dividend — avoid active selling", HYBRID: "Buy dip + sell premium", FOLLOWER: "Lag entry after leader confirms" };
+  const strategy = marketType ? (strategyMap[marketType] || null) : null;
+
   return {
     id: `${setup.symbol}_${Date.now()}`,
     symbol: setup.symbol,
     name: setup.name || setup.symbol,
     category: setup.category || "HIGH_IV",
+    marketType: marketType || null,
+    strategy: strategy || null,
     price: round2(setup.price),
     score: finalScore,
     baselineScore: scored.score,
