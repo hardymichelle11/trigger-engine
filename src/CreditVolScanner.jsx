@@ -88,7 +88,7 @@ const MACRO_SYMBOLS = ["HYG", "KRE", "LQD", "VIX", "XLF", "QQQ", "TNX"];
 const CREDIT_SIGNALS = ["BX", "APO", "ARCC", "OWL", "OBDC"];
 
 // High IV trade vehicles (premium generators)
-const HIGH_IV_VEHICLES = ["NBIS", "CRWV", "COIN", "NVDA", "TSLA", "MSTR", "SMCI", "AMD", "PLTR", "HOOD", "BTDR"];
+const HIGH_IV_VEHICLES = ["NBIS", "NEBX", "CRWV", "COIN", "NVDA", "TSLA", "MSTR", "SMCI", "AMD", "PLTR", "HOOD", "BTDR", "CF", "OXY", "MOS", "JEPI", "JEPQ", "BE", "QQQM"];
 
 // 2026 Tier 1 ETFs (premium selling + regime)
 const TIER1_ETFS = ["SPY", "QQQ", "IWM", "TLT", "SLV", "GLD", "XLF", "XLE", "FXI"];
@@ -112,6 +112,9 @@ const SYMBOL_NAMES = {
   XLF: "Financials ETF", XLE: "Energy ETF", FXI: "China Large-Cap ETF",
   AAPL: "Apple", MSFT: "Microsoft", AMZN: "Amazon",
   GOOGL: "Alphabet", GOOG: "Alphabet C", META: "Meta",
+  CF: "CF Industries", OXY: "Occidental Petroleum", MOS: "Mosaic",
+  JEPI: "JPM Equity Premium", JEPQ: "JPM Nasdaq Premium",
+  BE: "Bloom Energy", NEBX: "2X Long NBIS ETF", QQQM: "Invesco NASDAQ 100",
 };
 
 // V2 regime history builder: creates price series from snapshots
