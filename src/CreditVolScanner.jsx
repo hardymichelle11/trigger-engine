@@ -49,7 +49,7 @@ const CYAN   = "#2dd4bf";
 // --------------------------------------------------
 
 import { getPolygonKey } from "./lib/apiKeyManager.js";
-import { buildPolygonUrl } from "./lib/polygonProxy.js";
+import { buildPolygonUrl, getPolygonBase } from "./lib/polygonProxy.js";
 
 async function fetchSnapshot(symbol) {
   const url = await buildPolygonUrl(`/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}`);
@@ -57,6 +57,84 @@ async function fetchSnapshot(symbol) {
   if (!res.ok) return null;
   const data = await res.json();
   return data?.ticker || null;
+}
+
+// Polygon index symbols require I: prefix for snapshot endpoints
+const REGIME_SYMBOL_MAP = {
+  VIX: "I:VIX",
+  TNX: "I:TNX",
+};
+const INDEX_SYMBOLS = new Set(["VIX", "TNX"]);
+
+async function fetchRegimeSnapshot(symbol) {
+  const isIndex = INDEX_SYMBOLS.has(symbol);
+
+  // --- INDEX PATH: VIX, TNX → worker /index/ endpoint (Yahoo Finance) ---
+  if (isIndex) {
+    return fetchIndexSnapshot(symbol);
+  }
+
+  // --- ETF/STOCK PATH: standard Polygon snapshot ---
+  const snapshotUrl = await buildPolygonUrl(`/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}`);
+  const res = await fetch(snapshotUrl);
+  if (res.ok) {
+    const data = await res.json();
+    const ticker = data?.ticker || null;
+    if (ticker) {
+      ticker._source = 'polygon_snapshot';
+      ticker._requestedSymbol = symbol;
+      ticker._apiSymbol = symbol;
+      ticker._timestamp = Date.now();
+      ticker._fieldUsed = (ticker.day?.c > 0) ? 'day.c' : (ticker.prevDay?.c > 0) ? 'prevDay.c' : 'none';
+      return ticker;
+    }
+  }
+  return null;
+}
+
+async function fetchIndexSnapshot(symbol) {
+  // Primary: worker /index/ endpoint (Yahoo Finance via CORS proxy)
+  try {
+    const { baseUrl } = await getPolygonBase();
+    const indexUrl = `${baseUrl}/index/${symbol}`;
+    const res = await fetch(indexUrl);
+    if (res.ok) {
+      const data = await res.json();
+      const ticker = data?.ticker || null;
+      if (ticker && ticker.day?.c > 0) {
+        ticker._source = ticker._source || 'yahoo_via_proxy';
+        ticker._requestedSymbol = symbol;
+        ticker._apiSymbol = symbol;
+        ticker._timestamp = ticker._timestamp || Date.now();
+        ticker._fieldUsed = 'day.c';
+        return ticker;
+      }
+    }
+  } catch { /* proxy index endpoint failed — try fallback */ }
+
+  // Fallback: Polygon prev aggs (requires index entitlement)
+  const apiSymbol = REGIME_SYMBOL_MAP[symbol] || symbol;
+  try {
+    const aggUrl = await buildPolygonUrl(`/v2/aggs/ticker/${apiSymbol}/prev`, { adjusted: "true" });
+    const aggRes = await fetch(aggUrl);
+    if (aggRes.ok) {
+      const aggData = await aggRes.json();
+      const bar = aggData?.results?.[0];
+      if (bar && bar.c > 0) {
+        return {
+          prevDay: { c: bar.o || bar.c, h: bar.h, l: bar.l, v: bar.v || 0 },
+          day: { c: bar.c, h: bar.h, l: bar.l, v: bar.v || 0 },
+          _source: 'polygon_prev_aggs',
+          _requestedSymbol: symbol,
+          _apiSymbol: apiSymbol,
+          _fieldUsed: 'aggs.prev.c',
+          _timestamp: bar.t || Date.now(),
+        };
+      }
+    }
+  } catch { /* Polygon index fallback also failed */ }
+
+  return null;
 }
 
 async function fetchAllSnapshots(symbols) {
@@ -69,6 +147,25 @@ async function fetchAllSnapshots(symbols) {
     const promises = batch.map(async (sym) => {
       try {
         results[sym] = await fetchSnapshot(sym);
+      } catch {
+        results[sym] = null;
+      }
+    });
+    await Promise.all(promises);
+  }
+  return results;
+}
+
+async function fetchRegimeSnapshots(symbols) {
+  const results = {};
+  const batches = [];
+  for (let i = 0; i < symbols.length; i += 5) {
+    batches.push(symbols.slice(i, i + 5));
+  }
+  for (const batch of batches) {
+    const promises = batch.map(async (sym) => {
+      try {
+        results[sym] = await fetchRegimeSnapshot(sym);
       } catch {
         results[sym] = null;
       }
@@ -119,10 +216,12 @@ const SYMBOL_NAMES = {
 
 // V2 regime history builder: creates price series from snapshots
 // When historyProvider data is available, merges it for richer series.
-// TODO: Pull longer series from historyProvider.getCloses() for each regime ticker
+// Returns { history, timestamps, sourceMap } for diagnostics.
 function buildRegimeHistory(snapshots, historicalCloses) {
-  const regimeTickers = ["HYG", "KRE", "XLF", "VIX", "QQQ", "TNX"];
+  const regimeTickers = ["HYG", "KRE", "LQD", "VIX", "XLF", "QQQ", "TNX"];
   const history = {};
+  const timestamps = {};
+  const sourceMap = {};
 
   for (const sym of regimeTickers) {
     // Start with historical closes if available (oldest → newest)
@@ -132,13 +231,25 @@ function buildRegimeHistory(snapshots, historicalCloses) {
     const snap = snapshots[sym];
     if (snap) {
       const prevClose = snap.prevDay?.c;
-      const dayClose = snap.day?.c || prevClose;
-      if (prevClose && (!closes.length || closes[closes.length - 1] !== prevClose)) {
+      // Strict: don't use || which coerces 0 to falsy
+      const dayClose = (snap.day?.c != null && snap.day.c > 0) ? snap.day.c : null;
+      if (prevClose != null && prevClose > 0 && (!closes.length || closes[closes.length - 1] !== prevClose)) {
         closes.push(prevClose);
       }
-      if (dayClose && dayClose !== prevClose) {
-        closes.push(dayClose);
+      // Always push dayClose if valid — even when equal to prevClose.
+      // The engine needs >= 2 bars; deduplicating kills flat days.
+      if (dayClose != null && dayClose > 0) {
+        if (dayClose !== prevClose || closes.length < 2) {
+          closes.push(dayClose);
+        }
       }
+      timestamps[sym] = snap._timestamp || Date.now();
+      sourceMap[sym] = {
+        source: snap._source || 'snapshot',
+        requestedSymbol: snap._requestedSymbol || sym,
+        apiSymbol: snap._apiSymbol || sym,
+        fieldUsed: snap._fieldUsed || 'close',
+      };
     }
 
     // QQQM adapter: if QQQ not available but QQQM is, use QQQM
@@ -146,16 +257,17 @@ function buildRegimeHistory(snapshots, historicalCloses) {
       const qqqmSnap = snapshots["QQQM"];
       if (qqqmSnap) {
         const pc = qqqmSnap.prevDay?.c;
-        const dc = qqqmSnap.day?.c || pc;
-        if (pc) closes.push(pc);
-        if (dc && dc !== pc) closes.push(dc);
+        const dc = (qqqmSnap.day?.c != null && qqqmSnap.day.c > 0) ? qqqmSnap.day.c : null;
+        if (pc != null && pc > 0) closes.push(pc);
+        if (dc != null && dc !== pc) closes.push(dc);
+        sourceMap[sym] = { source: 'qqqm_adapter', requestedSymbol: 'QQQ', apiSymbol: 'QQQM', fieldUsed: 'close' };
       }
     }
 
-    history[sym] = closes.filter(c => c > 0);
+    history[sym] = closes.filter(c => typeof c === 'number' && !isNaN(c) && c > 0);
   }
 
-  return history;
+  return { history, timestamps, sourceMap };
 }
 
 function classifySymbol(sym) {
@@ -390,12 +502,35 @@ function Metric({ label, value, color }) {
 // REGIME PANEL
 // --------------------------------------------------
 
+// Status badge for per-symbol diagnostics
+function SymbolStatusBadge({ status }) {
+  if (!status) return null;
+  const config = {
+    live: { color: GREEN, label: "LIVE" },
+    stale: { color: AMBER, label: "STALE" },
+    missing: { color: RED, label: "MISSING" },
+    fallback_close: { color: PURPLE, label: "FALLBACK" },
+  };
+  const c = config[status] || config.missing;
+  return (
+    <span style={{ fontSize: 7, fontWeight: 700, color: c.color, background: c.color + "18", padding: "1px 4px", borderRadius: 3, letterSpacing: "0.06em", marginLeft: 3 }}>
+      {c.label}
+    </span>
+  );
+}
+
 function CreditRegimePanel({ market, tradingWindow }) {
   if (!market) return null;
-  const modeColor = market.mode === "HIGH_PREMIUM_ENVIRONMENT" ? GREEN
+
+  const isUnavailable = market.dataAvailable === false || market.mode === "DATA_UNAVAILABLE";
+  const modeColor = isUnavailable ? RED
+    : market.mode === "HIGH_PREMIUM_ENVIRONMENT" ? GREEN
     : market.mode === "RISK_ON" ? CYAN
     : market.mode.includes("STRESS") ? RED
     : AMBER;
+
+  // Extract per-symbol diagnostics for badges
+  const diag = market.diagnostics || {};
 
   return (
     <div style={{ background: "#0d1117", border: `1px solid ${modeColor}33`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
@@ -412,56 +547,82 @@ function CreditRegimePanel({ market, tradingWindow }) {
             </span>
           )}
           <span style={{ fontSize: 10, fontWeight: 700, color: modeColor, background: modeColor + "22", padding: "3px 8px", borderRadius: 4, letterSpacing: "0.08em" }}>
-            {market.mode.replace(/_/g, " ")}
+            {isUnavailable ? "MISSING INPUTS" : market.mode.replace(/_/g, " ")}
           </span>
         </div>
       </div>
 
       <div style={{ fontSize: 10, color: "#d1d5db", marginBottom: 8 }}>
-        Bias: <span style={{ color: modeColor, fontWeight: 700 }}>{market.bias.replace(/_/g, " ")}</span>
+        Bias: <span style={{ color: modeColor, fontWeight: 700 }}>
+          {isUnavailable ? "DATA UNAVAILABLE" : market.bias.replace(/_/g, " ")}
+        </span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, fontSize: 10, marginBottom: 8 }}>
         <div>
           <span style={{ color: SLATE }}>HYG </span>
-          <span style={{ color: market.flags.hygWeak ? RED : GREEN, fontWeight: 700 }}>{market.indicators.hyg?.toFixed(2) || "—"}</span>
-          {market.flags.hygWeak && <span style={{ color: RED, fontSize: 8 }}> WEAK</span>}
+          <span style={{ color: isUnavailable ? SLATE : market.flags?.hygWeak ? RED : GREEN, fontWeight: 700 }}>
+            {market.indicators?.hyg != null && market.indicators.hyg > 0 ? market.indicators.hyg.toFixed(2) : "—"}
+          </span>
+          {!isUnavailable && market.flags?.hygWeak && <span style={{ color: RED, fontSize: 8 }}> WEAK</span>}
+          <SymbolStatusBadge status={diag.HYG?.status} />
         </div>
         <div>
           <span style={{ color: SLATE }}>KRE </span>
-          <span style={{ color: market.flags.kreWeak ? RED : GREEN, fontWeight: 700 }}>{market.indicators.kre?.toFixed(2) || "—"}</span>
-          {market.flags.kreWeak && <span style={{ color: RED, fontSize: 8 }}> WEAK</span>}
+          <span style={{ color: isUnavailable ? SLATE : market.flags?.kreWeak ? RED : GREEN, fontWeight: 700 }}>
+            {market.indicators?.kre != null && market.indicators.kre > 0 ? market.indicators.kre.toFixed(2) : "—"}
+          </span>
+          {!isUnavailable && market.flags?.kreWeak && <span style={{ color: RED, fontSize: 8 }}> WEAK</span>}
+          <SymbolStatusBadge status={diag.KRE?.status} />
         </div>
         <div>
           <span style={{ color: SLATE }}>LQD </span>
-          <span style={{ color: CYAN, fontWeight: 700 }}>{market.indicators.lqd?.toFixed(2) || "—"}</span>
+          <span style={{ color: isUnavailable ? SLATE : CYAN, fontWeight: 700 }}>
+            {market.indicators?.lqd != null && market.indicators.lqd > 0 ? market.indicators.lqd.toFixed(2) : "—"}
+          </span>
+          <SymbolStatusBadge status={diag.LQD?.status} />
         </div>
         <div>
           <span style={{ color: SLATE }}>VIX </span>
-          <span style={{ color: market.fearSpike ? RED : market.fearBand ? AMBER : GREEN, fontWeight: 700 }}>
-            {market.indicators.vix?.toFixed(2) || "—"}
+          <span style={{ color: isUnavailable ? SLATE : market.fearSpike ? RED : market.fearBand ? AMBER : GREEN, fontWeight: 700 }}>
+            {market.indicators?.vix != null && market.indicators.vix > 0 ? market.indicators.vix.toFixed(2) : "—"}
           </span>
-          {market.vixRising && <span style={{ color: RED, fontSize: 8 }}> {"\u2191"}</span>}
+          {!isUnavailable && market.vixRising && <span style={{ color: RED, fontSize: 8 }}> {"\u2191"}</span>}
+          <SymbolStatusBadge status={diag.VIX?.status} />
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, fontSize: 9 }}>
-        <span style={{ color: market.creditStress ? RED : GREEN }}>
-          Credit: {market.creditStress ? "STRESS" : "OK"}
-        </span>
-        <span style={{ color: market.volatilityActive ? AMBER : GREEN }}>
-          Vol: {market.volatilityActive ? "ACTIVE" : "CONTAINED"}
-        </span>
-        <span style={{ color: market.fearSpike ? RED : market.fearBand ? AMBER : GREEN }}>
-          Fear: {market.fearSpike ? "SPIKE" : market.fearBand ? "ELEVATED" : "LOW"}
-        </span>
-      </div>
+      {isUnavailable ? (
+        <div style={{ display: "flex", gap: 10, fontSize: 9 }}>
+          <span style={{ color: SLATE }}>Credit: <span style={{ color: RED }}>MISSING INPUTS</span></span>
+          <span style={{ color: SLATE }}>Vol: <span style={{ color: RED }}>N/A</span></span>
+          <span style={{ color: SLATE }}>Fear: <span style={{ color: RED }}>N/A</span></span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 10, fontSize: 9 }}>
+          <span style={{ color: market.creditStress ? RED : GREEN }}>
+            Credit: {market.creditStress ? "STRESS" : "OK"}
+          </span>
+          <span style={{ color: market.volatilityActive ? AMBER : GREEN }}>
+            Vol: {market.volatilityActive ? "ACTIVE" : "CONTAINED"}
+          </span>
+          <span style={{ color: market.fearSpike ? RED : market.fearBand ? AMBER : GREEN }}>
+            Fear: {market.fearSpike ? "SPIKE" : market.fearBand ? "ELEVATED" : "LOW"}
+          </span>
+        </div>
+      )}
 
       <div style={{ marginTop: 8 }}>
         <div style={{ height: 3, background: "#1e2530", borderRadius: 2, overflow: "hidden" }}>
-          <div style={{ width: `${market.score}%`, height: "100%", background: modeColor, borderRadius: 2, transition: "width 0.4s" }} />
+          {isUnavailable ? (
+            <div style={{ width: "100%", height: "100%", background: RED + "44", borderRadius: 2 }} />
+          ) : (
+            <div style={{ width: `${market.score}%`, height: "100%", background: modeColor, borderRadius: 2, transition: "width 0.4s" }} />
+          )}
         </div>
-        <div style={{ fontSize: 9, color: SLATE, marginTop: 3, textAlign: "right" }}>{market.score}/100</div>
+        <div style={{ fontSize: 9, color: SLATE, marginTop: 3, textAlign: "right" }}>
+          {isUnavailable ? "N/A" : `${market.score}/100`}
+        </div>
       </div>
     </div>
   );
@@ -1242,6 +1403,7 @@ export default function CreditVolScanner({ onBack }) {
     setError(null);
     try {
       const snapshots = await fetchAllSnapshots(ALL_SCAN_SYMBOLS);
+      const regimeSnapshots = await fetchRegimeSnapshots(["HYG", "KRE", "LQD", "VIX", "XLF", "QQQ", "TNX"]);
 
       // Feed poll data into the unified quote store for WS merging
       updateFromPoll(snapshots);
@@ -1249,8 +1411,12 @@ export default function CreditVolScanner({ onBack }) {
 
       // Build V2 regime from history series (snapshot-derived, 2+ bars)
       // TODO: Enrich with historyProvider.getCloses() for 20+ bar z-scores
-      const regimeHistory = buildRegimeHistory(snapshots, null);
+      const { history: regimeHistory, timestamps: regimeTimestamps, sourceMap: regimeSourceMap } = buildRegimeHistory(regimeSnapshots, null);
+
       const marketInputs = regimeHistory;  // V2 accepts history arrays directly
+      // Pass timestamps for freshness validation
+      marketInputs._timestamps = regimeTimestamps;
+      marketInputs._sourceMap = regimeSourceMap;
 
       // Fetch IV rank data through adapter (cache-aware, graceful fallback)
       let ivData = {};

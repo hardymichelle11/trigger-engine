@@ -19,10 +19,11 @@ export const REGIME_V2_CONFIG = {
   lookbackSlope: 5,
 
   weights: {
-    HYG: 0.24,
-    KRE: 0.22,
-    XLF: 0.18,
-    VIX: 0.24,
+    HYG: 0.20,
+    KRE: 0.18,
+    LQD: 0.15,
+    XLF: 0.15,
+    VIX: 0.20,
     QQQ: 0.07,
     TNX: 0.05,
   },
@@ -242,12 +243,13 @@ function scoreUpRisk(features, cfg) {
 
 function computeComposite(scores, cfg) {
   return Math.round(
-    (scores.HYG || 0) * cfg.weights.HYG +
-    (scores.KRE || 0) * cfg.weights.KRE +
-    (scores.XLF || 0) * cfg.weights.XLF +
-    (scores.VIX || 0) * cfg.weights.VIX +
-    (scores.QQQ || 0) * cfg.weights.QQQ +
-    (scores.TNX || 0) * cfg.weights.TNX
+    (scores.HYG ?? 0) * cfg.weights.HYG +
+    (scores.KRE ?? 0) * cfg.weights.KRE +
+    (scores.LQD ?? 0) * cfg.weights.LQD +
+    (scores.XLF ?? 0) * cfg.weights.XLF +
+    (scores.VIX ?? 0) * cfg.weights.VIX +
+    (scores.QQQ ?? 0) * cfg.weights.QQQ +
+    (scores.TNX ?? 0) * cfg.weights.TNX
   );
 }
 
@@ -311,7 +313,7 @@ function mapRegime(compositeScore, scores, vixState, earlyStress, cfg) {
 
 function buildExplanation(features, scores, compositeScore, vixState, earlyStress, confidence) {
   const lines = [];
-  for (const ticker of ["HYG", "KRE", "XLF", "VIX", "QQQ", "TNX"]) {
+  for (const ticker of ["HYG", "KRE", "LQD", "XLF", "VIX", "QQQ", "TNX"]) {
     const f = features[ticker];
     if (!f) continue;
     const dir = (ticker === "VIX" || ticker === "TNX")
@@ -324,13 +326,105 @@ function buildExplanation(features, scores, compositeScore, vixState, earlyStres
 }
 
 // --------------------------------------------------
+// REGIME DATA VALIDATION
+// --------------------------------------------------
+
+// Stale threshold: data older than 6 hours is considered stale
+const STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Strict numeric parse — rejects null, undefined, NaN, and coercion traps.
+ * For price-based proxies (HYG, KRE, LQD, XLF, QQQ), also rejects 0 and negative.
+ * VIX/TNX only rejects negative (VIX=0 is theoretically valid but practically impossible).
+ */
+function strictParseNumeric(value) {
+  if (value === null || value === undefined) return { valid: false, reason: 'null' };
+  if (typeof value === 'string') value = Number(value);
+  if (typeof value !== 'number' || isNaN(value)) return { valid: false, reason: 'NaN' };
+  return { valid: true, parsed: value };
+}
+
+function validateRegimeValue(value, symbol) {
+  const parse = strictParseNumeric(value);
+  if (!parse.valid) return parse;
+
+  const priceProxies = ["HYG", "KRE", "LQD", "XLF", "QQQ"];
+  if (priceProxies.includes(symbol) && parse.parsed <= 0) {
+    return { valid: false, reason: 'non-positive' };
+  }
+  if (parse.parsed < 0) {
+    return { valid: false, reason: 'negative' };
+  }
+  return { valid: true, parsed: parse.parsed };
+}
+
+function validateRegimeData(history, timestamps = {}) {
+  const required = ["HYG", "KRE", "LQD", "VIX"];
+  const diagnostics = {};
+  let hasValidRequired = true;
+  const now = Date.now();
+
+  for (const symbol of ["HYG", "KRE", "LQD", "VIX", "XLF", "QQQ", "TNX"]) {
+    const series = history[symbol];
+    const hasData = Array.isArray(series) && series.length > 0;
+    const rawValue = hasData ? last(series) : null;
+    const validation = validateRegimeValue(rawValue, symbol);
+
+    // Determine freshness from timestamp
+    const ts = timestamps[symbol] ?? null;
+    const age = ts ? now - ts : null;
+    let freshness = 'unknown';
+    let status = 'missing';
+
+    if (validation.valid) {
+      if (age !== null && age > STALE_THRESHOLD_MS) {
+        freshness = 'stale';
+        status = 'stale';
+      } else if (age !== null) {
+        freshness = 'fresh';
+        status = 'live';
+      } else {
+        freshness = 'unknown';
+        status = 'live'; // valid data, unknown age — treat as live
+      }
+    }
+
+    // Detect fallback_close: if series has exactly 1 entry, it's likely prevClose only
+    const fieldUsed = hasData && series.length === 1 ? 'prevClose' : hasData ? 'close' : 'none';
+    if (validation.valid && fieldUsed === 'prevClose') {
+      status = 'fallback_close';
+    }
+
+    diagnostics[symbol] = {
+      symbol,
+      requestedSymbol: symbol,
+      source: ts ? 'snapshot' : 'unknown',
+      rawValue,
+      normalizedValue: validation.valid ? validation.parsed : null,
+      timestamp: ts,
+      freshness,
+      status,
+      fieldUsed,
+      valid: validation.valid,
+      invalidReason: validation.valid ? null : validation.reason,
+    };
+
+    if (required.includes(symbol) && !validation.valid) {
+      hasValidRequired = false;
+    }
+  }
+
+  return { hasValidRequired, diagnostics };
+}
+
+// --------------------------------------------------
 // MAIN API
 // --------------------------------------------------
 
 /**
  * Build credit-vol regime from price history arrays.
  *
- * @param {object} history — { HYG: number[], KRE: number[], XLF: number[], VIX: number[], QQQ: number[], TNX: number[] }
+ * @param {object} history — { HYG: number[], KRE: number[], LQD: number[], VIX: number[], XLF: number[], QQQ: number[], TNX: number[] }
  *   All arrays oldest → newest, minimum 6 bars (20+ recommended for z-scores).
  * @param {object} [userConfig] — override any REGIME_V2_CONFIG fields
  * @returns {object} regime result with backward-compatible fields
@@ -338,25 +432,24 @@ function buildExplanation(features, scores, compositeScore, vixState, earlyStres
 export function buildCreditVolRegime(history, userConfig = {}) {
   const cfg = { ...REGIME_V2_CONFIG, ...userConfig };
 
-  // Validate minimum inputs
-  const required = ["HYG", "KRE", "VIX"];
-  for (const t of required) {
-    if (!history[t] || history[t].length < 2) {
-      // Fallback: return calm regime if data is insufficient
-      return _fallbackResult(`Missing or insufficient data for ${t}`);
-    }
+  // Validate regime data — timestamps may be on history object or userConfig
+  const timestamps = history._timestamps || userConfig._timestamps;
+  const { hasValidRequired, diagnostics } = validateRegimeData(history, timestamps);
+
+  if (!hasValidRequired) {
+    return _dataUnavailableResult(diagnostics);
   }
 
   // Extract features per ticker
   const features = {};
   const scores = {};
 
-  for (const ticker of ["HYG", "KRE", "XLF", "QQQ"]) {
+  for (const ticker of ["HYG", "KRE", "LQD", "XLF", "QQQ"]) {
     if (history[ticker] && history[ticker].length >= 2) {
       features[ticker] = extractFeatures(history[ticker], cfg);
       scores[ticker] = scoreDownRisk(features[ticker], cfg);
     } else {
-      features[ticker] = { current: 0, z20: 0, slope5: 0, pct1: 0, pct5: 0 };
+      features[ticker] = { current: 0, z20: 0, slope5: 0, pct1: 0, pct5: 0, percentile: 50 };
       scores[ticker] = 0;
     }
   }
@@ -366,7 +459,7 @@ export function buildCreditVolRegime(history, userConfig = {}) {
       features[ticker] = extractFeatures(history[ticker], cfg);
       scores[ticker] = scoreUpRisk(features[ticker], cfg);
     } else {
-      features[ticker] = { current: 0, z20: 0, slope5: 0, pct1: 0, pct5: 0 };
+      features[ticker] = { current: 0, z20: 0, slope5: 0, pct1: 0, pct5: 0, percentile: 50 };
       scores[ticker] = 0;
     }
   }
@@ -396,6 +489,7 @@ export function buildCreditVolRegime(history, userConfig = {}) {
     vix: features.VIX.percentile,
     hyg: features.HYG.percentile,
     kre: features.KRE.percentile,
+    lqd: features.LQD.percentile,
     xlf: features.XLF.percentile,
   };
 
@@ -434,7 +528,7 @@ export function buildCreditVolRegime(history, userConfig = {}) {
       qqq: features.QQQ.current,
       tnx: features.TNX.current,
       vixPrev: null,
-      lqd: null,
+      lqd: features.LQD.current,
     },
 
     // === New V2 fields ===
@@ -445,6 +539,8 @@ export function buildCreditVolRegime(history, userConfig = {}) {
     features,
     explanation,
     engineVersion: 2,
+    dataAvailable: true,
+    diagnostics,
 
     // === Enhancement outputs ===
     sellPutsAction,         // Enhancement 3: SELL_PUTS_NORMAL / WAIT_OR_SMALL_FAR_OTM / SELL_PUTS_INTO_FEAR / DEFEND_NO_NEW_PUTS
@@ -475,18 +571,42 @@ export function buildCreditVolRegime(history, userConfig = {}) {
 }
 
 // --------------------------------------------------
-// FALLBACK (insufficient data)
+// DATA UNAVAILABLE RESULT (required inputs missing/invalid)
 // --------------------------------------------------
 
-function _fallbackResult(reason) {
+function _dataUnavailableResult(diagnostics) {
+  const missing = Object.values(diagnostics)
+    .filter(d => !d.valid)
+    .map(d => `${d.symbol}: ${d.invalidReason}`);
+
   return {
-    mode: "LOW_EDGE", bias: "REDUCE_ACTIVITY", score: 45,
-    creditStress: false, volatilityActive: false,
-    fearBand: false, fearSpike: false, vixRising: false,
-    flags: { hygWeak: false, kreWeak: false, xlfWeak: false, qqqWeak: false, atrExpanded: false, vixElevated: false, vixPanic: false, ratesStress: false, earlyStress: false },
-    indicators: { hyg: 0, kre: 0, xlf: 0, vix: 0, qqq: 0, tnx: 0, vixPrev: null, lqd: null },
-    regimeScore: 45, confidence: { label: "low", score: 20, agreement: { above35: 0, above60: 0, above75: 0 } },
-    vixState: "calm", componentScores: { HYG: 0, KRE: 0, XLF: 0, VIX: 0, QQQ: 0, TNX: 0 },
-    features: {}, explanation: [`Fallback: ${reason}`], engineVersion: 2,
+    mode: "DATA_UNAVAILABLE", bias: "DATA_UNAVAILABLE", score: null,
+    creditStress: null, volatilityActive: null,
+    fearBand: null, fearSpike: null, vixRising: null,
+    flags: { hygWeak: null, kreWeak: null, xlfWeak: null, qqqWeak: null, atrExpanded: null, vixElevated: null, vixPanic: null, ratesStress: null, earlyStress: null },
+    indicators: {
+      hyg: diagnostics.HYG?.normalizedValue ?? null,
+      kre: diagnostics.KRE?.normalizedValue ?? null,
+      xlf: diagnostics.XLF?.normalizedValue ?? null,
+      vix: diagnostics.VIX?.normalizedValue ?? null,
+      qqq: diagnostics.QQQ?.normalizedValue ?? null,
+      tnx: diagnostics.TNX?.normalizedValue ?? null,
+      vixPrev: null,
+      lqd: diagnostics.LQD?.normalizedValue ?? null,
+    },
+    regimeScore: null,
+    confidence: { label: "none", score: 0, agreement: { above35: 0, above60: 0, above75: 0 } },
+    vixState: "unknown",
+    componentScores: { HYG: null, KRE: null, LQD: null, XLF: null, VIX: null, QQQ: null, TNX: null },
+    features: {},
+    explanation: [`DATA UNAVAILABLE — missing required inputs: ${missing.join(", ")}`],
+    engineVersion: 2,
+    dataAvailable: false,
+    diagnostics,
+    sellPutsAction: "WAIT_OR_SMALL_FAR_OTM",
+    allowNewTrades: false,
+    percentiles: { vix: null, hyg: null, kre: null, lqd: null, xlf: null },
+    persistence: { rawRegime: null, confirmedRegime: null, pendingFlip: null, confirmed: false },
+    calibrationSnapshot: null,
   };
 }

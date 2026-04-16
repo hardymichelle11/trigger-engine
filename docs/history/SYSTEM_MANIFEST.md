@@ -1,6 +1,6 @@
 # SYSTEM MANIFEST — Trigger Engine + Market Data Pipeline
 
-**Last updated:** 2026-04-10
+**Last updated:** 2026-04-15
 **Project:** `my-app` (trigger-engine)
 **Repository:** https://github.com/hardymichelle11/trigger-engine
 **Author:** Michelle Hardy (hardymichelle11)
@@ -695,6 +695,12 @@ Note: Developer tier allows unlimited API calls. Watch for rate limiting at high
 ---
 
 ## 11. Changelog
+
+### 2026-04-15 (session 27 — Credit-Vol regime pipeline + validation fix)
+- **creditVolRegimeV2.js**: Fixed `_invalidDataResult` crash (undefined function). Added `_dataUnavailableResult` with null scores, `allowNewTrades: false`. Added LQD to composite scoring, feature extraction, indicators, percentiles (was excluded despite 0.15 weight). Fixed `|| 0` → `?? 0` coercion. Added `strictParseNumeric`, `validateRegimeValue`, `validateRegimeData` with per-symbol diagnostics, freshness/staleness tracking. Engine output now includes `dataAvailable` flag and `diagnostics` object.
+- **CreditVolScanner.jsx**: Fixed VIX/TNX symbol mapping — routed through worker `/index/` endpoint (Yahoo Finance) since Polygon plan lacks index access. Fixed `day.c || prevClose` coercion and history deduplication that dropped flat days below 2-bar minimum. Added `SymbolStatusBadge` (LIVE/STALE/MISSING/FALLBACK). Added DATA_UNAVAILABLE UI state with "MISSING INPUTS" badge, null score bar. Source tracking metadata through pipeline.
+- **polygon-proxy.js** (worker): Added `/index/:symbol` endpoint fetching VIX/TNX from Yahoo Finance via `query2.finance.yahoo.com`. Polygon-compatible response shape. 60s cache. Worker deployed.
+- **test-regime-v2.js**: Added Cases 6-9: null payloads, zero rejection, negative rejection, mixed valid/invalid, NaN handling, fallback_close detection, LQD scoring, no-confident-bias-with-invalid-data. 86 total assertions.
 
 ### 2026-04-12 (session 26 — CV Scanner registry target wiring)
 - **CreditVolScanner.jsx**: `buildSetups` now reads real T1/T2/T3 targets and stop levels from setup registry via `_buildTargetLookup()`. `distT1Pct` computed from actual target prices. `leaderPrice`, `isLeveraged`, `targets`, `stop` passed to liveState engine.
