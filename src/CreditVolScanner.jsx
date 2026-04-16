@@ -242,6 +242,10 @@ function buildRegimeHistory(snapshots, historicalCloses) {
         if (dayClose !== prevClose || closes.length < 2) {
           closes.push(dayClose);
         }
+      } else if (closes.length < 2 && prevClose != null && prevClose > 0) {
+        // Market closed: day.c is 0 — duplicate prevClose to meet 2-bar minimum.
+        // Flat price = no change signal, which is correct for closed market.
+        closes.push(prevClose);
       }
       timestamps[sym] = snap._timestamp || Date.now();
       sourceMap[sym] = {
