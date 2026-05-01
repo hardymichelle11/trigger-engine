@@ -19,10 +19,26 @@ import { safeNum, round2 } from "./types.js";
 export const UNIVERSE_SOURCE = Object.freeze({
   GAINERS: "gainers",
   LOSERS: "losers",
+  // Phase 4.5A: MOST_ACTIVE is RETIRED. The Polygon endpoint
+  // /v2/snapshot/locale/us/markets/stocks/most_active does not exist
+  // (returns 404). The enum value is preserved so existing imports do
+  // not break, but pathForSource() routes it to a deprecation sentinel
+  // and polygonGlue produces a structured fallback bundle without ever
+  // making an HTTP call. Use SESSION_AWARE instead.
   MOST_ACTIVE: "most_active",
   CUSTOM_WATCHLIST: "custom_watchlist",
   EXISTING_CATALOG: "existing_catalog",
+  // Phase 4.5A additions:
+  SESSION_AWARE: "session_aware",
+  REGULAR_GAINERS: "regular_gainers",
+  REGULAR_LOSERS: "regular_losers",
+  REGULAR_SNAPSHOT: "regular_snapshot",
+  EXTENDED_HOURS_DERIVED: "extended_hours_derived",
 });
+
+// Marker returned by pathForSource for retired sources. Callers detect
+// this and produce a structured fallback bundle without HTTP.
+export const DEPRECATED_SOURCE_MARKER = "@@DEPRECATED_SOURCE@@";
 
 export const UNIVERSE_DROP_REASON = Object.freeze({
   INVALID_SYMBOL: "invalid_symbol",
@@ -273,6 +289,24 @@ export async function fetchUniverse(args = {}) {
   }
 
   const path = pathForSource(source, customSymbols);
+
+  // Phase 4.5A: short-circuit for retired / orchestrator-resolved sources.
+  // The deprecation marker means "no HTTP path exists for this source — the
+  // caller (typically polygonGlue) is expected to handle this case."
+  if (path === DEPRECATED_SOURCE_MARKER) {
+    return {
+      symbols: [],
+      marketDataBySymbol: {},
+      metadata: {
+        source: source || "unknown",
+        snapshotCount: 0,
+        normalizedCount: 0,
+        droppedCount: 0,
+        droppedReasons: [{ symbol: null, reason: `deprecated_source: ${source}` }],
+      },
+    };
+  }
+
   let payload = null;
   try {
     payload = await fetcher(path);
@@ -298,12 +332,18 @@ export async function fetchUniverse(args = {}) {
 function pathForSource(source, customSymbols) {
   switch (source) {
     case UNIVERSE_SOURCE.GAINERS:
+    case UNIVERSE_SOURCE.REGULAR_GAINERS:
       return "/v2/snapshot/locale/us/markets/stocks/gainers";
     case UNIVERSE_SOURCE.LOSERS:
+    case UNIVERSE_SOURCE.REGULAR_LOSERS:
       return "/v2/snapshot/locale/us/markets/stocks/losers";
     case UNIVERSE_SOURCE.MOST_ACTIVE:
-      return "/v2/snapshot/locale/us/markets/stocks/most_active";
-    case UNIVERSE_SOURCE.CUSTOM_WATCHLIST: {
+      // Phase 4.5A: retired. /most_active is not a valid Polygon endpoint.
+      // Returning the deprecation marker prevents any HTTP call from being
+      // attempted; the Glue catches it and produces a structured fallback.
+      return DEPRECATED_SOURCE_MARKER;
+    case UNIVERSE_SOURCE.CUSTOM_WATCHLIST:
+    case UNIVERSE_SOURCE.EXTENDED_HOURS_DERIVED: {
       const tickers = (customSymbols || []).map(s => String(s).toUpperCase()).join(",");
       return tickers
         ? `/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${encodeURIComponent(tickers)}`
@@ -311,6 +351,12 @@ function pathForSource(source, customSymbols) {
     }
     case UNIVERSE_SOURCE.EXISTING_CATALOG:
       return "/v2/snapshot/locale/us/markets/stocks/tickers";
+    case UNIVERSE_SOURCE.SESSION_AWARE:
+    case UNIVERSE_SOURCE.REGULAR_SNAPSHOT:
+      // SESSION_AWARE and REGULAR_SNAPSHOT are resolved by the orchestrator
+      // (sessionAwareUniverse) — not via a single path. Returning the
+      // deprecation marker keeps any direct fetch from being attempted.
+      return DEPRECATED_SOURCE_MARKER;
     default:
       return "/v2/snapshot/locale/us/markets/stocks/tickers";
   }

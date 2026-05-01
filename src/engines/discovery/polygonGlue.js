@@ -30,6 +30,7 @@ import {
   OPTIONS_STATUS,
 } from "./polygonOptionsAdapter.js";
 import { buildPolygonUrl, canAccessPolygon } from "../../lib/polygonProxy.js";
+import { fetchSessionAwareUniverse } from "./sessionAwareUniverse.js";
 
 // --------------------------------------------------
 // CONSTANTS / DEFAULTS
@@ -52,6 +53,7 @@ export const GLUE_SOURCE = Object.freeze({
 export const OPTIONS_CAPABILITY = Object.freeze({
   AVAILABLE: "available",
   UNAVAILABLE: "unavailable",
+  UNAVAILABLE_PLAN: "unavailable_plan",   // Phase 4.5A: 403 entitlement (e.g. Polygon plan tier)
   UNKNOWN: "unknown",
 });
 
@@ -190,7 +192,10 @@ export function createPolygonGlue(options = {}) {
     let result;
     try {
       result = await universeFetcher({
-        source: source || UNIVERSE_SOURCE.MOST_ACTIVE,
+        // Phase 4.5A: default is now SESSION_AWARE (the new orchestrator-resolved
+        // source). MOST_ACTIVE remains importable but is routed to a
+        // deprecation marker by the adapter, not to /most_active.
+        source: source || UNIVERSE_SOURCE.SESSION_AWARE,
         fetcher, customSymbols, now: now(), maxStaleMs,
       });
     } catch (err) {
@@ -203,9 +208,25 @@ export function createPolygonGlue(options = {}) {
       });
     }
 
-    // Adapter never throws — but it does signal failures in droppedReasons.
-    // If nothing normalized AND there are network-shaped reasons, count as failure.
+    // Phase 4.5A: detect adapter-level retirement. The adapter signals
+    // retired/orchestrator-resolved sources via `deprecated_source:*` reasons.
+    // No HTTP call was made, so the circuit breaker is NOT incremented.
     const empty = result.metadata.normalizedCount === 0;
+    const deprecationReason = (result.metadata.droppedReasons || []).find(d =>
+      /^deprecated_source/.test(String(d.reason)));
+    if (empty && deprecationReason) {
+      return wrapEmptyUniverse({
+        ...result,
+        source: GLUE_SOURCE.FALLBACK,
+        reason: deprecationReason.reason,
+        breakerState: breaker.snapshot().state,
+        generatedAt: now(),
+      });
+    }
+
+    // Adapter never throws — but it does signal network failures in
+    // droppedReasons. If nothing normalized AND there are network-shaped
+    // reasons, count as failure (and increment the breaker).
     const networkReason = (result.metadata.droppedReasons || []).find(d =>
       /missing_fetcher|fetch_failed/.test(String(d.reason)));
     if (empty && networkReason) {
@@ -255,10 +276,14 @@ export function createPolygonGlue(options = {}) {
       });
     }
 
-    // Capability gate — if we know the endpoint is unavailable, skip the call
-    // entirely so estimatedPremiumEngine falls through to iv/atr automatically.
+    // Capability gate — if we know the endpoint is unavailable for any
+    // reason, skip the call entirely so estimatedPremiumEngine falls
+    // through to iv/atr automatically. Phase 4.5A: also short-circuit on
+    // UNAVAILABLE_PLAN so 403-entitlement responses don't end up labelled
+    // as `source: "live"` with empty chains.
     const cap = await probeOptionsCapability();
-    if (cap.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE) {
+    if (cap.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE
+        || cap.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE_PLAN) {
       return wrapEmptyOptions({
         source: GLUE_SOURCE.FALLBACK,
         reason: `options_capability_${cap.optionsCapability}`,
@@ -340,11 +365,21 @@ export function createPolygonGlue(options = {}) {
         probeSymbol: sym,
       };
     } catch (err) {
+      // Phase 4.5A: distinguish plan-tier denial (403) from generic failure.
+      // Polygon returns 403 NOT_AUTHORIZED when the plan does not include
+      // the options snapshot endpoint. UI surfaces this as a distinct state
+      // so operators know premium will remain `estimated` until a different
+      // provider (e.g. ThetaData) is wired in Phase 4.5C.
+      const status = Number(err?.status);
+      const isPlanError = status === 403;
       _capabilityCache = {
-        optionsCapability: OPTIONS_CAPABILITY.UNAVAILABLE,
+        optionsCapability: isPlanError
+          ? OPTIONS_CAPABILITY.UNAVAILABLE_PLAN
+          : OPTIONS_CAPABILITY.UNAVAILABLE,
         probedAt: t,
         probeSymbol: sym,
         probeError: err?.message || "probe_failed",
+        httpStatus: Number.isFinite(status) ? status : null,
       };
     }
     return _capabilityCache;
@@ -432,11 +467,24 @@ function wrapEmptyOptions(extra) {
  * }>}
  */
 export async function fetchScannerInputBundle(args) {
-  const { glue, universeSource = UNIVERSE_SOURCE.MOST_ACTIVE,
-          customSymbols, fetchChains = true, contractTypes } = args || {};
+  // Phase 4.5A: default source is now SESSION_AWARE. The orchestrator picks
+  // gainers+losers (regular), curated bulk-tickers (extended hours), or
+  // curated last-known data (closed). MOST_ACTIVE remains an importable
+  // value for back-compat but is routed to a deprecation fallback.
+  const { glue, universeSource = UNIVERSE_SOURCE.SESSION_AWARE,
+          customSymbols, fetchChains = true, contractTypes,
+          now: nowOpt, curatedSymbols, filters } = args || {};
   if (!glue) throw new Error("fetchScannerInputBundle: glue is required");
 
-  const universe = await glue.fetchUniverseLive({ source: universeSource, customSymbols });
+  let universe;
+  if (universeSource === UNIVERSE_SOURCE.SESSION_AWARE) {
+    universe = await fetchSessionAwareUniverse({
+      glue, now: nowOpt, curatedSymbols, filters,
+    });
+  } else {
+    universe = await glue.fetchUniverseLive({ source: universeSource, customSymbols });
+  }
+
   let options = wrapEmptyOptions({ source: GLUE_SOURCE.EMPTY, reason: "fetch_chains_disabled" });
   if (fetchChains && universe.symbols.length > 0) {
     options = await glue.fetchOptionsLive({ symbols: universe.symbols, contractTypes });

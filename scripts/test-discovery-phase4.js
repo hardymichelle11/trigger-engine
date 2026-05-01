@@ -211,14 +211,19 @@ group("polygonGlue — options capability unavailable");
   const glue = createPolygonGlue({ fetcher: fetcherCapFails, now: clock });
 
   const cap = await glue.probeOptionsCapability();
-  assert("capability probe: UNAVAILABLE when /v3 endpoint forbidden",
-    cap.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE);
+  // Phase 4.5A tightened this: 403 specifically maps to UNAVAILABLE_PLAN
+  // (entitlement / plan tier). UNAVAILABLE remains for generic failures
+  // (404, 500, network). Either is a valid "not usable" outcome.
+  assert("capability probe: not available when /v3 endpoint forbidden (403)",
+    cap.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE
+    || cap.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE_PLAN);
 
   const opts = await glue.fetchOptionsLive({ symbols: ["NVDA"] });
   assert("options fetch with capability=unavailable → source=fallback",
     opts.metadata.source === GLUE_SOURCE.FALLBACK);
   assert("options fetch capability surfaced in metadata",
-    opts.metadata.capability?.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE);
+    opts.metadata.capability?.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE
+    || opts.metadata.capability?.optionsCapability === OPTIONS_CAPABILITY.UNAVAILABLE_PLAN);
   assert("optionsDataBySymbol.NVDA has empty chain (no_chain_data)",
     opts.optionsDataBySymbol.NVDA.chain.length === 0
     && opts.optionsDataBySymbol.NVDA.status === OPTIONS_STATUS.NO_CHAIN_DATA);

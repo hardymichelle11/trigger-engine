@@ -29,6 +29,11 @@ import { adaptExistingSignal } from "./discoveryScoreAdapter.js";
 import { estimatePremium } from "./estimatedPremiumEngine.js";
 import { rankCandidates } from "./capitalAwareRanker.js";
 import {
+  resolveFreshnessPolicy,
+  isPriorSessionTimestamp,
+  PRIOR_SESSION_SAFEGUARD_SEC,
+} from "./freshnessPolicy.js";
+import {
   PROBABILITY_STATUS,
   PREMIUM_SOURCE,
   CATALOG_STATUS,
@@ -148,6 +153,9 @@ function premiumScoreFromEstimate(est) {
  * @param {object} args.accountState           { totalAccountValue, availableCash, maxDeployedPct, reservedCashBufferPct, marketMode }
  * @param {object} [args.regimeContext]        { detectedRegime, marketMode? }
  * @param {"conservative"|"neutral"|"aggressive"} [args.scannerMode]
+ * @param {string} [args.session]              Phase 4.5A1: "regular"|"premarket"|"postmarket"|"closed".
+ *                                             When supplied (or available via regimeContext.session),
+ *                                             freshness policy uses session-aware thresholds.
  * @param {number} [args.now]                  injectable epoch ms for determinism
  * @param {object} [args.thresholdOverrides]
  */
@@ -161,6 +169,7 @@ export function runMarketDiscoveryScan(args) {
     accountState,
     regimeContext = {},
     scannerMode = "neutral",
+    session: sessionArg,
     now,
     thresholdOverrides = {},
   } = args || {};
@@ -172,6 +181,11 @@ export function runMarketDiscoveryScan(args) {
   const rules = { ...pickModeRules(mode), ...(thresholdOverrides || {}) };
   const detectedRegime = regimeContext?.detectedRegime || regimeContext?.regime || null;
   const marketMode = accountState?.marketMode || regimeContext?.marketMode || "neutral";
+
+  // Phase 4.5A1: session-aware freshness policy. Falls back to legacy
+  // mode-only behavior when no session is supplied (back-compat).
+  const session = sessionArg || regimeContext?.session || null;
+  const freshness = resolveFreshnessPolicy({ session, scannerMode: mode });
 
   // 1) Capital state
   const capitalState = evaluateCapitalPolicy({ ...accountState, currentOpenPositions: openPositions, marketMode });
@@ -204,11 +218,33 @@ export function runMarketDiscoveryScan(args) {
       continue;
     }
 
-    // 3b. stale data
+    // 3b. stale data — session-aware (Phase 4.5A1)
     const age = ageSecondsOf(md, generatedAt);
-    if (age != null && age > rules.maxStaleSec) {
-      rejected.push({ symbol, reason: REJECTION.STALE_DATA, detail: `age ${Math.round(age)}s exceeds ${rules.maxStaleSec}s for mode '${mode}'` });
-      continue;
+    if (age != null) {
+      // Prior-session safeguard: a "regular" session quote older than
+      // PRIOR_SESSION_SAFEGUARD_SEC (6 h) is yesterday's data, regardless of
+      // mode. Catches stale prior-day quotes even when the regular policy
+      // threshold has been widened to absorb plan-tier delay.
+      if (isPriorSessionTimestamp(age, session)) {
+        rejected.push({
+          symbol,
+          reason: REJECTION.STALE_DATA,
+          detail: `prior_session_timestamp: age ${Math.round(age)}s exceeds ${PRIOR_SESSION_SAFEGUARD_SEC}s during regular session`,
+        });
+        continue;
+      }
+      // Mode-aware threshold. Skipped entirely when policy is disabled
+      // (closed session). The closed_curated warning already surfaces in
+      // the bundle metadata, so the operator is not misled.
+      if (!freshness.disabled && age > freshness.maxStaleSec) {
+        const sessLabel = session ? `session=${session} ` : "";
+        rejected.push({
+          symbol,
+          reason: REJECTION.STALE_DATA,
+          detail: `age ${Math.round(age)}s exceeds ${freshness.maxStaleSec}s for ${sessLabel}mode '${mode}'`,
+        });
+        continue;
+      }
     }
 
     // 3c. dollar volume floor

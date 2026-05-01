@@ -100,7 +100,7 @@ async function runLiveScan() {
   const glue = createPolygonGlue();
   const bundle = await fetchScannerInputBundle({
     glue,
-    universeSource: UNIVERSE_SOURCE.MOST_ACTIVE,
+    universeSource: UNIVERSE_SOURCE.SESSION_AWARE,
     fetchChains: true,
   });
 
@@ -123,6 +123,9 @@ async function runLiveScan() {
     },
     regimeContext: { detectedRegime: "RISK_ON" },
     scannerMode: "neutral",
+    // Phase 4.5A1: forward session metadata so the scanner uses session-aware
+    // freshness thresholds. This is metadata forwarding, not UI hardcoding.
+    session: bundle.metadata?.universe?.session,
   });
 
   const enrichedWarnings = [
@@ -147,6 +150,9 @@ export default function LethalBoardPage({ onBack }) {
   const [liveMeta, setLiveMeta] = useState(null);
   const [scanStatus, setScanStatus] = useState(null);
   const [recordedAlerts, setRecordedAlerts] = useState([]);
+  // Phase 4.4: lifted selection state. Lives here so Phase 4.5 can observe
+  // selectedSymbol and build/cache a per-symbol trade-construction context.
+  const [selectedSymbol, setSelectedSymbol] = useState(null);
 
   // One controller per session — keeps bridge dedup state across scans.
   const controllerRef = useRef(null);
@@ -165,6 +171,25 @@ export default function LethalBoardPage({ onBack }) {
   }, []);
 
   useEffect(() => { refreshRecordedAlerts(); }, [refreshRecordedAlerts]);
+
+  // Default selection: best-use-of-capital, falling back to the first ranked
+  // candidate. Reset whenever the scan result changes — including when the
+  // previously-selected ticker is no longer present in the new scan.
+  useEffect(() => {
+    if (!scanResult) {
+      if (selectedSymbol !== null) setSelectedSymbol(null);
+      return;
+    }
+    const ranked = Array.isArray(scanResult.ranked) ? scanResult.ranked : [];
+    const symbols = ranked.map(r => r?.symbol);
+    if (selectedSymbol && symbols.includes(selectedSymbol)) return;
+    const best = ranked.find(r => r?.bestUseOfCapital)?.symbol;
+    const fallback = symbols[0] || null;
+    setSelectedSymbol(best || fallback);
+  // selectedSymbol intentionally excluded from deps: this effect only runs to
+  // (re)seed selection on a new scan; user clicks update selection directly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanResult]);
 
   function applyResult(result, mode) {
     const out = getController().processScan({ scanResult: result, mode });
@@ -282,7 +307,12 @@ export default function LethalBoardPage({ onBack }) {
       )}
 
       {scanResult && (
-        <LethalBoard scanResult={scanResult} title="Lethal Board" />
+        <LethalBoard
+          scanResult={scanResult}
+          title="Lethal Board"
+          selectedSymbol={selectedSymbol}
+          onSelectSymbol={setSelectedSymbol}
+        />
       )}
     </div>
   );

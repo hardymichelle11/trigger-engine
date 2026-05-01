@@ -192,6 +192,11 @@ function toRow(r) {
     concentrationWarning: r.concentrationWarning || null,
     regimeAlignment: r.regimeAlignment || null,
     reasonSummary,
+    // Phase 4.4: per-row Why/Risks for the selected-ticker detail panel.
+    // Reuses the same private helpers used by `best`. Same output shape, no
+    // new internals exposed.
+    keyReasons: extractKeyReasons(r),
+    risks: extractRisks(r),
   };
 }
 
