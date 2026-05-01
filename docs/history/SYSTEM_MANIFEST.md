@@ -1,18 +1,23 @@
 # SYSTEM MANIFEST — Trigger Engine + Market Data Pipeline
 
-**Last updated:** 2026-04-15
+**Last updated:** 2026-05-01
 **Project:** `my-app` (trigger-engine)
 **Repository:** https://github.com/hardymichelle11/trigger-engine
 **Author:** Michelle Hardy (hardymichelle11)
-**AI Collaborator:** Claude Opus 4.6 (1M context)
+**AI Collaborator:** Claude Opus 4.7 (1M context)
 
 ---
 
 ## 1. System Summary
 
-The **Trigger Engine** is a self-calibrating, multi-setup market signal scanner that combines real-time market data ingestion, quantitative analysis, and a React dashboard for monitoring trade setups across multiple instruments and strategies.
+The **Trigger Engine** is a multi-layer, AI-assisted market intelligence and trade decision-support dashboard. As of 2026-05-01 the app runs on **three core, complementary layers** — Trigger Engine, CreditView (Credit-Vol Scanner), and Lethal Board (Discovery Layer). All three are active; none replaces another. The newest layer (Lethal Board) is **additive**, not a successor to CreditView.
 
-### Core capabilities:
+### Three-layer architecture
+- **Trigger Engine** — per-instrument setup, timing, and touch discipline. Multi-setup scanning across 5 setup types: Pair, Basket, Infra Follower, Stack Reversal, Standalone. Credit-Vol options engine owned internally for premium-selling workflows.
+- **CreditView (Credit-Vol Scanner)** — credit / volatility / regime confirmation. Conservative option-readiness lens. Useful even without live option-chain pricing.
+- **Lethal Board (Discovery Layer)** — capital-aware opportunity discovery and ranking. Session-aware live universe sourcing, recorded-alert audit trail, sanitized rollup chip, card/detail UI.
+
+### Core capabilities (cross-layer)
 - **Multi-setup scanning** across 5 setup types: Pair, Basket, Infra Follower, Stack Reversal, Standalone
 - **Credit-Volatility Options Engine** — premium selling scanner with macro credit regime (HYG/KRE/LQD/VIX), setup scoring, timing classification, strike selection, probability layer, profit management, defense/roll logic, position tracking, and weekly income tracker
 - **Options Watchlist System** — 2026 top-27 active options universe + historical top-100 Cboe rankings with spread quality, wheel suitability, and tier metadata; scan filters (Premium Engine, Wheel, High IV, Credit, ETF, Traps)
@@ -20,11 +25,15 @@ The **Trigger Engine** is a self-calibrating, multi-setup market signal scanner 
 - **Monte Carlo simulation** for touch-before-stop probability estimation (trigger engine) and simplified probability layer for put strike success estimation (options engine)
 - **Kelly-lite position sizing** based on simulated win probabilities
 - **Stack reversal detection** with distance-based staging (EARLY/MID/LATE) and action engine
+- **Capital-aware discovery (Lethal Board)** — session-aware valid-universe sourcing (regular: gainers + losers union; extended hours: curated bulk-tickers; closed: last-known curated). Capital-aware ranking with single best-use-of-capital winner + displacement tracking. Recorded-alert audit list (commit-only, never preview). Sanitized rollup chip (24h / 7d / new best / displaced).
+- **Polygon glue** with circuit breaker, per-call timeout, options-capability probe (distinguishes 403 entitlement → `unavailable_plan` from generic failure). Retired invalid `/most_active` endpoint with structured fallback.
+- **Session-aware freshness policy** calibrated to current Polygon delayed-snapshot tier. Regular: 1080–3600s by mode. Extended hours: 6 h. Closed: rejection disabled. 6-hour prior-session safeguard catches yesterday's quotes during regular session.
+- **Premium source honesty** — labeled `live` only for chain-based; `estimated` for IV/ATR-derived; `unavailable` otherwise. UI never relabels estimated as live.
 - **Instrument validation pipeline** (symbol, exchange, cross-asset, freshness)
-- **Live data from Polygon.io** (developer tier) with after-hours fallback
+- **Live data from Polygon.io** (developer tier; ~15-min delayed snapshots; options chain endpoint not entitled — surfaces as `unavailable_plan`) with after-hours fallback
 - **BigQuery persistence** for historical bars and live snapshots with computed columns
 - **Cost-optimized refresh** via silent Windows scheduled tasks
-- **TradingView chart integration** for visual confirmation
+- **TradingView chart integration** for visual confirmation (external to dashboard data path)
 - **Ticker catalog + Setup Builder UI** for configuring setups without editing code
 
 ### Instruments tracked (48 symbols):
@@ -473,8 +482,30 @@ CLUSTER BY symbol, exchange
 - [x] **Connect Setup Builder output to engine** (completed 2026-04-10): Builder validates payloads via setupValidator, calls setupRegistry.addSetup(), updates React state in main.jsx, scanner re-renders immediately. localStorage persistence for runtime-added setups. Toggle/remove controls in builder UI. Seed config (config/setups.js) is never mutated at runtime.
 - [ ] **Backfill computed columns**: Existing 660K+ rows in bars_1m/bars_1d don't have range_pct/momentum/gap populated (only new data does).
 - [ ] **Backfill new symbols**: CORZ, IREN, BX, APO, ARCC, OWL, OBDC, COIN, HYG, KRE, LQD, SPY, QQQ, TLT, SLV, GLD, XLF, XLE, TSLA, GOOG, AMD, PLTR, MSTR, SMCI, META, HOOD, BTDR, FXI need initial historical data load via `market_data_pipeline.py backfill`
-- [ ] **Live options data feed**: Put/call ratio in CreditVolScanner currently uses placeholder random values; needs real options data from broker API or Polygon options snapshot
+- [~] **Live options data feed**: Polygon options snapshot endpoint is **NOT** entitled on the current plan (returns 403 NOT_AUTHORIZED). Lethal Board's polygonGlue capability probe surfaces this as `optionsCapability: unavailable_plan`. Premium values remain `estimated` or `unavailable`. ThetaData selected as the future provider (see Planned). Until then, premium honesty is enforced — UI never relabels estimated as live.
 - [x] **IV rank integration** (completed 2026-04-11): Source-agnostic adapter with cache, Polygon options source, ATR fallback, manual entry API. Confidence-weighted scoring.
+
+### Discovery Layer (Lethal Board) — Phases 1–4.5A1 complete (2026-05-01)
+- [x] **Phase 1 — Backend foundation** (2026-05-01): types.js + capitalPolicyEngine + bundleClassifier + opportunityClassifier + capitalAwareRanker + scannerStateStore. 69 assertions.
+- [x] **Phase 2 — Orchestrator + adapters** (2026-05-01): marketDiscoveryScanner + discoveryScoreAdapter + estimatedPremiumEngine. 65 assertions.
+- [x] **Phase 3 — Polygon adapters + UI shell** (2026-05-01): polygonUniverseAdapter + polygonOptionsAdapter + discoveryAlertBridge + LethalBoard.jsx + lethalBoardViewModel. 72 assertions.
+- [x] **Phase 4 — Polygon glue + visibility** (2026-05-01): polygonGlue (circuit breaker, capability probe), discoveryAlertWireup, LethalBoardPage, nav button in App.jsx + main.jsx. 57 assertions.
+- [x] **Phase 4.1 — Controlled alert persistence** (2026-05-01): lethalBoardScanController; preview vs commit modes. 46 assertions.
+- [x] **Phase 4.2 — Recorded alerts panel** (2026-05-01): recordedAlertsView (read-only sanitized projection). 54 assertions.
+- [x] **Phase 4.3 — Rollup chip** (2026-05-01): recordedAlertsRollup (24h / 7d / new best / displaced). 70 assertions.
+- [x] **Phase 4.4 — Card/detail UI refactor** (2026-05-01): RankedGrid, DetailPanel, ScoreRing, lifted selection, TC placeholder, view-model row enrichment. 108 assertions.
+- [x] **Phase 4.5A — Session-aware universe + retire MOST_ACTIVE** (2026-05-01): marketSession, extendedHoursWatchlist, sessionAwareUniverse. 403 → UNAVAILABLE_PLAN distinction. 104 assertions.
+- [x] **Phase 4.5A1 — Session-aware freshness policy** (2026-05-01): freshnessPolicy with regular 1080/1500/3600s, extended-hours 21600s, closed disabled, 6-hour prior-session safeguard. 72 assertions.
+- [x] **Two clean commits pushed to origin/main** (2026-05-01): `511f14a` (phases 4.4–4.5A1) + `e7b6a9f` (README refresh).
+
+### Planned
+- [x] **Real-time WebSocket feed** (completed 2026-04-11): WS connection manager with reconnect, unified quote feed merging WS + poll, throttled updates, graceful fallback. 32 assertions.
+- [x] **OXY, MOS, CF setups** (completed 2026-04-11): Added as standalone type through config registry. 10 total setups.
+- [ ] **Phase 4.5B — Selected Ticker Trade Construction Snapshot**: Populate the existing `TRADE CONSTRUCTION — SELECTED TICKER` placeholder with execution-context fields (suggested strike, expiration, R1/R2/support/ATR levels, ATR distance to strike, estimated premium, premium source). Lethal Board only. Uses already-active data paths.
+- [ ] **Phase 4.5C — ThetaData Options Provider Adapter**: Pluggable options-chain provider with ThetaData as the first implementation. Normalizes bid / ask / mid / IV / Greeks. Switches premium labeling from `estimated` to `live` only when real chain data is present. Integration **not started**.
+- [ ] **Phase 4.6 — Chart + Trade Workspace**: Expanded selected-ticker workspace (chart, levels, strike zone, option snapshot, operator actions Watch / Pass / Prepare Entry). Still no auto-trading.
+- [ ] **Phase 4.5C-prereq — Holiday-aware session detection**: Embed NYSE holiday calendar into marketSession.js. Currently treats holidays as regular weekdays.
+- [ ] **Cloud Run deployment**: Move scheduled tasks from local Windows Task Scheduler to Cloud Scheduler + Cloud Run for reliability
 
 ### Planned
 - [x] **Real-time WebSocket feed** (completed 2026-04-11): WS connection manager with reconnect, unified quote feed merging WS + poll, throttled updates, graceful fallback. 32 assertions.
@@ -628,6 +659,36 @@ trigger-engine/
 │           ├── positionStorage.js  # localStorage adapter for short put positions (schema v1)
 │           └── incomeStorage.js    # localStorage adapter for weekly income tracker (schema v1)
 │
+│   ├── components/
+│   │   └── discovery/                         # Lethal Board UI (Phase 1–4.5A1)
+│   │       ├── LethalBoard.jsx                 # Card/detail layout, ScoreRing, RankedGrid, DetailPanel
+│   │       ├── LethalBoardPage.jsx             # Host page: scan modes, status panel, audit, rollup chip
+│   │       ├── lethalBoardViewModel.js         # Pure projection (rows + best, with keyReasons + risks)
+│   │       ├── lethalBoardScanController.js    # Preview/commit dispatcher (P4.1)
+│   │       ├── recordedAlertsView.js           # Sanitized alertHistory projection (P4.2, frozen)
+│   │       └── recordedAlertsRollup.js         # 24h / 7d / new best / displaced chip (P4.3, frozen)
+│   │
+│   └── engines/
+│       └── discovery/                         # Capital-aware discovery backend (Phase 1–4.5A1)
+│           ├── types.js                        # Frozen enums + JSDoc typedefs (P1)
+│           ├── capitalPolicyEngine.js          # availableCash math, pressure, sizing bias (P1)
+│           ├── bundleClassifier.js             # Symbol → thematic bundles (P1)
+│           ├── opportunityClassifier.js        # 15 opportunity types, deterministic (P1)
+│           ├── capitalAwareRanker.js           # lethalScore + bestUseOfCapital + displaced (P1)
+│           ├── scannerStateStore.js            # Top-1 displacement tracker (P1)
+│           ├── marketDiscoveryScanner.js       # Orchestrator (P2 + session-aware freshness P4.5A1)
+│           ├── discoveryScoreAdapter.js        # Read-only normalizer for existing engine output (P2)
+│           ├── estimatedPremiumEngine.js       # chain → iv → atr → insufficient_data (P2)
+│           ├── polygonUniverseAdapter.js       # Polygon snapshot → marketDataBySymbol (P3 + retire MOST_ACTIVE P4.5A)
+│           ├── polygonOptionsAdapter.js        # /v3 chain → optionsDataBySymbol (P3)
+│           ├── polygonGlue.js                  # Circuit breaker + capability probe + UNAVAILABLE_PLAN (P4 + P4.5A)
+│           ├── discoveryAlertBridge.js         # State events → alert objects (P3)
+│           ├── discoveryAlertWireup.js         # Routes commit-mode events to alertHistory (P4)
+│           ├── marketSession.js                # ET session detector (P4.5A)
+│           ├── extendedHoursWatchlist.js       # Curated hybrid universe builder (P4.5A)
+│           ├── sessionAwareUniverse.js         # Session × strategy orchestrator (P4.5A)
+│           └── freshnessPolicy.js              # Session × mode freshness lookup + safeguard (P4.5A1)
+│
 ├── pipeline/
 │   ├── market_data_pipeline.py   # Core pipeline: BQ schema, Polygon fetch, backfill, staging+MERGE
 │   ├── refresh_schedule.py       # Cost-optimized incremental refresh (staging+MERGE for bars, append for quotes)
@@ -645,9 +706,26 @@ trigger-engine/
 │   ├── SETUP.md                  # Installation guide
 │   ├── REFRESH_SCHEDULE.md       # Refresh cadence, cost estimates, deployment
 │   ├── SESSION_NOTES/
-│   │   └── 2026-04-10.md         # Per-session summary (goals, built, decisions, open items)
+│   │   ├── 2026-04-10.md         # Per-session summary (goals, built, decisions, open items)
+│   │   ├── 2026-04-11.md
+│   │   ├── 2026-04-12.md
+│   │   ├── 2026-04-15.md
+│   │   └── 2026-05-01.md         # Phase 1–4.5A1 + README refresh (current)
 │   └── history/
 │       └── SYSTEM_MANIFEST.md    # THIS FILE — update after each major session
+│
+├── scripts/
+│   ├── test-discovery-engine.js          # Phase 1 — backend foundation tests (69)
+│   ├── test-discovery-phase2.js          # Phase 2 — orchestrator + adapters (65)
+│   ├── test-discovery-phase3.js          # Phase 3 — Polygon adapters + UI shell (72)
+│   ├── test-discovery-phase4.js          # Phase 4 — Polygon glue + visibility (57)
+│   ├── test-discovery-phase4-1.js        # Phase 4.1 — preview vs commit (46)
+│   ├── test-discovery-phase4-2.js        # Phase 4.2 — recorded alerts panel (54)
+│   ├── test-discovery-phase4-3.js        # Phase 4.3 — rollup chip (70)
+│   ├── test-discovery-phase4-4.js        # Phase 4.4 — card/detail UI (108)
+│   ├── test-discovery-phase4-5a.js       # Phase 4.5A — session-aware universe (104)
+│   ├── test-discovery-phase4-5a1.js      # Phase 4.5A1 — session-aware freshness (72)
+│   └── ... (existing engine validation scripts)
 │
 ├── prompts/                      # Prompt templates (empty, ready for use)
 ├── assets/                       # Static assets (empty, ready for use)
@@ -695,6 +773,88 @@ Note: Developer tier allows unlimited API calls. Watch for rate limiting at high
 ---
 
 ## 11. Changelog
+
+### 2026-05-01 (sessions 28–37 — Capital-Aware Discovery Layer: Phases 1–4.5A1, additive on Trigger Engine + CreditView)
+
+The app gained a third core, complementary intelligence layer — **Lethal Board / Discovery Layer** — without modifying the existing Trigger Engine, Credit-Vol Scanner, signalEngine, setupScoring, chartContextEngine, liveStateEngine, calibrationTracker, alertEngine, alertHistory, or tickerCatalog. Architecture is now three-layer: **Trigger Engine + CreditView + Lethal Board**. CreditView remains a core, ongoing layer; it was not replaced or deprecated. Two clean commits pushed to origin/main: `511f14a` (phases 4.4–4.5A1 code) and `e7b6a9f` (README refresh).
+
+**Phase 1 — Backend foundation** (`src/engines/discovery/`):
+- `types.js`: frozen enums (MARKET_MODE, CAPITAL_PRESSURE, SIZING_BIAS, CAPITAL_FIT, OPPORTUNITY_TYPE, ACTION, BUNDLE, SCANNER_STATE_EVENT) + JSDoc typedefs.
+- `capitalPolicyEngine.js`: `evaluateCapitalPolicy({ totalAccountValue, availableCash, maxDeployedPct, reservedCashBufferPct, currentOpenPositions, marketMode })` — `availableCash` (not `totalAccountValue`) drives deployable + reserved math.
+- `bundleClassifier.js`: 47-symbol explicit map + tickerCatalog tag enrichment + sector hints. Uncataloged → `unknown_sector` / `unknown_category`.
+- `opportunityClassifier.js`: 15 opportunity types, multi-type per candidate, deterministic.
+- `capitalAwareRanker.js`: `lethalScore`, single `bestUseOfCapital`, `displacedBy`, action selection. Hard rule: unaffordable trades cannot win bestUseOfCapital.
+- `scannerStateStore.js`: pluggable storage; emits `new_best_opportunity` / `trade_displaced_by_better_opportunity` / `no_change`.
+- 69 assertions.
+
+**Phase 2 — Orchestrator + adapters**:
+- `discoveryScoreAdapter.js`: pure, non-mutating normalizer for existing engine outputs.
+- `estimatedPremiumEngine.js`: 4-method estimation (chain_based → iv_estimated → atr_estimated → insufficient_data), per-mode floors.
+- `marketDiscoveryScanner.js`: `runMarketDiscoveryScan({...})` — full pipeline with universeStats, explicit rejection codes (missing_market_data / stale_data / insufficient_liquidity / etc), displaced[], bestUseOfCapital, warnings[]. Injectable `now` for tests.
+- 65 assertions.
+
+**Phase 3 — Polygon adapters + Lethal Board UI shell** (`src/components/discovery/`):
+- `polygonUniverseAdapter.js` + `polygonOptionsAdapter.js`: snapshot normalization with DI fetcher; structured-absence on missing chain.
+- `discoveryAlertBridge.js`: state events → alertEngine-compatible alert objects with built-in dedup (15 min default).
+- `lethalBoardViewModel.js` + `LethalBoard.jsx`: 6-section layout (Header summary, Best Opportunity, ranked rows, Displaced, Rejected, Warnings). Honest premium labeling (live / estimated / unavailable). Internals stripped.
+- 72 assertions.
+
+**Phase 4 — Polygon glue + visibility**:
+- `polygonGlue.js`: wires `polygonProxy.js` into adapters with per-call timeout (8 s), circuit breaker (3 failures → 30 s cooldown → half-open), `/v3/snapshot/options/{underlying}` capability probe with 1-hour TTL cache. Live failures **never throw** — resolve to `source: live | circuit_open | fallback | empty | proxy_unreachable`.
+- `discoveryAlertWireup.js`: single-call `route(scanResult)` pumping top candidate through scannerStateStore → discoveryAlertBridge → injected `recordAlertFn`. Suppresses no_change. Tracks `stats()`.
+- `LethalBoardPage.jsx` + small additive edits to `App.jsx` (+9 lines: nav button) and `main.jsx` (+5 lines: route + callback). **LB visible from the Trigger Engine sidebar.**
+- 57 assertions.
+
+**Phase 4.1 — Controlled alert persistence**:
+- `lethalBoardScanController.js`: pure factory dispatching by mode. PREVIEW_SAMPLE / PREVIEW_LIVE never call `recordAlert`; only COMMIT_LIVE routes through the wireup.
+- `LethalBoardPage`: three buttons (sample preview, live preview, **Run & record**). New `<ScanStatusPanel>` with `mode · event · recorded · reason`. Imports `recordAlert` from existing `alertHistory.js` (read-only consumer).
+- 46 assertions.
+
+**Phase 4.2 — Read-only Recorded Alerts panel**:
+- `recordedAlertsView.js` (frozen after acceptance): pure projection with derived `event` (from summary prefix) and `displacedFrom` (from "X displaced Y" pattern). Hard-clamps limit to [1, 50] (default 8). Strips internals.
+- `<RecordedAlertsPanel>` in LethalBoardPage with `useEffect` initial load + refresh after COMMIT_LIVE. Empty state copy: "No recorded discovery alerts yet. Run & record to commit one."
+- 54 assertions including hostile-fields safety group.
+
+**Phase 4.3 — Sanitized rollup chip**:
+- `recordedAlertsRollup.js` (frozen after acceptance): `computeAlertsRollup(projectedRows, { now })` returning exactly `{ today, thisWeek, newBest, displaced }`. Rolling 24 h / 7 d windows from injected `now`. Strict null check (Number(null)=0 cannot sneak through).
+- Chip rendered in existing RecordedAlertsPanel header strip; computed from in-scope `alerts` prop. **No new fetch, no new state, no new effect.**
+- 70 assertions including source-code audit (helper does not import `alertHistory` or `loadAlertHistory`).
+
+**Phase 4.4 — Card/detail UI refactor**:
+- `LethalBoard.jsx` rewritten: `<RankedGrid>` (clickable cards) + `<DetailPanel>` (right column). Discovery-local `<ScoreRing>` SVG component. `<BundlePills>`, `<ActionPill>`. Best Opportunity card promoted with same ScoreRing for visual continuity.
+- `<TradeConstructionPlaceholder>` reserved space inside DetailPanel for Phase 4.5B.
+- `lethalBoardViewModel.js` enriched: each row now carries `keyReasons` and `risks` arrays (using existing private helpers). Phase 3 safety regression preserved — internals still stripped.
+- `LethalBoardPage.jsx` lifts `selectedSymbol` state with `useEffect` to seed default selection on scanResult change. **Lifted now so Phase 4.5B can observe selection without a second refactor.**
+- 108 assertions.
+
+**Phase 4.5A — Session-aware universe + retire MOST_ACTIVE**:
+- Diagnostic phase: confirmed `/v2/snapshot/locale/us/markets/stocks/most_active` returns 404 on Polygon (endpoint does not exist). Confirmed `/v3/snapshot/options/{ticker}` returns 403 NOT_AUTHORIZED on current Polygon plan.
+- `marketSession.js`: pure session detector (premarket / regular / postmarket / closed) via `Intl.DateTimeFormat("en-US", { timeZone: "America/New_York" })`. Holiday detection deferred (Phase 4.5C-prereq).
+- `extendedHoursWatchlist.js`: curated hybrid (tickerCatalog enabled non-cash-settled + optionsWatchlist 2026 active list, deduped, capped 50, AI-infra first).
+- `sessionAwareUniverse.js`: orchestrator. Regular = gainers + losers union; premarket/postmarket = bulk-tickers with curated symbols; closed = last-known curated with `Markets closed` warning.
+- `polygonUniverseAdapter.js`: added `SESSION_AWARE`, `REGULAR_GAINERS`, `REGULAR_LOSERS`, `REGULAR_SNAPSHOT`, `EXTENDED_HOURS_DERIVED` enum values. **MOST_ACTIVE retired** — pathForSource returns `DEPRECATED_SOURCE_MARKER`; no HTTP call to `/most_active` is ever produced.
+- `polygonGlue.js`: capability probe distinguishes `err.status === 403` → `OPTIONS_CAPABILITY.UNAVAILABLE_PLAN`. fetchOptionsLive gate short-circuits on either `UNAVAILABLE` or `UNAVAILABLE_PLAN`. fetchScannerInputBundle dispatches SESSION_AWARE.
+- `LethalBoardPage.jsx`: one-line value swap `MOST_ACTIVE` → `SESSION_AWARE`.
+- 104 assertions.
+
+**Phase 4.5A1 — Session-aware freshness policy**:
+- Diagnostic phase: confirmed Polygon's snapshot endpoints are ~15 min delayed on the current plan tier — `updated` and `lastTrade.t` for NVDA/AAPL/QQQ all read at age 900–903 s, just past the 900 s neutral threshold. Mode-only freshness was rejecting nearly all regular-session data.
+- `freshnessPolicy.js`: `resolveFreshnessPolicy({ session, scannerMode })` returning `{ maxStaleSec, disabled, source, justification }` or `{ disabled: true }` for closed. Lookup table: regular conservative 1080 s / neutral 1500 s / aggressive 3600 s; extended hours 21600 s for all modes; closed disabled. `PRIOR_SESSION_SAFEGUARD_SEC = 21600 s` catches yesterday's quotes during regular session regardless of mode.
+- `marketDiscoveryScanner.js`: accepts `args.session` or `args.regimeContext.session`. Stale-check uses policy-resolved threshold; closed session skips the check entirely. Prior-session safeguard added.
+- `LethalBoardPage.jsx`: forwards `bundle.metadata.universe.session` to scanner. Metadata forwarding, not UI hardcoding. Verified by grep that no UI file hardcodes any threshold value.
+- 72 assertions.
+
+**README + manifest refresh**:
+- `README.md` replaced (was default Vite template). Three-layer architecture explicitly documented; Lethal Board described as **additive**, not a successor; CreditView described as core, ongoing; no claims about live options chain, ThetaData implementation, auto-trading, or proprietary internals.
+- This manifest entry.
+
+**Tests added (phase × assertions):** 69 + 65 + 72 + 57 + 46 + 54 + 70 + 108 + 104 + 72 = **717 new assertions across 10 phase test scripts**, all passing. Existing engine validation (`npm run validate`) remains 100/100 green. Production build clean (542 kB JS / 24 kB CSS / 317 ms).
+
+**Frozen surfaces (do not modify):** `recordedAlertsRollup.js`, `recordedAlertsView.js`, `alertHistory.js`, `LethalBoard.jsx` (P4.4-locked), `lethalBoardViewModel.js` (P4.4-locked), and all existing scoring / ranking / capital policy / persistence / alert files.
+
+**Roadmap (Lethal Board only, additive):** Phase 4.5B Trade Construction Snapshot · Phase 4.5C ThetaData Options Provider Adapter · Phase 4.6 Chart + Trade Workspace.
+
+---
 
 ### 2026-04-15 (session 27 — Credit-Vol regime pipeline + validation fix)
 - **creditVolRegimeV2.js**: Fixed `_invalidDataResult` crash (undefined function). Added `_dataUnavailableResult` with null scores, `allowNewTrades: false`. Added LQD to composite scoring, feature extraction, indicators, percentiles (was excluded despite 0.15 weight). Fixed `|| 0` → `?? 0` coercion. Added `strictParseNumeric`, `validateRegimeValue`, `validateRegimeData` with per-symbol diagnostics, freshness/staleness tracking. Engine output now includes `dataAvailable` flag and `diagnostics` object.
