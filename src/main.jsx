@@ -5,6 +5,7 @@ import App from './App.jsx'
 import TickerSetupBuilder from './TickerSetupBuilder.jsx'
 import CreditVolScanner from './CreditVolScanner.jsx'
 import LandingPage from './LandingPage.jsx'
+import LethalBoardPage from './components/discovery/LethalBoardPage.jsx'
 import {
   getAllSetups,
   addSetup,
@@ -183,10 +184,15 @@ function Root() {
     return <CreditVolScanner onBack={() => setPage("scanner")} />;
   }
 
+  if (page === "lethal-board") {
+    return <LethalBoardPage onBack={() => setPage("scanner")} />;
+  }
+
   return (
     <App
       onOpenBuilder={() => setPage("builder")}
       onOpenCreditVol={() => setPage("credit-vol")}
+      onOpenLethal={() => setPage("lethal-board")}
       engineSetups={engineSetups}
       setupCount={setups.filter(s => s.enabled).length}
     />

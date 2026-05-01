@@ -702,7 +702,7 @@ function DetailPanel({ result, setupKey, setups }) {
 // APP
 // =====================================================
 
-export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setupCount }) {
+export default function App({ onOpenBuilder, onOpenCreditVol, onOpenLethal, engineSetups, setupCount }) {
   // SETUPS comes from React state in main.jsx via engineSetups prop
   const SETUPS = engineSetups || {};
 
@@ -892,6 +892,12 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
                 SETUP BUILDER
               </button>
             )}
+            {onOpenLethal && (
+              <button onClick={onOpenLethal}
+                style={{ padding: 8, background: GREEN + "12", border: `1px solid ${GREEN}44`, borderRadius: 6, color: GREEN, fontSize: 9, fontWeight: 700, cursor: "pointer" }}>
+                LETHAL BOARD
+              </button>
+            )}
           </div>
 
           {/* Compact regime */}
@@ -921,6 +927,7 @@ export default function App({ onOpenBuilder, onOpenCreditVol, engineSetups, setu
           </button>
           {onOpenCreditVol && <button onClick={onOpenCreditVol} style={{ padding: "6px 10px", border: `1px solid ${CYAN}44`, borderRadius: 6, color: CYAN, fontSize: 9, cursor: "pointer", background: "transparent" }}>CV</button>}
           {onOpenBuilder && <button onClick={onOpenBuilder} style={{ padding: "6px 10px", border: `1px solid ${PURPLE}44`, borderRadius: 6, color: PURPLE, fontSize: 9, cursor: "pointer", background: "transparent" }}>BUILD</button>}
+          {onOpenLethal && <button onClick={onOpenLethal} style={{ padding: "6px 10px", border: `1px solid ${GREEN}44`, borderRadius: 6, color: GREEN, fontSize: 9, cursor: "pointer", background: "transparent" }}>LB</button>}
         </div>
 
         {/* CENTER: Setup Tile Grid */}
