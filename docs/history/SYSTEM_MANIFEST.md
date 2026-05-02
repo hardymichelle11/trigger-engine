@@ -504,7 +504,9 @@ CLUSTER BY symbol, exchange
 - [x] **Phase 4.5B — Selected Ticker Trade Construction Snapshot** (2026-05-01): Populated the existing `TRADE CONSTRUCTION — SELECTED TICKER` placeholder with execution-context fields. `tradeConstructionContext.js` whitelists 26 fields; `TradeConstructionSection.jsx` renders honest premium tone. 141 assertions.
 - [x] **Phase 4.5C — ThetaData Options Provider Adapter (v2 implementation)** (2026-05-01): Built pluggable options-chain provider interface (`optionsProviderTypes.js`, `normalizeOptionChain.js`, `thetaDataProvider.js`, `optionsChainProvider.js`) targeting **legacy local Theta Terminal v2** (`http://127.0.0.1:25510/v2`). Strict security lock: no real secrets in `VITE_*`; only `VITE_THETADATA_ENABLED` / `VITE_THETADATA_BASE_URL` / `VITE_THETADATA_TIMEOUT_MS` are read. 297 assertions.
 - [x] **Phase 4.5C+1 — Real Expiration Resolver** (2026-05-01): `expirationResolver.js` picks nearest valid expiration ≥ today + targetDte, fallback to nearest future. `fetchExpirations()` added to provider interface. Trade-construction context surfaces resolved expiration + reason. 80 assertions.
-- [ ] **Phase 4.5C+2 — Refactor adapter to ThetaData v3 (proposed, awaiting approval as of 2026-05-02)**: Migrate `thetaDataProvider.js` + `.env.example` from `25510/v2` to `25503/v3`. v2 endpoints return HTTP 410 GONE on v3 Terminal — the refactor is required, not optional, before live chain data can flow. See Session 32 (2026-05-01) for the architectural finding and v2→v3 deltas. Strike scaling (`* 1000`) is removed; param names change (`root`→`symbol`, `exp`→`expiration`); `right` becomes `call`/`put`; `format=json` added.
+- [x] **Phase 4.5C+2 — Refactor adapter to ThetaData v3** (2026-05-02): Migrated `thetaDataProvider.js` + `.env.example` from `25510/v2` to `25503/v3`. Strike scaling (`* 1000`) removed; param names changed (`root`→`symbol`, `exp`→`expiration`); `right` is `call`/`put`; `format=json` added; HTTP 410 → `incompatible_version`; provider stamps `version: "v3"` on every HealthResult. 90 assertions (87 v3-specific + 3 wrapper-unwrap regression after live verification).
+- [x] **Phase 4.5C+2.1 — Vite `/theta` proxy + v3 snapshot wrapper-unwrap parser** (2026-05-02): Added `vite.config.js` proxy entry routing browser→Terminal traffic same-origin (Terminal v3 emits no CORS headers). Patched `parseThetaDataV3SnapshotPayload` to unwrap the live v3 response shape `{response: [{contract, data: [{bid, ask, ...}]}]}` (verified verbatim against the running Terminal). End-to-end live data confirmed flowing.
+- [~] **Phase 4.5C+3 — Market-hours quote validation**: After-hours baseline captured 2026-05-02 ~01:55 ET against 8 tickers (NVDA, BE, CRWV, NBIS, NEBX, IREN, SMCI, QQQ) — 8/8 returned normalized live snapshot rows; resolver fallback verified live on NEBX (thin chain → 2026-06-18). **Pending**: live-eyeball visual confirmation during regular session (Monday 2026-05-04 09:30–16:00 ET). See Session 33 (2026-05-01) for the per-ticker baseline table.
 - [ ] **Phase 4.6 — Chart + Trade Workspace**: Expanded selected-ticker workspace (chart, levels, strike zone, option snapshot, operator actions Watch / Pass / Prepare Entry). Still no auto-trading.
 - [ ] **Phase 4.5C-prereq — Holiday-aware session detection**: Embed NYSE holiday calendar into marketSession.js. Currently treats holidays as regular weekdays.
 - [ ] **Cloud Run deployment**: Move scheduled tasks from local Windows Task Scheduler to Cloud Scheduler + Cloud Run for reliability
@@ -775,6 +777,21 @@ Note: Developer tier allows unlimited API calls. Watch for rate limiting at high
 ---
 
 ## 11. Changelog
+
+### 2026-05-02 (session 33 — ThetaData v3 end-to-end integration: refactor + proxy + parser fix + 8-ticker live baseline)
+
+Phase 4.5C+2 / 4.5C+2.1 / 4.5C+3 (after-hours portion) shipped in a single late-night push following the Session 32 architectural decision. Six commits on `origin/main`: `9f579b7` (v3 adapter refactor + bundled 4.5B/4.5C/4.5C+1 source), `887e958` (Session 32 docs), `78a1951` (gitignore: jar/creds.txt/*.jar), `093cb13` (Vite `/theta` proxy + `.env.example`), `0285576` (v3 wrapper-unwrap parser fix + 3 regression assertions), `87077c0` (gitignore: config.toml).
+
+**Integration trail and lessons** (full detail in Session 33 notes):
+- Java upgraded from 17 → 26 (v3 jar requires class file 65 / Java 21+).
+- `creds.txt` fix: literal "line 1:" / "line 2:" prefixes from instructions were copy-pasted into the file → auth failure → no port bind. Documentation lesson saved as feedback memory: never write inline line-number labels in config-file examples.
+- Terminal-generated `config.toml` added to `.gitignore` (machine-specific).
+- **CORS gap**: Terminal v3 ships no `Access-Control-Allow-Origin` header. Direct cross-origin browser fetch from `localhost:5173` to `127.0.0.1:25503` is blocked by the browser despite the Terminal serving 200 OK. Fixed via Vite dev-server proxy at `/theta` (Vite injects the CORS header on the proxied response).
+- **v3 response shape mismatch**: real `/v3/option/snapshot/quote` response is `{response: [{contract: {...}, data: [{bid, ask, ...}]}]}` — bid/ask live one level deeper than Phase 4.5C+2 assumed. Parser patched to detect and unwrap the `{contract, data: [...]}` envelope.
+
+**Phase 4.5C+3 after-hours validation baseline** (2026-05-02 ~01:55 ET): all 8 selected tickers returned a parsed snapshot row with `status: live` through the live adapter pipeline. NEBX (thin chain, only 12 expirations) verified the Phase 4.5C+1 resolver fallback path live in production data. No adapter changes required from the probe. Per-ticker bid/ask/mid baseline preserved in Session 33 notes for comparison against Monday's market-hours values.
+
+**Pipeline state at session end**: ThetaData v3 local Terminal fully integrated; browser → Vite proxy → Terminal v3 → adapter → normalized row verified end-to-end across 8 tickers; no outstanding adapter or proxy issues. Frozen surfaces (Phase 1–4.4) untouched; Trigger Engine and CreditView unchanged.
 
 ### 2026-05-01 (session 32 — ThetaData v3 architectural decision; docs only, no code changes)
 
