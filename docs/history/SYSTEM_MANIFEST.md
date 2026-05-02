@@ -501,8 +501,10 @@ CLUSTER BY symbol, exchange
 ### Planned
 - [x] **Real-time WebSocket feed** (completed 2026-04-11): WS connection manager with reconnect, unified quote feed merging WS + poll, throttled updates, graceful fallback. 32 assertions.
 - [x] **OXY, MOS, CF setups** (completed 2026-04-11): Added as standalone type through config registry. 10 total setups.
-- [ ] **Phase 4.5B — Selected Ticker Trade Construction Snapshot**: Populate the existing `TRADE CONSTRUCTION — SELECTED TICKER` placeholder with execution-context fields (suggested strike, expiration, R1/R2/support/ATR levels, ATR distance to strike, estimated premium, premium source). Lethal Board only. Uses already-active data paths.
-- [ ] **Phase 4.5C — ThetaData Options Provider Adapter**: Pluggable options-chain provider with ThetaData as the first implementation. Normalizes bid / ask / mid / IV / Greeks. Switches premium labeling from `estimated` to `live` only when real chain data is present. Integration **not started**.
+- [x] **Phase 4.5B — Selected Ticker Trade Construction Snapshot** (2026-05-01): Populated the existing `TRADE CONSTRUCTION — SELECTED TICKER` placeholder with execution-context fields. `tradeConstructionContext.js` whitelists 26 fields; `TradeConstructionSection.jsx` renders honest premium tone. 141 assertions.
+- [x] **Phase 4.5C — ThetaData Options Provider Adapter (v2 implementation)** (2026-05-01): Built pluggable options-chain provider interface (`optionsProviderTypes.js`, `normalizeOptionChain.js`, `thetaDataProvider.js`, `optionsChainProvider.js`) targeting **legacy local Theta Terminal v2** (`http://127.0.0.1:25510/v2`). Strict security lock: no real secrets in `VITE_*`; only `VITE_THETADATA_ENABLED` / `VITE_THETADATA_BASE_URL` / `VITE_THETADATA_TIMEOUT_MS` are read. 297 assertions.
+- [x] **Phase 4.5C+1 — Real Expiration Resolver** (2026-05-01): `expirationResolver.js` picks nearest valid expiration ≥ today + targetDte, fallback to nearest future. `fetchExpirations()` added to provider interface. Trade-construction context surfaces resolved expiration + reason. 80 assertions.
+- [ ] **Phase 4.5C+2 — Refactor adapter to ThetaData v3 (proposed, awaiting approval as of 2026-05-02)**: Migrate `thetaDataProvider.js` + `.env.example` from `25510/v2` to `25503/v3`. v2 endpoints return HTTP 410 GONE on v3 Terminal — the refactor is required, not optional, before live chain data can flow. See Session 32 (2026-05-01) for the architectural finding and v2→v3 deltas. Strike scaling (`* 1000`) is removed; param names change (`root`→`symbol`, `exp`→`expiration`); `right` becomes `call`/`put`; `format=json` added.
 - [ ] **Phase 4.6 — Chart + Trade Workspace**: Expanded selected-ticker workspace (chart, levels, strike zone, option snapshot, operator actions Watch / Pass / Prepare Entry). Still no auto-trading.
 - [ ] **Phase 4.5C-prereq — Holiday-aware session detection**: Embed NYSE holiday calendar into marketSession.js. Currently treats holidays as regular weekdays.
 - [ ] **Cloud Run deployment**: Move scheduled tasks from local Windows Task Scheduler to Cloud Scheduler + Cloud Run for reliability
@@ -773,6 +775,10 @@ Note: Developer tier allows unlimited API calls. Watch for rate limiting at high
 ---
 
 ## 11. Changelog
+
+### 2026-05-01 (session 32 — ThetaData v3 architectural decision; docs only, no code changes)
+
+A docs-only investigation determined that Phase 4.5C / 4.5C+1 were built against the **legacy local Theta Terminal v2** model (`http://127.0.0.1:25510/v2`) but ThetaData has migrated the local Terminal to **v3** (`http://127.0.0.1:25503/v3`). v2 endpoints return HTTP 410 GONE on a v3 Terminal — they are not available side-by-side. Decision: **stay with the local Terminal architecture, refactor to v3** (Phase 4.5C+2, awaiting approval). The cloud-direct REST / Python library model is deferred — it would put email/password on the wire and require a backend proxy the dashboard does not have. Constraint reaffirmed: **no real ThetaData credentials in `VITE_*` env**; email/password live in `creds.txt` consumed by the local Terminal, never by the app bundle. Real-time options snapshot quotes require **VALUE tier or higher**; FREE is EOD-only. v2→v3 deltas captured in `docs/SESSION_NOTES/2026-05-01.md` (Session 32). No production code modified.
 
 ### 2026-05-01 (sessions 28–37 — Capital-Aware Discovery Layer: Phases 1–4.5A1, additive on Trigger Engine + CreditView)
 
