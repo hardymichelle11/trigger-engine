@@ -36,6 +36,9 @@ import {
   computeAlertsRollup,
   ROLLUP_CHIP_LABEL,
 } from "./recordedAlertsRollup.js";
+import { buildTradeConstructionContext } from "./tradeConstructionContext.js";
+import { createOptionsChainProvider } from "../../providers/options/optionsChainProvider.js";
+import { HEALTH_STATUS } from "../../providers/options/optionsProviderTypes.js";
 
 // --------------------------------------------------
 // SAMPLE SCAN — used by "Run sample scan" so the UI is
@@ -153,6 +156,23 @@ export default function LethalBoardPage({ onBack }) {
   // Phase 4.4: lifted selection state. Lives here so Phase 4.5 can observe
   // selectedSymbol and build/cache a per-symbol trade-construction context.
   const [selectedSymbol, setSelectedSymbol] = useState(null);
+  // Phase 4.5C: per-symbol live option-chain snapshot cache.
+  // Stays empty when ThetaData credentials are absent or terminal is offline.
+  // The trade-construction helper renders gracefully without it.
+  const [optionSnapshotsBySymbol, setOptionSnapshotsBySymbol] = useState({});
+  const [providerHealth, setProviderHealth] = useState(null);
+
+  // Single options provider per session. Falls back to "missing_credentials"
+  // when env config is absent or the terminal is offline.
+  const optionsProviderRef = useRef(null);
+  function getOptionsProvider() {
+    if (!optionsProviderRef.current) {
+      // eslint-disable-next-line no-undef
+      const env = (typeof import.meta !== "undefined" && import.meta?.env) || {};
+      optionsProviderRef.current = createOptionsChainProvider({ env });
+    }
+    return optionsProviderRef.current;
+  }
 
   // One controller per session — keeps bridge dedup state across scans.
   const controllerRef = useRef(null);
@@ -171,6 +191,64 @@ export default function LethalBoardPage({ onBack }) {
   }, []);
 
   useEffect(() => { refreshRecordedAlerts(); }, [refreshRecordedAlerts]);
+
+  // Phase 4.5C: probe options provider health on mount, then on demand.
+  // The probe is cheap (cached at the provider layer); we surface the
+  // result only as a status string for the live-status pill.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getOptionsProvider().checkHealth();
+        if (!cancelled) setProviderHealth(result);
+      } catch {
+        // Provider should never throw, but be defensive.
+        if (!cancelled) {
+          setProviderHealth({ status: HEALTH_STATUS.UNAVAILABLE, reason: "probe_failed" });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Phase 4.5C: when selectedSymbol changes, attempt a single-snapshot fetch
+  // for the suggested put strike. Cached per symbol per session. Failure
+  // resolves to null silently — Trade Construction stays in "estimated".
+  useEffect(() => {
+    if (!selectedSymbol || !scanResult) return;
+    if (optionSnapshotsBySymbol[selectedSymbol] !== undefined) return;     // already attempted
+    const candidate = (scanResult.candidates || []).find(c =>
+      String(c?.symbol || "").toUpperCase() === selectedSymbol);
+    const est = candidate?.premiumEstimate;
+    if (!est?.preferredStrike || !est?.preferredDte) {
+      // Mark attempted with null so we don't keep re-probing the same symbol.
+      setOptionSnapshotsBySymbol(prev => ({ ...prev, [selectedSymbol]: null }));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // Phase 4.5C ships single-snapshot only. Expiration is approximate —
+      // the provider rejects gracefully when the date doesn't match a real
+      // chain row, returning null and leaving the UI in "estimated".
+      const expDate = new Date(Date.now() + Number(est.preferredDte) * 86_400_000);
+      const expIso = `${expDate.getUTCFullYear()}-${String(expDate.getUTCMonth() + 1).padStart(2, "0")}-${String(expDate.getUTCDate()).padStart(2, "0")}`;
+      let snapshot = null;
+      try {
+        snapshot = await getOptionsProvider().fetchSnapshot({
+          symbol: selectedSymbol,
+          expiration: expIso,
+          strike: est.preferredStrike,
+          right: "put",
+        });
+      } catch {
+        snapshot = null;
+      }
+      if (!cancelled) {
+        setOptionSnapshotsBySymbol(prev => ({ ...prev, [selectedSymbol]: snapshot }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedSymbol, scanResult, optionSnapshotsBySymbol]);
 
   // Default selection: best-use-of-capital, falling back to the first ranked
   // candidate. Reset whenever the scan result changes — including when the
@@ -298,6 +376,15 @@ export default function LethalBoardPage({ onBack }) {
         </div>
       )}
 
+      {providerHealth && (
+        <div style={{ background: "#0f1620", border: "1px solid #1e2530", borderRadius: 8,
+                      padding: 10, marginBottom: 12, fontSize: 11, color: "#9ca3af" }}>
+          <strong style={{ color: "#e4e4e7" }}>Options provider:</strong>{" "}
+          {providerHealth.provider || "thetadata"} · status={providerHealth.status}
+          {providerHealth.reason ? ` · ${providerHealth.reason}` : ""}
+        </div>
+      )}
+
       {scanStatus && <ScanStatusPanel status={scanStatus} />}
 
       <RecordedAlertsPanel alerts={recordedAlerts} />
@@ -312,6 +399,18 @@ export default function LethalBoardPage({ onBack }) {
           title="Lethal Board"
           selectedSymbol={selectedSymbol}
           onSelectSymbol={setSelectedSymbol}
+          tradeContext={buildTradeConstructionContext({
+            scanResult,
+            selectedSymbol,
+            // Phase 4.5C: live snapshot wired through the options provider.
+            // Resolves to null when ThetaData credentials are absent or
+            // the terminal is unreachable — Trade Construction stays in
+            // "estimated" / "unavailable" mode.
+            chartContextBySymbol: null,
+            optionChainSnapshot: selectedSymbol
+              ? optionSnapshotsBySymbol[selectedSymbol] ?? null
+              : null,
+          })}
         />
       )}
     </div>

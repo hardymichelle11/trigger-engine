@@ -345,6 +345,9 @@ export function runMarketDiscoveryScan(args) {
       avgVolume: md.avgVolume,
       dollarVolume: dv,
       distanceToSupportPct: md.distanceToSupportPct,
+      // Phase 4.5B: pass-through ATR for the trade-construction snapshot.
+      // Read-only context; does not affect scoring or ranking.
+      atr: md.atr,
       // classification + bundles
       classification,
       primaryType: classification.primaryType,

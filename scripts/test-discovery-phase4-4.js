@@ -255,18 +255,28 @@ group("LethalBoard.jsx — structure + safety");
     /function\s+BundlePills\s*\(/.test(src));
   assert("declares ActionPill component",
     /function\s+ActionPill\s*\(/.test(src));
-  assert("declares TradeConstructionPlaceholder component",
-    /function\s+TradeConstructionPlaceholder\s*\(/.test(src));
+  // Phase 4.5B replaced the placeholder with TradeConstructionSection.
+  // Either shape is acceptable here — what matters is that the layout
+  // slot exists in the DetailPanel.
+  assert("declares TradeConstructionPlaceholder OR imports TradeConstructionSection",
+    /function\s+TradeConstructionPlaceholder\s*\(/.test(src)
+    || /import\s+TradeConstructionSection\s+from/.test(src));
   assert("renders RankedGrid",
     /<RankedGrid\s/.test(src));
   assert("renders DetailPanel",
     /<DetailPanel\s/.test(src));
-  assert("renders TradeConstructionPlaceholder inside DetailPanel",
-    /<TradeConstructionPlaceholder\s*\/>/.test(src));
-  assert("Trade Construction placeholder copy present",
-    /Trade construction.*selected ticker/i.test(src));
-  assert("Trade Construction placeholder labels Phase 4.5",
-    /Phase 4\.5/.test(src));
+  assert("renders Trade Construction slot inside DetailPanel",
+    /<TradeConstructionPlaceholder\s*\/>/.test(src)
+    || /<TradeConstructionSection\b/.test(src));
+  // Phase 4.5B moved the heading copy into TradeConstructionSection.jsx;
+  // accept either the in-LethalBoard copy or the section component reference.
+  assert("Trade Construction copy reachable (placeholder OR section import)",
+    /Trade construction.*selected ticker/i.test(src)
+    || /TradeConstructionSection/.test(src));
+  // The "Phase 4.5" placeholder text only existed pre-4.5B. After 4.5B the
+  // section is real, so this assertion is now a no-op pass.
+  assert("Phase 4.5 marker no longer required (section landed)",
+    true);
 
   // Lifted selection contract
   assert("LethalBoard accepts selectedSymbol prop",

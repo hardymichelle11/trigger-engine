@@ -22,6 +22,7 @@
 
 import React from "react";
 import { buildLethalBoardViewModel } from "./lethalBoardViewModel.js";
+import TradeConstructionSection from "./TradeConstructionSection.jsx";
 
 // --------------------------------------------------
 // PUBLIC COMPONENT
@@ -39,6 +40,7 @@ export default function LethalBoard({
   scanResult,
   selectedSymbol = null,
   onSelectSymbol,
+  tradeContext = null,
   title = "Lethal Board",
   showRejected = true,
 }) {
@@ -76,7 +78,7 @@ export default function LethalBoard({
         </div>
         <div className="lg:col-span-1">
           <SectionLabel>Detail</SectionLabel>
-          <DetailPanel row={selectedRow} />
+          <DetailPanel row={selectedRow} tradeContext={tradeContext} />
         </div>
       </div>
 
@@ -360,7 +362,7 @@ function fitToneClass(fit) {
 // DETAIL PANEL — selected ticker, right column
 // --------------------------------------------------
 
-function DetailPanel({ row }) {
+function DetailPanel({ row, tradeContext = null }) {
   if (!row) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
@@ -405,7 +407,7 @@ function DetailPanel({ row }) {
         </div>
       )}
 
-      <TradeConstructionPlaceholder />
+      <TradeConstructionSection tradeContext={tradeContext} />
     </div>
   );
 }
@@ -436,23 +438,6 @@ function DetailField({ label, value, valueClass = "text-zinc-200" }) {
     <div>
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className={`text-sm font-medium ${valueClass}`}>{value}</div>
-    </div>
-  );
-}
-
-// --------------------------------------------------
-// TRADE CONSTRUCTION — placeholder for Phase 4.5
-// --------------------------------------------------
-
-function TradeConstructionPlaceholder() {
-  return (
-    <div className="rounded border border-dashed border-zinc-700 bg-zinc-900/30 p-3">
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
-        Trade construction — selected ticker
-      </div>
-      <div className="text-xs text-zinc-500">
-        available in Phase 4.5
-      </div>
     </div>
   );
 }
