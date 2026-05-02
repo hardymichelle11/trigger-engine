@@ -49,7 +49,9 @@ export default function TradeConstructionSection({ tradeContext }) {
         <Field label="Symbol" value={t.symbol} bold />
         <Field label="Current price" value={dollar(t.currentPrice)} />
         <Field label="Suggested strike" value={dollar(t.suggestedStrike)} />
-        <Field label="Expiration" value={t.expirationLabel || "—"} />
+        <Field label="Expiration"
+               value={t.resolvedExpirationLabel || t.expirationLabel || "—"}
+               valueClass={t.resolvedExpiration ? "text-emerald-400" : "text-zinc-200"} />
         <Field label="Premium source"
                value={t.premiumSource}
                valueClass={premiumTone} />
@@ -58,6 +60,12 @@ export default function TradeConstructionSection({ tradeContext }) {
         <Field label="Estimated collateral" value={dollar(t.estimatedCollateral, 0)} />
         <Field label="ATR" value={t.atr != null ? t.atr.toFixed(2) : "—"} />
       </div>
+
+      {t.resolvedExpirationReason && (
+        <div className="mt-2 text-[11px] text-amber-400">
+          Expiration lookup: {t.resolvedExpirationReason}
+        </div>
+      )}
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
         <Field label="Support" value={dollar(t.support)} />

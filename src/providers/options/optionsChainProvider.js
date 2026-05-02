@@ -1,11 +1,12 @@
 // =====================================================
 // OPTIONS CHAIN PROVIDER — interface + factory dispatcher
 // =====================================================
-// Phase 4.5C. Pluggable provider layer between the UI and
+// Phase 4.5C+2. Pluggable provider layer between the UI and
 // any concrete options data source. Today the only concrete
-// implementation is ThetaData (REST/snapshot). The interface
-// is provider-agnostic so future providers (e.g. broker
-// chain APIs) can drop in without touching the UI.
+// implementation is ThetaData v3 local Terminal (REST/snapshot
+// against http://127.0.0.1:25503/v3). The interface is
+// provider-agnostic so future providers (e.g. broker chain
+// APIs) can drop in without touching the UI.
 //
 // Hard rules:
 //   - The dispatcher NEVER imports UI components.
@@ -14,11 +15,17 @@
 //     when no provider is configured.
 //   - readProviderConfigFromEnv() does NOT print or log
 //     credential values. It only reports presence/absence.
+//   - Activation is intentional: VITE_THETADATA_ENABLED=true
+//     AND VITE_THETADATA_BASE_URL must both be set in the
+//     operator's local .env. There is no automatic default
+//     base URL — keeping this explicit avoids surprise
+//     localhost calls and matches the security policy.
 // =====================================================
 
 import {
   HEALTH_STATUS,
   PROVIDER_NAME,
+  PROVIDER_VERSION,
 } from "./optionsProviderTypes.js";
 import { createThetaDataProvider } from "./thetaDataProvider.js";
 
@@ -31,6 +38,7 @@ function createUnavailableProvider({ name = "unavailable", reason = "no_provider
   const t = typeof now === "function" ? now : () => Date.now();
   const result = Object.freeze({
     provider: name,
+    version: PROVIDER_VERSION.V3,
     status: HEALTH_STATUS.MISSING_CREDENTIALS,
     reason,
     checkedAt: t(),
@@ -40,6 +48,7 @@ function createUnavailableProvider({ name = "unavailable", reason = "no_provider
     checkHealth: async () => result,
     fetchSnapshot: async () => null,
     fetchChain: async () => null,
+    fetchExpirations: async () => null,
     getCachedHealth: () => result,
     resetHealthCache: () => {},
   });

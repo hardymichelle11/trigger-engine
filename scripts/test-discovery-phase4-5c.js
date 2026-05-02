@@ -79,9 +79,14 @@ console.log("  ═════════════════════�
 // =================================================================
 group("normalizers — strike / expiration / right");
 {
-  // Strike scaling
-  assert("strike 140000 → 140.00", normalizeStrike(140000) === 140);
-  assert("strike 147500 → 147.50", normalizeStrike(147500) === 147.5);
+  // Strike (Phase 4.5C+2 — v3 dollars, no `* 1000` scaling).
+  // The legacy v2 millicents-shaped values are now anti-asserted: a
+  // `140000` input means the caller forgot to convert from v2, and we
+  // must NOT silently rescale.
+  assert("strike 140 (dollars) → 140", normalizeStrike(140) === 140);
+  assert("strike 147.5 (dollars) → 147.5", normalizeStrike(147.5) === 147.5);
+  assert("strike 140000 (legacy v2 shape) is NOT rescaled to 140",
+    normalizeStrike(140000) !== 140);
   assert("strike 0 → null", normalizeStrike(0) === null);
   assert("strike negative → null", normalizeStrike(-100) === null);
   assert("strike non-numeric → null", normalizeStrike("not_a_number") === null);
@@ -209,9 +214,10 @@ group("normalizeRow — malformed input does not crash");
 }
 
 // =================================================================
-// 5. Positional ThetaData payload parsing
+// 5. Legacy positional ThetaData payload parsing (kept as fallback parser
+//    for non-JSON v3 responses; not the active path in v3 fetchSnapshot)
 // =================================================================
-group("parseThetaDataSnapshotPayload — positional format");
+group("parseThetaDataSnapshotPayload — legacy positional fallback");
 {
   const payload = {
     header: {
@@ -264,7 +270,7 @@ group("ThetaData provider — missing credentials");
 
   // credentialsRequired but apiKey missing
   const p3 = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510",
+    enabled: true, baseUrl: "http://127.0.0.1:25503",
     credentialsRequired: true,
   });
   const h3 = await p3.checkHealth();
@@ -291,7 +297,7 @@ group("ThetaData provider — terminal not running");
     throw err;
   };
   const p = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510",
+    enabled: true, baseUrl: "http://127.0.0.1:25503",
     fetcher: refusedFetcher,
   });
   const h = await p.checkHealth();
@@ -314,35 +320,35 @@ group("ThetaData provider — unauthorized / unavailable_plan");
 {
   const fetch401 = async () => { const e = new Error("http_401"); e.status = 401; throw e; };
   const p401 = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510", fetcher: fetch401,
+    enabled: true, baseUrl: "http://127.0.0.1:25503", fetcher: fetch401,
   });
   const h401 = await p401.checkHealth();
   assert("HTTP 401 → unauthorized", h401.status === HEALTH_STATUS.UNAUTHORIZED);
 
   const fetch403 = async () => { const e = new Error("http_403"); e.status = 403; throw e; };
   const p403 = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510", fetcher: fetch403,
+    enabled: true, baseUrl: "http://127.0.0.1:25503", fetcher: fetch403,
   });
   const h403 = await p403.checkHealth();
   assert("HTTP 403 → unauthorized", h403.status === HEALTH_STATUS.UNAUTHORIZED);
 
   const fetch402 = async () => { const e = new Error("http_402"); e.status = 402; throw e; };
   const p402 = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510", fetcher: fetch402,
+    enabled: true, baseUrl: "http://127.0.0.1:25503", fetcher: fetch402,
   });
   const h402 = await p402.checkHealth();
   assert("HTTP 402 → unavailable_plan", h402.status === HEALTH_STATUS.UNAVAILABLE_PLAN);
 
   const fetch500 = async () => { const e = new Error("http_500"); e.status = 500; throw e; };
   const p500 = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510", fetcher: fetch500,
+    enabled: true, baseUrl: "http://127.0.0.1:25503", fetcher: fetch500,
   });
   const h500 = await p500.checkHealth();
   assert("HTTP 500 → unavailable", h500.status === HEALTH_STATUS.UNAVAILABLE);
 
   const fetchTimeout = async () => { const e = new Error("aborted"); e.code = "ETIMEDOUT"; throw e; };
   const pT = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510", fetcher: fetchTimeout,
+    enabled: true, baseUrl: "http://127.0.0.1:25503", fetcher: fetchTimeout,
   });
   const hT = await pT.checkHealth();
   assert("timeout → unavailable", hT.status === HEALTH_STATUS.UNAVAILABLE);
@@ -355,19 +361,24 @@ group("ThetaData provider — unauthorized / unavailable_plan");
 group("ThetaData provider — available path + snapshot");
 {
   const okFetcher = async (path) => {
-    if (path.startsWith("/v2/list/exchanges")) {
-      return { header: { format: [] }, response: [], status: "OK" };
+    // Phase 4.5C+2: health probe canary is /v3/option/list/expirations?symbol=SPY.
+    // The same prefix also serves real fetchExpirations() calls — both pass.
+    if (path.startsWith("/v3/option/list/expirations")) {
+      return { response: [{ expiration: 20260919 }], status: "OK" };
     }
-    if (path.startsWith("/v2/snapshot/option/quote")) {
+    if (path.startsWith("/v3/option/snapshot/quote")) {
+      // v3 named-field JSON shape (format=json).
       return {
-        header: { format: ["bid", "ask", "last", "volume", "open_interest", "iv"], error_type: "null" },
-        response: [[1.40, 1.50, 1.48, 800, 1500, 0.32]],
+        response: [{
+          bid: 1.40, ask: 1.50, last: 1.48,
+          volume: 800, open_interest: 1500, iv: 0.32,
+        }],
       };
     }
     return null;
   };
   const p = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510", fetcher: okFetcher,
+    enabled: true, baseUrl: "http://127.0.0.1:25503", fetcher: okFetcher,
   });
 
   const h = await p.checkHealth();
@@ -397,11 +408,10 @@ group("ThetaData provider — available path + snapshot");
 group("fetchSnapshot — invalid arguments");
 {
   const okFetcher = async () => ({
-    header: { format: ["bid", "ask"], error_type: "null" },
-    response: [[1.40, 1.50]],
+    response: [{ bid: 1.40, ask: 1.50 }],   // v3 JSON shape (format=json)
   });
   const p = createThetaDataProvider({
-    enabled: true, baseUrl: "http://127.0.0.1:25510", fetcher: okFetcher,
+    enabled: true, baseUrl: "http://127.0.0.1:25503", fetcher: okFetcher,
   });
   await p.checkHealth();
 
@@ -470,7 +480,7 @@ group("readProviderConfigFromEnv — VITE_ is non-secret only");
   // Non-secret browser-safe config IS read from VITE_*
   const cfg = readProviderConfigFromEnv({
     VITE_THETADATA_ENABLED: "true",
-    VITE_THETADATA_BASE_URL: "http://127.0.0.1:25510",
+    VITE_THETADATA_BASE_URL: "http://127.0.0.1:25503",
     VITE_THETADATA_TIMEOUT_MS: "3000",
     // SECURITY: anything below is hostile injection — code MUST ignore it.
     VITE_THETADATA_API_KEY: "super-secret-key",
@@ -479,7 +489,7 @@ group("readProviderConfigFromEnv — VITE_ is non-secret only");
     VITE_THETADATA_CREDENTIALS_REQUIRED: "true",
   });
   assert("enabled = true", cfg.enabled === true);
-  assert("baseUrl preserved", cfg.baseUrl === "http://127.0.0.1:25510");
+  assert("baseUrl preserved", cfg.baseUrl === "http://127.0.0.1:25503");
   assert("timeoutMs parsed", cfg.timeoutMs === 3000);
 
   // SECURITY: cfg must NOT carry apiKey / token / password — even masked.
@@ -523,7 +533,7 @@ group("createOptionsChainProvider — ignores VITE_THETADATA_API_KEY");
   const provider = createOptionsChainProvider({
     env: {
       VITE_THETADATA_ENABLED: "true",
-      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25510",
+      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25503",
       VITE_THETADATA_API_KEY: "would-leak-into-bundle",
     },
     fetcher: async () => ({ header: { format: [] }, response: [], status: "OK" }),
@@ -539,7 +549,7 @@ group("createOptionsChainProvider — ignores VITE_THETADATA_API_KEY");
   const strict = createOptionsChainProvider({
     env: {
       VITE_THETADATA_ENABLED: "true",
-      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25510",
+      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25503",
       VITE_THETADATA_API_KEY: "would-leak-into-bundle",
     },
     credentialsRequired: true,
@@ -556,7 +566,7 @@ group("createOptionsChainProvider — ignores VITE_THETADATA_API_KEY");
   const ok = createOptionsChainProvider({
     env: {
       VITE_THETADATA_ENABLED: "true",
-      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25510",
+      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25503",
     },
     credentialsRequired: true,
     apiKey: "supplied-via-backend-DI-only",
@@ -628,7 +638,7 @@ group("createOptionsChainProvider — safe fallback");
   const ok = createOptionsChainProvider({
     env: {
       VITE_THETADATA_ENABLED: "true",
-      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25510",
+      VITE_THETADATA_BASE_URL: "http://127.0.0.1:25503",
     },
     fetcher: async () => ({ header: { format: [] }, response: [], status: "OK" }),
   });
@@ -708,9 +718,12 @@ group(".env.example + .gitignore safety");
   // No actual secrets in the example
   assert(".env.example has no real-looking apiKey value",
     !/VITE_THETADATA_API_KEY\s*=\s*[\w-]{16,}/m.test(envExample));
-  // SECURITY: explicit warning about not putting secrets in VITE_ vars
-  assert(".env.example contains the literal security warning",
-    /Do not place real ThetaData secrets in VITE_ variables/i.test(envExample));
+  // SECURITY: explicit warning about not putting secrets in VITE_ vars.
+  // Phase 4.5C+2 reworded the banner to call out email/password/API keys
+  // explicitly (the v3 Terminal model uses creds.txt next to the jar,
+  // not VITE_ env). Either form satisfies the contract.
+  assert(".env.example contains a security warning about secrets in VITE_ vars",
+    /Do not place [^]*?(secret|email|password|API key)[^]*? in VITE_/i.test(envExample));
   // Should not include VITE_THETADATA_API_KEY as a placeholder line at all
   assert(".env.example does NOT include VITE_THETADATA_API_KEY placeholder",
     !/^#?\s*VITE_THETADATA_API_KEY\s*=/m.test(envExample));

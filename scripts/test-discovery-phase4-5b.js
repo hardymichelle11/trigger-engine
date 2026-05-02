@@ -248,8 +248,11 @@ group("hostile candidate fields are NOT passed through");
     assert(`tradeContext does NOT expose '${banned}'`, !(banned in ctx));
   }
   // Output keys are exactly the documented whitelist — no surprise extras.
+  // Phase 4.5C+1 added five resolvedExpiration* fields; whitelist updated.
   const expectedKeys = new Set([
     "symbol", "currentPrice", "suggestedStrike", "expirationDte", "expirationLabel",
+    "resolvedExpiration", "resolvedExpirationDte", "resolvedExpirationLabel",
+    "resolvedExpirationMatched", "resolvedExpirationReason",
     "premiumSource", "estimatedPremium", "estimatedCollateral", "atr",
     "support", "r1", "r2",
     "distanceFromPriceToStrike", "distanceFromPriceToStrikePct",

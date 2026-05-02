@@ -15,6 +15,15 @@ export const PROVIDER_NAME = Object.freeze({
 });
 
 /**
+ * Provider API version. The ThetaData adapter targets local Theta Terminal v3
+ * exclusively (Phase 4.5C+2). v2 endpoints return HTTP 410 GONE on a v3
+ * Terminal — they are not available side-by-side, so we never call them.
+ */
+export const PROVIDER_VERSION = Object.freeze({
+  V3: "v3",
+});
+
+/**
  * Health states a provider can report.
  *
  * Honesty rules:
@@ -29,6 +38,10 @@ export const PROVIDER_NAME = Object.freeze({
  *   - `unavailable_plan`  reachable but the requested data is not entitled
  *                         on the current plan tier (matches polygonGlue's
  *                         analogous state for Polygon options).
+ *   - `incompatible_version` reachable but the endpoint returned HTTP 410 —
+ *                            we hit a v2 path on a v3 Terminal (or vice-versa).
+ *                            Phase 4.5C+2 introduced this state when migrating
+ *                            from v2/25510 to v3/25503.
  *   - `unavailable`       generic catch-all when none of the above fit.
  *   - `unknown_error`     unexpected failure (preserve message for diagnostics).
  */
@@ -39,6 +52,7 @@ export const HEALTH_STATUS = Object.freeze({
   CONNECTION_REFUSED: "connection_refused",
   UNAUTHORIZED: "unauthorized",
   UNAVAILABLE_PLAN: "unavailable_plan",
+  INCOMPATIBLE_VERSION: "incompatible_version",
   UNAVAILABLE: "unavailable",
   UNKNOWN_ERROR: "unknown_error",
 });
@@ -71,6 +85,7 @@ export const SNAPSHOT_STATUS = Object.freeze({
  * @property {string} [reason]
  * @property {number} [checkedAt]                     epoch ms
  * @property {string} provider                        one of PROVIDER_NAME
+ * @property {string} [version]                       one of PROVIDER_VERSION (Phase 4.5C+2)
  */
 
 /**
@@ -102,6 +117,7 @@ export const SNAPSHOT_STATUS = Object.freeze({
  * @property {() => Promise<HealthResult>} checkHealth
  * @property {(args: object) => Promise<NormalizedOptionRow|null>} fetchSnapshot
  * @property {(args: object) => Promise<NormalizedOptionRow[]|null>} fetchChain
+ * @property {(symbol: string) => Promise<string[]|null>} [fetchExpirations]   Phase 4.5C+1: list available expirations as "YYYY-MM-DD"
  * @property {() => HealthResult|null} [getCachedHealth]
  * @property {() => void} [resetHealthCache]
  */

@@ -1,5 +1,5 @@
 // =====================================================
-// NORMALIZE OPTION CHAIN (Phase 4.5C)
+// NORMALIZE OPTION CHAIN (Phase 4.5C+2 — v3)
 // =====================================================
 // Pure helpers that turn provider-specific option-chain
 // rows into the app-wide NormalizedOptionRow shape.
@@ -11,10 +11,11 @@
 //   - NEVER throws on malformed input. Returns null when
 //     the row cannot be safely normalized.
 //   - DOES NOT log secrets, tokens, or raw API keys.
-//   - ThetaData scaling rules baked in:
-//       strike     rawStrike / 1000     (140000 → 140.00)
+//   - ThetaData v3 scaling rules baked in:
+//       strike     dollars (e.g. 140.00 — NO division by 1000;
+//                  v3 strikes ship in dollars, unlike legacy v2 millicents)
 //       expiration "YYYYMMDD" → "YYYY-MM-DD"
-//       right      "C" → "call",  "P" → "put"
+//       right      "call"/"put"  (legacy "C"/"P" still tolerated)
 //       mid        (bid+ask)/2 when both present;
 //                  null when missing unless `last` is valid.
 // =====================================================
@@ -55,9 +56,16 @@ function safeRound(n, digits = 4) {
 // --------------------------------------------------
 
 /**
- * ThetaData strike scaling: raw integer cents → dollars.
- *   140000 → 140.00
- *   147500 → 147.50
+ * ThetaData v3 strike normalization: dollars in, dollars out.
+ *
+ * v3 ships strike values in dollars (140.00, 147.50, etc.) — NOT in
+ * legacy v2 millicents (140000, 147500). Phase 4.5C+2 dropped the
+ * `/ 1000` scaling that the v2 adapter performed; passing a v2-shaped
+ * integer here would silently produce a 1000×-too-large strike. Callers
+ * that have a v2-shaped value must convert before calling.
+ *
+ *   140    → 140.00
+ *   147.5  → 147.50
  *
  * @param {number|string} raw
  * @returns {number|null}
@@ -65,7 +73,7 @@ function safeRound(n, digits = 4) {
 export function normalizeStrike(raw) {
   const n = safeNum(raw);
   if (n == null || n <= 0) return null;
-  return safeRound(n / 1000, 4);
+  return safeRound(n, 4);
 }
 
 /**
@@ -261,12 +269,68 @@ export function normalizeChain(rows, hints) {
 // --------------------------------------------------
 
 /**
- * ThetaData REST returns positional rows like:
+ * ThetaData v3 snapshot JSON parser.
+ *
+ * Phase 4.5C+2: v3 endpoints accept `format=json` and respond with named-
+ * field rows. The exact shape varies slightly between endpoints, so this
+ * parser is intentionally tolerant — it accepts any of:
+ *
+ *   { response: [{ bid: 1.50, ask: 1.55, ... }] }      // canonical
+ *   { response: { bid: 1.50, ask: 1.55, ... } }        // single-row object
+ *   [{ bid: 1.50, ask: 1.55, ... }]                    // array directly
+ *   { bid: 1.50, ask: 1.55, ... }                      // bare object
+ *
+ * Returns a normalized field-object for `normalizeRow` to consume, or
+ * null on shape mismatch / empty result. Never throws.
+ *
+ * @param {object|Array} payload
+ * @returns {object|null}
+ */
+export function parseThetaDataV3SnapshotPayload(payload) {
+  if (payload == null) return null;
+
+  let row = null;
+  if (Array.isArray(payload)) {
+    row = payload[0];
+  } else if (typeof payload === "object") {
+    if (Array.isArray(payload.response)) row = payload.response[0];
+    else if (payload.response && typeof payload.response === "object") row = payload.response;
+    else row = payload;
+  }
+  if (!row || typeof row !== "object") return null;
+
+  // v3 ships named fields, but defend against the legacy positional
+  // shape just in case Terminal still emits it for some endpoints. If
+  // header.format is present and row is array-like, fall through to
+  // the legacy parser.
+  if (Array.isArray(row) && payload && payload.header) {
+    return parseThetaDataSnapshotPayload(payload);
+  }
+
+  return {
+    bid: row.bid ?? row.bid_price,
+    ask: row.ask ?? row.ask_price,
+    last: row.last ?? row.last_price,
+    volume: row.volume,
+    open_interest: row.open_interest ?? row.openInterest ?? row.oi,
+    iv: row.iv ?? row.implied_volatility,
+    delta: row.delta,
+    theta: row.theta,
+    gamma: row.gamma,
+    vega: row.vega,
+    lastUpdated: row.ms_of_day ?? row.timestamp ?? row.date ?? row.lastUpdated,
+    error_type: row.error_type ?? payload?.header?.error_type ?? null,
+  };
+}
+
+/**
+ * Legacy ThetaData v2 positional parser. Kept for the v3 fallback path
+ * when Terminal occasionally returns a positional shape from a
+ * `format=json` request. NOT exposed as the active path; v3 callers
+ * must go through `parseThetaDataV3SnapshotPayload`.
+ *
  *   { header: { format: ["bid_size","bid","ask_size","ask",...] },
  *     response: [[ ...numbers... ]] }
- *
- * This helper turns one positional row into a named-field object
- * that normalizeRow() can consume.
  *
  * @param {object} payload
  * @returns {object|null}

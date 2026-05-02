@@ -167,6 +167,35 @@ function liquidityWarning(bidAskMid, spreadRisk) {
 }
 
 // --------------------------------------------------
+// RESOLVED-EXPIRATION PROJECTION (Phase 4.5C+1)
+// --------------------------------------------------
+
+const RESOLVED_EXPIRATION_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const RESOLVED_MATCHED_ALLOWED = new Set(["preferred", "fallback"]);
+
+/**
+ * Whitelist-only projection of the resolver's output. Drops any
+ * provider-shaped extra fields and validates each surface against
+ * the documented vocabulary. Tolerates a missing/null input and
+ * always returns a flat, frozen-friendly object.
+ */
+function resolveResolvedExpiration(input) {
+  if (!input || typeof input !== "object") {
+    return { expiration: null, dte: null, label: null, matched: null, reason: null };
+  }
+  const isoRaw = typeof input.expiration === "string" ? input.expiration : null;
+  const expiration = isoRaw && RESOLVED_EXPIRATION_ISO.test(isoRaw) ? isoRaw : null;
+  const dte = expiration != null ? safePositive(input.dte) ?? safeNum(input.dte) : null;
+  const matchedRaw = typeof input.matched === "string" ? input.matched : null;
+  const matched = matchedRaw && RESOLVED_MATCHED_ALLOWED.has(matchedRaw) ? matchedRaw : null;
+  const reason = typeof input.reason === "string" && input.reason.length > 0 ? input.reason : null;
+  const label = expiration != null
+    ? (dte != null ? `${dte} DTE (${expiration})` : expiration)
+    : null;
+  return { expiration, dte, label, matched, reason };
+}
+
+// --------------------------------------------------
 // PUBLIC: buildTradeConstructionContext
 // --------------------------------------------------
 
@@ -175,8 +204,13 @@ function liquidityWarning(bidAskMid, spreadRisk) {
  * @property {string} symbol
  * @property {number|null} currentPrice
  * @property {number|null} suggestedStrike
- * @property {number|null} expirationDte
- * @property {string|null} expirationLabel
+ * @property {number|null} expirationDte                 target DTE from premium estimator (legacy)
+ * @property {string|null} expirationLabel               "{N} DTE" target string (legacy)
+ * @property {string|null} resolvedExpiration            Phase 4.5C+1: "YYYY-MM-DD" actual chain expiration
+ * @property {number|null} resolvedExpirationDte         Phase 4.5C+1: DTE between today and resolvedExpiration
+ * @property {string|null} resolvedExpirationLabel       Phase 4.5C+1: "{N} DTE (YYYY-MM-DD)" once resolved
+ * @property {string|null} resolvedExpirationMatched     Phase 4.5C+1: "preferred" | "fallback" | null
+ * @property {string|null} resolvedExpirationReason      Phase 4.5C+1: diagnostic vocabulary; null on success
  * @property {string} premiumSource                "live" | "estimated" | "unavailable"
  * @property {number|null} estimatedPremium
  * @property {number|null} estimatedCollateral
@@ -209,10 +243,11 @@ function liquidityWarning(bidAskMid, spreadRisk) {
  * @param {string} args.selectedSymbol
  * @param {Record<string, object>} [args.chartContextBySymbol]   optional chart levels
  * @param {object} [args.optionChainSnapshot]                     optional live snapshot (Phase 4.5C)
+ * @param {object} [args.resolvedExpiration]                       Phase 4.5C+1: { expiration, dte, matched, reason }
  * @returns {TradeConstructionContext|null}
  */
 export function buildTradeConstructionContext(args = {}) {
-  const { scanResult, selectedSymbol, chartContextBySymbol, optionChainSnapshot } = args;
+  const { scanResult, selectedSymbol, chartContextBySymbol, optionChainSnapshot, resolvedExpiration } = args;
   const candidate = findCandidate(scanResult, selectedSymbol);
   if (!candidate) return null;
 
@@ -228,6 +263,10 @@ export function buildTradeConstructionContext(args = {}) {
   const suggestedStrike = safePositive(premiumEstimate?.preferredStrike);
   const expirationDte = safePositive(premiumEstimate?.preferredDte);
   const expirationLabel = expirationDte != null ? `${expirationDte} DTE` : null;
+
+  // Phase 4.5C+1: surface the real chain expiration once the resolver has
+  // chosen one. Whitelist exactly four fields off the resolver's output.
+  const resolved = resolveResolvedExpiration(resolvedExpiration);
 
   const premiumSource = resolvePremiumSource(candidate, optionChainSnapshot);
   const estimatedPremium = premiumSource === PREMIUM_SOURCE.UNAVAILABLE
@@ -266,6 +305,11 @@ export function buildTradeConstructionContext(args = {}) {
     suggestedStrike,
     expirationDte,
     expirationLabel,
+    resolvedExpiration: resolved.expiration,
+    resolvedExpirationDte: resolved.dte,
+    resolvedExpirationLabel: resolved.label,
+    resolvedExpirationMatched: resolved.matched,
+    resolvedExpirationReason: resolved.reason,
     premiumSource,
     estimatedPremium,
     estimatedCollateral,

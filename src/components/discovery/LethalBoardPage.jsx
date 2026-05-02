@@ -39,6 +39,7 @@ import {
 import { buildTradeConstructionContext } from "./tradeConstructionContext.js";
 import { createOptionsChainProvider } from "../../providers/options/optionsChainProvider.js";
 import { HEALTH_STATUS } from "../../providers/options/optionsProviderTypes.js";
+import { resolveNearestExpiration } from "../../providers/options/expirationResolver.js";
 
 // --------------------------------------------------
 // SAMPLE SCAN — used by "Run sample scan" so the UI is
@@ -160,6 +161,10 @@ export default function LethalBoardPage({ onBack }) {
   // Stays empty when ThetaData credentials are absent or terminal is offline.
   // The trade-construction helper renders gracefully without it.
   const [optionSnapshotsBySymbol, setOptionSnapshotsBySymbol] = useState({});
+  // Phase 4.5C+1: per-symbol resolved expiration cache. Mirrors the snapshot
+  // cache so the trade context always renders alongside its matching
+  // expiration (success or reason).
+  const [resolvedExpirationBySymbol, setResolvedExpirationBySymbol] = useState({});
   const [providerHealth, setProviderHealth] = useState(null);
 
   // Single options provider per session. Falls back to "missing_credentials"
@@ -167,8 +172,16 @@ export default function LethalBoardPage({ onBack }) {
   const optionsProviderRef = useRef(null);
   function getOptionsProvider() {
     if (!optionsProviderRef.current) {
-      // eslint-disable-next-line no-undef
-      const env = (typeof import.meta !== "undefined" && import.meta?.env) || {};
+      // Read VITE_* config directly. Vite v8's import-analysis only injects
+      // the runtime `import.meta.env = {...}` override when it detects an
+      // explicit `import.meta.env.X` access — the previous defensive
+      // `import.meta?.env` (with optional chaining) was not matched, so
+      // the env arrived empty and the provider reported thetadata_not_enabled.
+      const env = {
+        VITE_THETADATA_ENABLED: import.meta.env.VITE_THETADATA_ENABLED,
+        VITE_THETADATA_BASE_URL: import.meta.env.VITE_THETADATA_BASE_URL,
+        VITE_THETADATA_TIMEOUT_MS: import.meta.env.VITE_THETADATA_TIMEOUT_MS,
+      };
       optionsProviderRef.current = createOptionsChainProvider({ env });
     }
     return optionsProviderRef.current;
@@ -227,24 +240,40 @@ export default function LethalBoardPage({ onBack }) {
     }
     let cancelled = false;
     (async () => {
-      // Phase 4.5C ships single-snapshot only. Expiration is approximate —
-      // the provider rejects gracefully when the date doesn't match a real
-      // chain row, returning null and leaving the UI in "estimated".
-      const expDate = new Date(Date.now() + Number(est.preferredDte) * 86_400_000);
-      const expIso = `${expDate.getUTCFullYear()}-${String(expDate.getUTCMonth() + 1).padStart(2, "0")}-${String(expDate.getUTCDate()).padStart(2, "0")}`;
-      let snapshot = null;
+      // Phase 4.5C+1: resolve a real chain expiration before snapshot fetch.
+      // The provider's fetchExpirations() returns null when the terminal is
+      // unreachable, in which case the resolver's reason is set to
+      // "no_expirations_available" and the UI stays in "estimated".
+      const provider = getOptionsProvider();
+      let availableExpirations = null;
       try {
-        snapshot = await getOptionsProvider().fetchSnapshot({
-          symbol: selectedSymbol,
-          expiration: expIso,
-          strike: est.preferredStrike,
-          right: "put",
-        });
+        availableExpirations = typeof provider.fetchExpirations === "function"
+          ? await provider.fetchExpirations(selectedSymbol)
+          : null;
       } catch {
-        snapshot = null;
+        availableExpirations = null;
+      }
+      const resolved = resolveNearestExpiration({
+        availableExpirations: availableExpirations || [],
+        targetDte: Number(est.preferredDte),
+      });
+
+      let snapshot = null;
+      if (resolved.expiration) {
+        try {
+          snapshot = await provider.fetchSnapshot({
+            symbol: selectedSymbol,
+            expiration: resolved.expiration,
+            strike: est.preferredStrike,
+            right: "put",
+          });
+        } catch {
+          snapshot = null;
+        }
       }
       if (!cancelled) {
         setOptionSnapshotsBySymbol(prev => ({ ...prev, [selectedSymbol]: snapshot }));
+        setResolvedExpirationBySymbol(prev => ({ ...prev, [selectedSymbol]: resolved }));
       }
     })();
     return () => { cancelled = true; };
@@ -409,6 +438,12 @@ export default function LethalBoardPage({ onBack }) {
             chartContextBySymbol: null,
             optionChainSnapshot: selectedSymbol
               ? optionSnapshotsBySymbol[selectedSymbol] ?? null
+              : null,
+            // Phase 4.5C+1: actual chain expiration matched by the resolver.
+            // Null when no list was retrievable; trade context surfaces the
+            // resolver's reason so the UI can explain the gap honestly.
+            resolvedExpiration: selectedSymbol
+              ? resolvedExpirationBySymbol[selectedSymbol] ?? null
               : null,
           })}
         />

@@ -1,12 +1,18 @@
 // =====================================================
-// THETADATA PROVIDER (Phase 4.5C)
+// THETADATA PROVIDER (Phase 4.5C+2 — v3)
 // =====================================================
-// REST adapter against a locally-running Theta Terminal.
+// REST adapter against a locally-running Theta Terminal v3.
 // REST/snapshot only — NO browser WebSocket connection.
 //
 // Hard rules (carried from spec):
-//   - Theta Terminal handles its own auth at startup. The
-//     adapter does not hold the user's username/password.
+//   - Targets local Theta Terminal v3 only (base
+//     http://127.0.0.1:25503/v3). Phase 4.5C+2 retired the
+//     legacy v2 path scheme; v2 endpoints return HTTP 410
+//     GONE on a v3 Terminal and we surface that as
+//     `incompatible_version`.
+//   - Theta Terminal handles its own auth at startup using a
+//     creds.txt file alongside ThetaTerminalv3.jar. The
+//     adapter does not hold or read username/password.
 //   - Adapter NEVER throws on missing config or unreachable
 //     terminal. Returns a structured HealthResult instead.
 //   - Adapter NEVER prints credentials, tokens, or env values
@@ -15,28 +21,35 @@
 //   - Adapter NEVER connects to a WebSocket. The single-
 //     connection ws://127.0.0.1:25520/v1/events endpoint is
 //     reserved for the user's own tooling.
-//   - When health is not `available`, fetchSnapshot/fetchChain
-//     return null. The Lethal Board's premium label stays
-//     `estimated` or `unavailable` — never `live` — until a
-//     snapshot is actually retrieved.
+//   - When health is not `available`, fetchSnapshot/fetchChain/
+//     fetchExpirations return null. The Lethal Board's premium
+//     label stays `estimated` or `unavailable` — never `live`.
 //   - Default fetcher uses fetch(); tests inject a mock.
+//   - All requests pass `format=json` so the browser receives
+//     parseable JSON (default v3 response is CSV).
 // =====================================================
 
 import {
   HEALTH_STATUS,
   PROVIDER_NAME,
+  PROVIDER_VERSION,
 } from "./optionsProviderTypes.js";
 import {
   normalizeRow,
   normalizeChain,
-  parseThetaDataSnapshotPayload,
+  normalizeExpiration,
+  parseThetaDataV3SnapshotPayload,
 } from "./normalizeOptionChain.js";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_HEALTH_TTL = 60_000;          // re-probe terminal at most once per minute
 
-const HEALTH_PATH = "/v2/list/exchanges";   // basic terminal heartbeat
-const SNAPSHOT_QUOTE_PATH = "/v2/snapshot/option/quote";
+// v3 endpoint paths. Health probe uses an options-namespace canary so a
+// 410 response immediately reveals an incompatible v2 Terminal sitting
+// at the configured base URL.
+const HEALTH_PATH = "/v3/option/list/expirations?symbol=SPY&format=json";
+const SNAPSHOT_QUOTE_PATH = "/v3/option/snapshot/quote";
+const EXPIRATIONS_PATH = "/v3/option/list/expirations";
 
 // --------------------------------------------------
 // DEFAULT FETCHER (browser/node fetch)
@@ -108,6 +121,11 @@ function classifyError(err) {
   }
   if (code === "ETIMEDOUT") {
     return { status: HEALTH_STATUS.UNAVAILABLE, reason: "timeout" };
+  }
+  // Phase 4.5C+2: 410 GONE means we hit a v2 path on a v3 Terminal (or vice-
+  // versa). Surface explicitly so the operator can fix the base URL.
+  if (status === 410) {
+    return { status: HEALTH_STATUS.INCOMPATIBLE_VERSION, reason: "v2_endpoint_gone" };
   }
   if (status === 401 || status === 403) {
     return { status: HEALTH_STATUS.UNAUTHORIZED, reason: `http_${status}` };
@@ -181,6 +199,7 @@ export function createThetaDataProvider(config = {}) {
   function wrapResult(status, reason) {
     return Object.freeze({
       provider: PROVIDER_NAME.THETADATA,
+      version: PROVIDER_VERSION.V3,
       status,
       reason: reason || null,
       checkedAt: now(),
@@ -222,7 +241,7 @@ export function createThetaDataProvider(config = {}) {
    * @param {object} args
    * @param {string} args.symbol
    * @param {string} args.expiration                 "YYYY-MM-DD" or "YYYYMMDD"
-   * @param {number} args.strike                     dollars (e.g. 140.00)
+   * @param {number} args.strike                     dollars (e.g. 140.00) — v3 takes dollars directly
    * @param {"call"|"put"|"C"|"P"} args.right
    * @param {number} [args.now]                       epoch ms for staleness check
    * @param {number} [args.staleAfterMs]
@@ -243,16 +262,17 @@ export function createThetaDataProvider(config = {}) {
       return null;
     }
 
-    // ThetaData wants strike scaled to thousandths and exp YYYYMMDD.
+    // v3 wants `expiration` as YYYYMMDD, `strike` as dollars (e.g. "140.00"),
+    // `right` as "call"/"put", and `format=json` for browser parsing.
     const expCompact = expIso.replace(/-/g, "");
-    const strikeScaled = Math.round(strikeDollars * 1000);
-    const rightLetter = (rightUpper === "C" || rightUpper === "CALL") ? "C" : "P";
+    const rightWord = (rightUpper === "C" || rightUpper === "CALL") ? "call" : "put";
 
     const params = new URLSearchParams({
-      root: symbol,
-      exp: expCompact,
-      strike: String(strikeScaled),
-      right: rightLetter,
+      symbol,
+      expiration: expCompact,
+      strike: strikeDollars.toFixed(2),
+      right: rightWord,
+      format: "json",
     });
 
     let payload;
@@ -262,13 +282,13 @@ export function createThetaDataProvider(config = {}) {
       return null;
     }
 
-    const positional = parseThetaDataSnapshotPayload(payload);
-    if (!positional) return null;
-    return normalizeRow(positional, {
+    const named = parseThetaDataV3SnapshotPayload(payload);
+    if (!named) return null;
+    return normalizeRow(named, {
       symbol,
       expiration: expIso,
       strike: strikeDollars,
-      right: rightLetter,
+      right: rightWord,
       now: args.now,
       staleAfterMs: args.staleAfterMs,
     });
@@ -288,6 +308,43 @@ export function createThetaDataProvider(config = {}) {
   }
 
   // ----------------------------------------------
+  // Expirations list (Phase 4.5C+1)
+  // ----------------------------------------------
+
+  /**
+   * Fetch the list of available expirations for a given underlying.
+   *
+   * ThetaData v3 REST: GET /v3/option/list/expirations?symbol=SYMBOL&format=json
+   * Response shape (JSON, tolerated alternatives — see
+   * parseThetaDataExpirationsPayload):
+   *   { response: [{ expiration: 20260117 }, ...] }
+   *   { response: [[20260117], ...] }                 (positional fallback)
+   *   { response: [20260117, 20260214, ...] }         (flat fallback)
+   *
+   * Returns an array of "YYYY-MM-DD" strings (already normalized) on
+   * success, or null when the provider is unhealthy or the request
+   * fails. NEVER throws.
+   *
+   * @param {string} symbol
+   * @returns {Promise<string[]|null>}
+   */
+  async function fetchExpirations(symbol) {
+    const health = await checkHealth();
+    if (health.status !== HEALTH_STATUS.AVAILABLE) return null;
+    if (typeof fetcher !== "function") return null;
+    const sym = String(symbol || "").toUpperCase();
+    if (!sym) return null;
+    const params = new URLSearchParams({ symbol: sym, format: "json" });
+    let payload;
+    try {
+      payload = await fetcher(`${EXPIRATIONS_PATH}?${params.toString()}`);
+    } catch {
+      return null;
+    }
+    return parseThetaDataExpirationsPayload(payload);
+  }
+
+  // ----------------------------------------------
   // Public surface
   // ----------------------------------------------
 
@@ -296,9 +353,53 @@ export function createThetaDataProvider(config = {}) {
     checkHealth,
     fetchSnapshot,
     fetchChain,
+    fetchExpirations,
     getCachedHealth: () => cachedHealth,
     resetHealthCache: () => { cachedHealth = null; },
   });
+}
+
+// --------------------------------------------------
+// EXPIRATIONS PAYLOAD PARSER (exported for tests)
+// --------------------------------------------------
+
+/**
+ * ThetaData /v3/option/list/expirations payload → array of "YYYY-MM-DD".
+ *
+ * Tolerant by design — v3 with `format=json` ships named-field rows, but
+ * Terminal may also emit positional or flat shapes for single-column
+ * lists. Accepts:
+ *   { response: [{ expiration: 20260117 }, ...] }     (named, v3 canonical)
+ *   { response: [[20260117], ...] }                   (positional)
+ *   { response: [20260117, 20260214, ...] }           (flat)
+ * Returns [] on shape mismatch.
+ *
+ * @param {object} payload
+ * @returns {string[]|null}
+ */
+export function parseThetaDataExpirationsPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const rows = payload.response;
+  if (!Array.isArray(rows)) return null;
+  const out = [];
+  for (const row of rows) {
+    let raw = null;
+    if (Array.isArray(row)) raw = row[0];
+    else if (typeof row === "number" || typeof row === "string") raw = row;
+    else if (row && typeof row === "object") raw = row.expiration ?? row.exp ?? row.date;
+    if (raw == null) continue;
+    const iso = normalizeExpiration(raw);
+    if (iso) out.push(iso);
+  }
+  // Deduplicate preserving order.
+  const seen = new Set();
+  const dedup = [];
+  for (const iso of out) {
+    if (seen.has(iso)) continue;
+    seen.add(iso);
+    dedup.push(iso);
+  }
+  return dedup;
 }
 
 // Exposed for tests + diagnostic UIs that want the same vocabulary.
