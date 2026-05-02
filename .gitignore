@@ -21,9 +21,12 @@ sa-key*.json
 !.env.example
 
 # ThetaData local Terminal — never commit jar (39 MB, redistributable
-# from operator's account) or creds.txt (contains email + password).
+# from operator's account), creds.txt (contains email + password), or
+# the auto-generated config.toml (operator-machine-specific, may capture
+# host/port/region settings tied to the local install).
 ThetaTerminalv3.jar
 creds.txt
+config.toml
 *.jar
 
 # Editor directories and files
