@@ -20,6 +20,12 @@ sa-key*.json
 .env.*
 !.env.example
 
+# ThetaData local Terminal — never commit jar (39 MB, redistributable
+# from operator's account) or creds.txt (contains email + password).
+ThetaTerminalv3.jar
+creds.txt
+*.jar
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
