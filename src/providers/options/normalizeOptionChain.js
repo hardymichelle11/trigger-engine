@@ -299,6 +299,22 @@ export function parseThetaDataV3SnapshotPayload(payload) {
   }
   if (!row || typeof row !== "object") return null;
 
+  // v3 contract+data wrapper (verified live against Terminal v3 on 2026-05-02):
+  //   {
+  //     "response": [{
+  //       "contract": { symbol, expiration, strike, right },
+  //       "data":     [{ bid, ask, last, volume, ... }]
+  //     }]
+  //   }
+  // The actual quote fields live one level deeper at row.data[0].
+  // Detect and unwrap so the same shape works for the simpler {bid, ask}
+  // forms below.
+  if (Array.isArray(row.data) && row.data.length > 0
+      && typeof row.data[0] === "object"
+      && row.contract && typeof row.contract === "object") {
+    row = row.data[0];
+  }
+
   // v3 ships named fields, but defend against the legacy positional
   // shape just in case Terminal still emits it for some endpoints. If
   // header.format is present and row is array-like, fall through to

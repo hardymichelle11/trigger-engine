@@ -133,6 +133,26 @@ group("parseThetaDataV3SnapshotPayload — shape variants");
   assert("positional fallback: bid", e?.bid === 1.10);
   assert("positional fallback: ask", e?.ask === 1.20);
 
+  // v3 contract+data wrapper — verified verbatim against live Terminal v3
+  // on 2026-05-02 (NVDA 2026-05-22 $215 put). Quote fields are nested one
+  // level deeper than the simpler shapes; the parser must unwrap.
+  const wrap = parseThetaDataV3SnapshotPayload({
+    response: [{
+      contract: { symbol: "NVDA", expiration: "2026-05-22", strike: 215.0, right: "PUT" },
+      data: [{
+        bid: 18.70, ask: 19.35,
+        bid_size: 72, ask_size: 22,
+        bid_exchange: 6, ask_exchange: 69,
+        bid_condition: 50, ask_condition: 50,
+        timestamp: "2026-05-01T16:00:00.000",
+      }],
+    }],
+  });
+  assert("v3 wrapper: bid extracted from nested data[0]", wrap?.bid === 18.70);
+  assert("v3 wrapper: ask extracted from nested data[0]", wrap?.ask === 19.35);
+  assert("v3 wrapper: contract metadata not bleeding through",
+    wrap?.symbol === undefined && wrap?.expiration === undefined);
+
   // Malformed shapes
   assert("null payload → null",
     parseThetaDataV3SnapshotPayload(null) === null);
