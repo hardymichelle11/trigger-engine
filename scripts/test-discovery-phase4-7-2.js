@@ -289,17 +289,19 @@ group("CapitalCommandBar — edit + hide + masking");
 group("OperatorConsole — capital section + masking");
 {
   const src = readFileSync(NEW.operatorConsole, "utf8");
-  // Phase 4.7.6: the redesigned console shows only Start + Deployable
-  // (the two values that drive ranking math). availableCash and the
-  // reserved-buffer / max-deploy / max-single percents moved to sliders
-  // and the modal — so maskPercent is no longer imported by this file.
   assert("imports maskMoney", /maskMoney/.test(src));
-  assert("Capital section title (compact 'Capital' or 'Capital settings')",
-    /Capital(\s+settings)?/i.test(src));
+  assert("imports maskPercent", /maskPercent/.test(src));
+  assert("Capital settings section title",
+    /Capital settings/i.test(src));
   assert("renders HideBalancesToggle", /<HideBalancesToggle/.test(src));
   assert("renders Edit capital button", /Edit capital/i.test(src));
   assert("masks startingCapital", /maskMoney\(\s*safe\.startingCapital/.test(src));
+  assert("masks availableCash",   /maskMoney\(\s*safe\.availableCash/.test(src));
   assert("masks deployableCapital", /maskMoney\(\s*safe\.deployableCapital/.test(src));
+  assert("masks reservedCashBufferPct", /maskPercent\(\s*safe\.reservedCashBufferPct/.test(src));
+  // Old AdminSidebar capital-less control block must be gone
+  assert("OperatorConsole has Edit capital control",
+    /Edit capital/.test(src));
 }
 
 // =================================================================
@@ -330,19 +332,15 @@ group("LethalBoardCockpit — strict 100vh + capital pipe");
   assert("page is height 100vh", /height:\s*["']100vh["']/.test(src));
   assert("page has overflow hidden",
     /overflow:\s*["']hidden["']/.test(src));
-  // Phase 4.7.6: rows are now `auto minmax(320px, 36%) auto 1fr` —
-  // 4 rows (command bar / top picks / market intel ribbon / lower).
-  // Accept the 3-row, the floored 3-row, and the new 4-row form.
-  assert("main workspace uses auto / 36% / 1fr rows (3-row or 4-row form)",
+  // Phase 4.7.5.3 added a min-height floor on the top picks row so cards
+  // never clip on shorter viewports — accept either the original "36%"
+  // form or the floored `minmax(<floor>, 36%)` form.
+  assert("main workspace uses auto / 36% / 1fr rows",
     /gridTemplateRows:\s*["']auto\s+36%\s+1fr["']/.test(src)
-      || /gridTemplateRows:\s*["']auto\s+minmax\(\s*\d+px\s*,\s*36%\s*\)\s+1fr["']/.test(src)
-      || /gridTemplateRows:\s*["']auto\s+minmax\(\s*\d+px\s*,\s*36%\s*\)\s+auto\s+1fr["']/.test(src));
-  assert("lower workspace uses 60/40 OR 65/35 columns",
-    /gridTemplateColumns:\s*["']60%\s+40%["']/.test(src)
-      || /gridTemplateColumns:\s*["']65%\s+35%["']/.test(src));
+      || /gridTemplateRows:\s*["']auto\s+minmax\(\s*\d+px\s*,\s*36%\s*\)\s+1fr["']/.test(src));
+  assert("lower workspace uses 60% / 40% columns",
+    /gridTemplateColumns:\s*["']60%\s+40%["']/.test(src));
   // imports the renamed components
-  // Phase 4.7.6 retired AlertsPanel from the cockpit (alerts moved into
-  // OperatorConsole's collapsible Advanced Diagnostics section).
   for (const name of [
     "OperatorConsole",
     "CapitalCommandBar",
@@ -350,6 +348,7 @@ group("LethalBoardCockpit — strict 100vh + capital pipe");
     "RankedCandidatesPanel",
     "OpportunityDetailPanel",
     "MarketIntelligencePanel",
+    "AlertsPanel",
   ]) {
     assert(`Cockpit imports ${name}`, new RegExp(`\\b${name}\\b`).test(src));
   }

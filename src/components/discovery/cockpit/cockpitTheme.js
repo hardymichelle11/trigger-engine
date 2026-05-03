@@ -21,44 +21,39 @@
 // PALETTE
 // --------------------------------------------------
 
-// Phase 4.7.6 — Fidelity-style palette refresh.
-//   - Neutral charcoals dominate (~80% of UI surface)
-//   - Accents (green/red/blue) used only for: P/L, action, premium, risk
-//   - Teal kept as the cockpit's brand accent (ticker symbol, best use)
 export const COCKPIT_PALETTE = Object.freeze({
   // Surfaces (darkest → lightest)
-  pageBg:      "#0c0f14",   // outermost, behind operator console
-  consoleBg:   "#0c0f14",   // operator console (left rail) — same as page
-  workspaceBg: "#0c0f14",   // main working area — true neutral
-  stripBg:     "#12161c",   // top command/market strip — soft panel
-  panelBg:     "#12161c",   // panels and cards (default)
-  nestedBg:    "#181d24",   // nested cards / table rows / inputs
-  inputBg:     "#1f262e",   // text input backgrounds
-  border:      "#1c232b",   // standard divider / border
-  borderSoft:  "#161b22",   // softer divider for dense tables
+  pageBg:      "#050607",   // outermost, behind operator console
+  consoleBg:   "#0b0d10",   // operator console (left rail) — darker than workspace
+  workspaceBg: "#0b0d10",   // main working area
+  stripBg:     "#151719",   // top command/market strip — slightly lighter
+  panelBg:     "#151719",   // panels and cards (default)
+  nestedBg:    "#202225",   // nested cards / table rows / inputs
+  inputBg:     "#303236",   // text input backgrounds
+  border:      "#2b2f34",   // standard divider / border
+  borderSoft:  "#21252a",   // softer divider for dense tables
 
   // Text
   text:        "#f3f4f6",   // primary text
   textDim:     "#9ca3af",   // muted text / labels
   textFaint:   "#6b7280",   // very faint secondary text
 
-  // Accents (used surgically — ~20% of UI)
-  accentGreen: "#22c55e",   // P/L positive, premium, active state
-  accentRed:   "#ef4444",   // P/L negative, risk, warning
-  accentAmber: "#f59e0b",   // soft warnings (estimated, wide spread)
-  accentBlue:  "#3b82f6",   // neutral info / links
-  accentTeal:  "#14b8a6",   // best-use marker, ticker symbol (brand)
-  accentCyan:  "#06b6d4",   // alias for compatibility
+  // Accents (used surgically)
+  accentGreen: "#22c55e",   // P/L positive, active state, "live"
+  accentRed:   "#ef4444",   // P/L negative, danger
+  accentAmber: "#f59e0b",   // warnings (estimated, wide spread)
+  accentTeal:  "#14b8a6",   // best-use marker, ticker symbol
+  accentCyan:  "#06b6d4",   // links / secondary info
 
   // Action surfaces (filled buttons)
-  buyBg:       "#10b98122",
+  buyBg:       "#10b98122", // soft green wash
   buyBgHover:  "#10b98144",
   sellBg:      "#ef444422",
   sellBgHover: "#ef444444",
 
   // Selected row tint (very subtle — no glow)
-  selectedTint:  "#1a1f27",
-  hoverTint:     "#161b22",
+  selectedTint:  "#1c2026",
+  hoverTint:     "#181a1d",
 });
 
 // --------------------------------------------------

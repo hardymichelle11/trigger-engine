@@ -61,14 +61,10 @@ group("cockpitTheme — palette tokens");
   ]) {
     assert(`COCKPIT_PALETTE.${token} declared`, new RegExp(`\\b${token}\\b`).test(src));
   }
-  // Phase 4.7.6 refreshed the palette to softer Fidelity charcoals.
-  // Old hex values (e.g. #050607, #151719, #2b2f34) were retired.
-  // New surface tokens (#0c0f14, #12161c, #1c232b) replace them.
+  // Specific spec colors must be present
   for (const literal of [
-    "#0c0f14",  // pageBg / consoleBg / workspaceBg
-    "#12161c",  // panelBg / stripBg
-    "#1c232b",  // border
-    "#9ca3af", "#f3f4f6",
+    "#050607", "#0b0d10", "#151719", "#202225",
+    "#303236", "#2b2f34", "#9ca3af", "#f3f4f6",
     "#22c55e", "#f59e0b", "#ef4444", "#14b8a6",
   ]) {
     assert(`COCKPIT_PALETTE contains literal ${literal}`, src.includes(literal));
@@ -108,12 +104,9 @@ group("LethalBoardCockpit — strict 100vw / overflow hidden");
   // No horizontal overflow should be possible — every grid item gets minWidth: 0.
   // The page sets it on minmax(0, 1fr) for the second col; main / lower-workspace /
   // top-picks-grid each declare minWidth: 0 inline. Spot-check those.
-  // Phase 4.7.6 simplified the lower workspace (removed the lower-left
-  // sub-grid, alerts moved into operator console debug). One minWidth: 0
-  // call site went away; ≥ 3 is the new floor.
   const minWidthHits = (src.match(/minWidth:\s*0/g) || []).length;
-  assert(`cockpit declares minWidth: 0 in multiple grid items (≥ 3)`,
-    minWidthHits >= 3, `got ${minWidthHits}`);
+  assert(`cockpit declares minWidth: 0 in multiple grid items (≥ 4)`,
+    minWidthHits >= 4, `got ${minWidthHits}`);
 }
 
 // =================================================================

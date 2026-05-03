@@ -153,12 +153,14 @@ group("TradingViewMiniChart — embed + fallbacks");
   assert("supports exchange prop",          /exchange/.test(stripped));
   assert("supports verified prop",          /\bverified\b/.test(stripped));
   assert("supports fallbackCandles prop",   /fallbackCandles/.test(stripped));
-  // Phase 4.7.6 removed the "chart unverified" badge AND the
-  // "Chart unavailable" placeholder text per spec ("no placeholder
-  // text EVER"). The chart degrades silently to either the sparkline
-  // (when candles are supplied) or a transparent block.
+  // Unverified badge
+  assert("renders 'chart unverified' badge",
+    /Chart unverified/i.test(stripped));
+  // Fallbacks
   assert("renders SparklineFallback", /SparklineFallback/.test(stripped));
   assert("renders ChartUnavailable",  /ChartUnavailable/.test(stripped));
+  assert("'Chart unavailable' clean copy",
+    /Chart unavailable/.test(stripped));
   // Doesn't throw + has timeout for failure detection
   assert("has a load-failure timeout",
     /setTimeout/.test(stripped));
@@ -184,13 +186,16 @@ group("OpportunityCard — chart + content");
       new RegExp(`${prop}=\\{candidate\\?\\.${prop === "verified" ? "hasLiveChart" : prop}\\}`).test(stripped)
         || new RegExp(`${prop}=\\{[^}]*${prop}`).test(stripped));
   }
-  // Phase 4.7.6 contract grid: Strike + Premium (large), DTE + Breakeven
-  // (small). "Break-even" lost its hyphen → "Breakeven". PhaseBadge
-  // retired entirely (per spec "remove extra tags / repeated category").
-  for (const label of ["Strike", "DTE", "Premium", "Breakeven"]) {
+  // Card content fields. Phase 4.7.5.2 trimmed the contract grid to four
+  // essentials (Strike / DTE / Premium / Break-even) so the chart has
+  // room to render at 36% viewport. Collateral, Premium-src, and the
+  // signal/liq/spread tags are now detail-panel-only.
+  for (const label of ["Strike", "DTE", "Premium", "Break-even"]) {
     assert(`card surfaces "${label}"`,
       new RegExp(`label=["']${label}["']`).test(stripped));
   }
+  // Phase badge
+  assert("renders PhaseBadge", /PhaseBadge/.test(stripped));
   // "Option chain not verified" honest fallback
   assert("'Option chain not verified' honest fallback line",
     /Option chain not verified/.test(stripped));

@@ -35,6 +35,7 @@ import TopPicksGrid from "./cockpit/TopPicksGrid.jsx";
 import RankedCandidatesPanel from "./cockpit/RankedCandidatesPanel.jsx";
 import OpportunityDetailPanel from "./cockpit/OpportunityDetailPanel.jsx";
 import MarketIntelligencePanel from "./cockpit/MarketIntelligencePanel.jsx";
+import AlertsPanel from "./cockpit/AlertsPanel.jsx";
 
 /**
  * @param {object} props
@@ -104,17 +105,18 @@ export default function LethalBoardCockpit(props) {
         capitalCtx={props.capitalCtx}
         onEditCapital={props.onEditCapital}
         onToggleHideBalances={props.onToggleHideBalances}
-        onCapitalPatch={props.onCapitalPatch}
       />
 
       <main
         className="main-workspace"
         style={{
           display: "grid",
-          // Phase 4.7.6: 4 rows now — command bar / top picks / market
-          // intelligence ribbon / lower workspace. Top picks gets a
-          // 320px floor; lower workspace is 1fr.
-          gridTemplateRows: "auto minmax(320px, 36%) auto 1fr",
+          // Phase 4.7.5.3: top picks row gets a 360px floor so cards always
+          // have room for chart (≥130) + header + action + 4-field contract
+          // + insight without clipping. On tall viewports, 36% > 360, so
+          // behavior unchanged. On shorter viewports, the floor wins and
+          // the lower workspace shrinks (its panels have internal scroll).
+          gridTemplateRows: "auto minmax(360px, 36%) 1fr",
           gap: 16,
           padding: 16,
           overflow: "hidden",
@@ -149,44 +151,57 @@ export default function LethalBoardCockpit(props) {
           )}
         </section>
 
-        {/* 3. MARKET INTELLIGENCE — horizontal ribbon strip
-              between top picks and lower workspace */}
-        <MarketIntelligencePanel items={null} title="Market intelligence" />
-
-        {/* 4. LOWER WORKSPACE — 65/35 split, fills remaining height.
-              LEFT: ranked candidates (full height, scrollable).
-              RIGHT: opportunity detail panel (fixed). */}
+        {/* 3. LOWER WORKSPACE — 60/40 split, fills remaining height */}
         <section
           className="lower-workspace"
           style={{
             display: "grid",
-            gridTemplateColumns: "65% 35%",
+            gridTemplateColumns: "60% 40%",
             gap: 16,
             minWidth: 0,
             minHeight: 0,
             overflow: "hidden",
           }}
           aria-label="Lower workspace">
-          {vm ? (
-            <RankedCandidatesPanel
-              rows={rows}
-              skipFirstN={3}
-              selectedSymbol={selectedRow?.symbol || null}
-              onSelectSymbol={props.onSelectSymbol}
-              tradeContextBySymbol={props.tradeContextBySymbol || {}} />
-          ) : (
-            <div style={{
-              border: `1px solid ${COCKPIT_PALETTE.border}`,
-              borderRadius: 12,
-              background: COCKPIT_PALETTE.panelBg,
-              padding: 16,
-              fontSize: 13, color: COCKPIT_PALETTE.textFaint,
-              display: "flex", alignItems: "center", justifyContent: "center",
+          {/* LEFT 60% — ranked + intel + alerts, vertically split */}
+          <div
+            className="lower-left"
+            style={{
+              display: "grid",
+              // Phase 4.7.5.3: was `1fr 240px 200px` with minmax(0,...) so
+              // panels could collapse to 0. Switched to `1fr auto auto` —
+              // Intel and Alerts always render their natural height; the
+              // ranked-candidates panel (1fr) absorbs all the slack and
+              // scrolls internally.
+              gridTemplateRows: "minmax(0, 1fr) auto auto",
+              gap: 16,
+              minWidth: 0,
+              minHeight: 0,
+              overflow: "hidden",
             }}>
-              Waiting for scan…
-            </div>
-          )}
+            {vm ? (
+              <>
+                <RankedCandidatesPanel
+                  rows={rows}
+                  skipFirstN={3}
+                  selectedSymbol={selectedRow?.symbol || null}
+                  onSelectSymbol={props.onSelectSymbol}
+                  tradeContextBySymbol={props.tradeContextBySymbol || {}} />
+                <MarketIntelligencePanel items={null} title="Market intelligence" />
+                <AlertsPanel
+                  alerts={props.recordedAlerts}
+                  alertEventLabel={props.labels?.alertEventLabel}
+                  hideBalances={!!props.capitalCtx?.hideBalances} />
+              </>
+            ) : (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 text-sm text-zinc-500 flex items-center justify-center"
+                   style={{ padding: 16 }}>
+                Waiting for scan…
+              </div>
+            )}
+          </div>
 
+          {/* RIGHT 40% — opportunity detail panel */}
           <OpportunityDetailPanel
             row={selectedRow}
             tradeContext={selectedTradeContext}
