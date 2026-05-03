@@ -58,6 +58,7 @@ import AlertsPanel from "./cockpit/AlertsPanel.jsx";
  * @param {object} props.capitalCtx                    CapitalContext (private to user)
  * @param {() => void} props.onEditCapital
  * @param {() => void} props.onToggleHideBalances
+ * @param {(patch: object) => void} [props.onSaveCapital]   inline capital edits from the operator console
  * @param {object} [props.cockpitActions]              from useCockpitActions(): isWatching, isCandidate, getAlert, toggleWatch, toggleCandidate, setAlert, clearAlert
  */
 export default function LethalBoardCockpit(props) {
@@ -105,6 +106,7 @@ export default function LethalBoardCockpit(props) {
         capitalCtx={props.capitalCtx}
         onEditCapital={props.onEditCapital}
         onToggleHideBalances={props.onToggleHideBalances}
+        onSaveCapital={props.onSaveCapital}
       />
 
       <main

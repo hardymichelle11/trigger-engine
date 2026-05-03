@@ -36,6 +36,10 @@ import { COCKPIT_PALETTE } from "./cockpitTheme.js";
  * @param {boolean} [props.selected]
  * @param {(symbol: string) => void} [props.onSelect]
  * @param {number} [props.chartHeight]
+ * @param {string} [props.insight]          comparative insight string from
+ *                                          buildComparativeInsight(); falls
+ *                                          back to row.reasonSummary when not
+ *                                          supplied.
  */
 export default function OpportunityCard({
   row,
@@ -48,6 +52,7 @@ export default function OpportunityCard({
   // fills the remaining flex space inside the card (Phase 4.7.5.1 — fixes
   // the "card content clipped on small viewports" regression).
   chartHeight = null,
+  insight = null,
 }) {
   const isBest = !!row.isBestUseOfCapital;
   const fitTone = fitToneClass(row.capitalFitCode);
@@ -65,16 +70,19 @@ export default function OpportunityCard({
   const collateral = numericOrNull(tc.estimatedCollateral);
   const breakeven = (strike != null && premium != null) ? (strike - premium) : null;
   const currentPrice = numericOrNull(tc.currentPrice);
+  const previousClose = numericOrNull(candidate?.previousClose);
 
   // Honest "Option chain not verified" — preferred over repeating
   // "premium unavailable" in three different cells.
   const chainVerified = strike != null || premium != null
                      || tc.bid != null || tc.ask != null;
 
+  // Card padding moved to per-zone padding so the chart bleeds edge-to-edge
+  // (no frame around the chart area). The card's own outer border + 12px
+  // borderRadius + overflow: hidden still give the rounded outline; the
+  // chart simply fills its zone with no inner padding.
   const cardStyle = {
-    // Phase 4.7.5.3: padding 16 → 14 to claw back vertical space for the
-    // chart on shorter viewports.
-    padding: 14,
+    padding: 0,
     background: selected ? COCKPIT_PALETTE.selectedTint : COCKPIT_PALETTE.panelBg,
     border: `1px solid ${COCKPIT_PALETTE.border}`,
     borderLeft: selected
@@ -82,6 +90,7 @@ export default function OpportunityCard({
       : `1px solid ${COCKPIT_PALETTE.border}`,
     borderRadius: 12,
     minWidth: 0,
+    overflow: "hidden",
   };
 
   return (
@@ -93,17 +102,13 @@ export default function OpportunityCard({
       className="cursor-pointer transition-colors flex flex-col h-full overflow-hidden"
       style={cardStyle}>
 
-      {/* CHART — TradingView mini, with sparkline / "Chart unavailable" fallback.
-          Wrapped in a flex-grow box so the chart fills whatever vertical space
-          remains after the text content below — prevents bottom-clipping when
-          the parent grid row is short. */}
+      {/* CHART — full-bleed, edge-to-edge.
+          No padding around the chart frame; floating overlays sit on top.
+          Card's outer borderRadius + overflow:hidden clip the chart corners. */}
       <div style={{
+        position: "relative",
         flex: chartHeight == null ? "1 1 auto" : "0 0 auto",
-        // Phase 4.7.5.2: bumped from 110 to 140 so TradingView's mini
-        // widget has enough vertical resolution to render the price
-        // line meaningfully (110px squashed it into the time-axis row).
         minHeight: 140,
-        marginBottom: 12,
         minWidth: 0,
         overflow: "hidden",
       }}>
@@ -113,44 +118,98 @@ export default function OpportunityCard({
           tradingViewSymbol={candidate?.tradingViewSymbol}
           verified={candidate?.hasLiveChart}
           height={chartHeight == null ? "100%" : chartHeight} />
-      </div>
 
-      {/* HEADER ROW — slot/best · ticker (teal, large) · current price · score */}
-      <div className="mt-3 flex items-start justify-between gap-3 min-w-0">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2 min-w-0" style={truncate}>
-            <span style={{ fontSize: 10, color: COCKPIT_PALETTE.textFaint, letterSpacing: "0.18em" }}>
-              {slotLabel}
-            </span>
-            {isBest && (
-              <span style={{ fontSize: 10, color: COCKPIT_PALETTE.accentTeal, fontWeight: 700 }}>
-                ★ BEST USE
-              </span>
-            )}
-            <span style={{ fontSize: 9, color: COCKPIT_PALETTE.textFaint, marginLeft: "auto" }}>
-              rank #{row.rank}
-            </span>
-          </div>
-          <div className="font-bold truncate"
-               style={{ fontSize: 18, color: COCKPIT_PALETTE.accentTeal,
-                        letterSpacing: "0.02em", marginTop: 2 }}>
-            {row.symbol}
-          </div>
-          <div style={{
-            fontSize: 11, color: COCKPIT_PALETTE.textDim, marginTop: 2,
+        {/* Subtle bottom gradient — improves overlay readability without
+            making the chart feel "boxed". Top stays clean. */}
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.55) 100%)",
+          pointerEvents: "none",
+        }} />
+
+        {/* SLOT only — top-left, floating.
+            The ★ BEST USE marker moved to the action row below: it used
+            to sit here next to the slot number, but TradingView renders
+            the company name across the top of its widget and the two
+            collided. Slot number alone is narrow enough to avoid TV. */}
+        <div style={{
+          position: "absolute", top: 8, left: 12,
+          fontSize: 10, color: COCKPIT_PALETTE.textFaint,
+          letterSpacing: "0.18em", textTransform: "uppercase",
+          textShadow: "0 1px 3px rgba(0,0,0,0.7)",
+          pointerEvents: "none",
+        }}>
+          {slotLabel}
+        </div>
+
+        {/* Score moved off the chart — it now lives in the action row below
+            so it sits with the engine's other assessments (action / phase /
+            fit) instead of competing with TradingView's own chrome. */}
+
+        {/* TICKER — right-center, floating (avoids TradingView's title bar) */}
+        <div style={{
+          position: "absolute",
+          top: "50%", right: 12,
+          transform: "translateY(-50%)",
+          fontSize: 22, fontWeight: 700, color: COCKPIT_PALETTE.accentTeal,
+          letterSpacing: "0.02em",
+          textShadow: "0 2px 6px rgba(0,0,0,0.75)",
+          pointerEvents: "none",
+          ...truncate,
+          maxWidth: "55%",
+          textAlign: "right",
+        }}>
+          {row.symbol}
+        </div>
+
+        {/* PRICE + %CHANGE — bottom-left, floating */}
+        <div style={{
+          position: "absolute", bottom: 8, left: 12,
+          display: "flex", alignItems: "baseline", gap: 6,
+          pointerEvents: "none",
+          textShadow: "0 2px 6px rgba(0,0,0,0.85)",
+          ...truncate,
+          maxWidth: "85%",
+        }}>
+          <span style={{
+            fontSize: 18, fontWeight: 700, color: COCKPIT_PALETTE.text,
             fontFeatureSettings: "'tnum'",
           }}>
             {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
-          </div>
+          </span>
+          {currentPrice != null && previousClose != null && previousClose !== 0 && (() => {
+            const pct = ((currentPrice - previousClose) / previousClose) * 100;
+            return (
+              <span style={{
+                fontSize: 12,
+                color: pct >= 0 ? COCKPIT_PALETTE.accentGreen : COCKPIT_PALETTE.accentRed,
+                fontFeatureSettings: "'tnum'",
+              }}>
+                {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+              </span>
+            );
+          })()}
         </div>
-        <ScoreRing score={row.score} size={40} stroke={4} tone={isBest ? "good" : undefined} />
+
+        {/* Rank text removed — the SLOT label at top-left already shows
+            the same #N for top picks, and the ScoreRing now occupies
+            bottom-right. Keeping it would crowd the chart corner. */}
       </div>
 
-      {/* ACTION + PHASE + FIT row */}
-      <div className="mt-3 flex items-center gap-2 flex-wrap min-w-0">
+      {/* ACTION + PHASE + FIT + SCORE row — sits below the full-bleed chart.
+          BEST USE badge leads when applicable. Score is right-aligned so the
+          engine's assessments cluster reads left-to-right: best · action ·
+          phase · capital fit · final score. */}
+      <div className="flex items-center gap-2 flex-wrap min-w-0"
+           style={{ padding: "10px 14px 0" }}>
+        {isBest && <BestUseBadge />}
         <ActionPill action={row.action} actionCode={row.actionCode} />
         <PhaseBadge primaryType={row.primaryType} />
         <span className={`text-[11px] truncate ${fitTone}`}>fit {row.capitalFit}</span>
+        <div style={{ marginLeft: "auto", flex: "0 0 auto" }}>
+          <ScoreRing score={row.score} size={32} stroke={3}
+                     tone={isBest ? "good" : undefined} />
+        </div>
       </div>
 
       {/* CONTRACT BLOCK — 4 essential fields only.
@@ -159,30 +218,46 @@ export default function OpportunityCard({
           narrow vertical space. The card focuses on the at-a-glance
           decision: strike, DTE, premium, break-even. */}
       {chainVerified ? (
-        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 min-w-0"
-             style={{ fontSize: 11 }}>
-          <Field label="Strike" value={strike != null ? `$${strike.toFixed(2)}` : "—"} />
-          <Field label="DTE"    value={dte != null ? `${dte}d` : "—"} />
-          <Field label="Premium"
-                 value={premium != null ? `$${premium.toFixed(2)}` : "—"}
-                 tone={row.premiumIsLive ? "green" : "amber"} />
-          <Field label="Break-even"
+        // Layout:
+        //   [ STRIKE      PREMIUM ]   ← Premium is the primary decision number
+        //   [ DTE         BREAKEVEN ] ← muted secondary fields
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 min-w-0"
+             style={{ padding: "10px 14px 0" }}>
+          <Field label="Strike" size="md" tone="default"
+                 value={strike != null ? `$${strike.toFixed(2)}` : "—"} />
+          <Field label="Premium" size="lg"
+                 tone={premium == null
+                   ? "muted"
+                   : (row.premiumIsLive ? "teal" : "amber")}
+                 value={premium != null ? `$${premium.toFixed(2)}` : "—"} />
+          <Field label="DTE" size="sm" tone="muted"
+                 value={dte != null ? `${dte}d` : "—"} />
+          <Field label="Break-even" size="sm" tone="muted"
                  value={breakeven != null ? `$${breakeven.toFixed(2)}` : "—"} />
         </div>
       ) : (
-        <div className="mt-3 text-[11px]"
-             style={{ color: COCKPIT_PALETTE.textFaint, fontStyle: "italic" }}>
+        <div className="text-[11px]"
+             style={{ color: COCKPIT_PALETTE.textFaint, fontStyle: "italic",
+                      padding: "10px 14px 0" }}>
           Option chain not verified
         </div>
       )}
 
-      {/* INSIGHT — single line */}
-      {row.reasonSummary && (
-        <p className="mt-2 text-[11px] leading-snug min-w-0"
-           style={{ color: COCKPIT_PALETTE.textDim, ...truncate }}>
-          {row.reasonSummary}
-        </p>
-      )}
+      {/* INSIGHT — single comparative line.
+          Prefers the engine's comparative insight (peer-aware reasoning) over
+          the raw reasonSummary. Falls back to reasonSummary when no peer
+          comparison can be derived. */}
+      {(() => {
+        const line = (insight && insight.length > 0) ? insight : row.reasonSummary;
+        if (!line) return null;
+        return (
+          <p className="text-[11px] leading-snug min-w-0"
+             style={{ color: COCKPIT_PALETTE.textDim, padding: "8px 14px 12px",
+                      ...truncate }}>
+            {line}
+          </p>
+        );
+      })()}
     </article>
   );
 }
@@ -191,11 +266,20 @@ export default function OpportunityCard({
 // LITTLE PRIMITIVES
 // --------------------------------------------------
 
-function Field({ label, value, tone = "default" }) {
-  const fg = tone === "green" ? COCKPIT_PALETTE.accentGreen
-           : tone === "amber" ? COCKPIT_PALETTE.accentAmber
-           : tone === "bad"   ? COCKPIT_PALETTE.accentRed
-           :                    COCKPIT_PALETTE.text;
+function Field({ label, value, tone = "default", size = "md" }) {
+  const fg = tone === "teal"   ? COCKPIT_PALETTE.accentTeal
+           : tone === "green"  ? COCKPIT_PALETTE.accentGreen
+           : tone === "amber"  ? COCKPIT_PALETTE.accentAmber
+           : tone === "bad"    ? COCKPIT_PALETTE.accentRed
+           : tone === "muted"  ? COCKPIT_PALETTE.textDim
+           :                     COCKPIT_PALETTE.text;
+  // Size scale: lg (Premium — primary) > md (Strike — secondary) > sm (DTE/Breakeven)
+  const valueFontSize = size === "lg" ? 22
+                      : size === "md" ? 16
+                      :                 12;
+  const valueWeight   = size === "lg" ? 800
+                      : size === "md" ? 700
+                      :                 600;
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{
@@ -203,10 +287,27 @@ function Field({ label, value, tone = "default" }) {
         color: COCKPIT_PALETTE.textFaint,
       }}>{label}</div>
       <div style={{
-        fontSize: 12, fontWeight: 600, color: fg,
+        fontSize: valueFontSize, fontWeight: valueWeight, color: fg,
+        lineHeight: 1.15,
         fontFeatureSettings: "'tnum'", ...truncate,
       }}>{value}</div>
     </div>
+  );
+}
+
+function BestUseBadge() {
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 800, letterSpacing: "0.10em", textTransform: "uppercase",
+      padding: "2px 6px",
+      background: "rgba(20, 184, 166, 0.18)",
+      border: `1px solid ${COCKPIT_PALETTE.accentTeal}`,
+      borderRadius: 4,
+      color: COCKPIT_PALETTE.accentTeal,
+      whiteSpace: "nowrap",
+    }}>
+      ★ Best use
+    </span>
   );
 }
 

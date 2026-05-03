@@ -16,6 +16,7 @@
 
 import React from "react";
 import OpportunityCard from "./OpportunityCard.jsx";
+import { buildComparativeInsight } from "./cockpitInsight.js";
 
 /**
  * @param {object} props
@@ -57,6 +58,7 @@ export default function TopPicksGrid({
           tradeContext={tradeContextBySymbol[r.symbol] || null}
           selected={r.symbol === selectedSymbol}
           onSelect={onSelectSymbol}
+          insight={buildComparativeInsight(r, rows, tradeContextBySymbol)}
         />
       ))}
     </div>

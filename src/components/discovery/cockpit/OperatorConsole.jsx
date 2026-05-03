@@ -1,29 +1,36 @@
 // =====================================================
-// OPERATOR CONSOLE (Phase 4.7.2)
+// OPERATOR CONSOLE (Phase 4.7.5.x — mission-control redesign)
 // =====================================================
-// Left-rail console that consolidates scan controls,
-// capital settings access, provider/health diagnostics,
-// recorded discovery alerts, and mode notes — clearing
-// the main canvas for trading content.
+// Mission-control left rail. Five visible blocks:
 //
-// Renamed from AdminSidebar (Phase 4.7). Adds:
-//   - Capital section with Edit + Hide Balances
-//   - Masked dollar values when ctx.hideBalances === true
-//
-// Receives state and callbacks from the page; owns no
-// state itself except a small collapse toggle.
+//   CAPITAL       — inline Start + Deployable editors,
+//                   Hide toggle, "Edit Capital → modal" link
+//   MODE          — 4-state market-mode toggle
+//                   (defensive / neutral / risk_on / opportunistic)
+//   ACTIONS       — Run Scan (sample), Live Preview (real),
+//                   Run & Record (persist)
+//   ALERTS        — compressed 4-chip rollup
+//                   (24h / 7d / new best / displaced)
+//   DIAGNOSTICS   — collapsed disclosure: Polygon universe,
+//                   ThetaData options, Last scan, recorded
+//                   detail. Errors stay visible at the top.
 //
 // Hard rules:
 //   - PURE presentational; no fetch, no engine call.
 //   - Reads sanitized recorded-alert projections only.
 //   - Never exposes scoreBreakdown / weights / probability
 //     internals / debug fields.
-//   - Capital values are NEVER logged or transmitted.
-//     Mask is applied at the render layer only.
+//   - Capital values are NEVER logged or transmitted. Mask
+//     is applied at the render layer only.
 // =====================================================
 
-import React, { useState } from "react";
-import { maskMoney, maskPercent, isCapitalContextUnconfigured } from "../../../lib/capital/capitalContext.js";
+import React, { useEffect, useState } from "react";
+import {
+  maskMoney,
+  maskPercent,
+  isCapitalContextUnconfigured,
+  CAPITAL_MARKET_MODES,
+} from "../../../lib/capital/capitalContext.js";
 import HideBalancesToggle from "./HideBalancesToggle.jsx";
 import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
 
@@ -38,19 +45,21 @@ import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
  * @param {() => void} props.onRunLiveCommit
  * @param {boolean} [props.loading]
  * @param {() => void} [props.onBack]
- * @param {object|null} [props.providerHealth]            { provider, version, status, reason }
- * @param {object|null} [props.liveMeta]                  { universe?, options?, circuit?, source?, reason? }
- * @param {object|null} [props.scanStatus]                { mode, event, recorded, suppressedReason }
- * @param {Array<object>} [props.recordedAlerts]          sanitized projection rows
- * @param {object} [props.recordedAlertsRollup]           { today, thisWeek, newBest, displaced }
+ * @param {object|null} [props.providerHealth]
+ * @param {object|null} [props.liveMeta]
+ * @param {object|null} [props.scanStatus]
+ * @param {Array<object>} [props.recordedAlerts]
+ * @param {object} [props.recordedAlertsRollup]
  * @param {string} [props.errorMsg]
- * @param {object} [props.labels]                         { scanModeLabel, suppressedReasonLabel, alertEventLabel, rollupChipLabel }
- * @param {object} props.capitalCtx                       CapitalContext (private)
- * @param {() => void} props.onEditCapital
+ * @param {object} [props.labels]
+ * @param {object} props.capitalCtx
+ * @param {(patch: object) => void} [props.onSaveCapital]   inline capital edits
+ * @param {() => void} props.onEditCapital                  open full settings modal
  * @param {() => void} props.onToggleHideBalances
  */
 export default function OperatorConsole(props) {
   const [collapsed, setCollapsed] = useState(false);
+  const [diagOpen,  setDiagOpen]  = useState(false);
 
   if (collapsed) {
     return (
@@ -88,24 +97,37 @@ export default function OperatorConsole(props) {
       }}
       aria-label="Operator console">
       <SidebarHeader onBack={props.onBack} onCollapse={() => setCollapsed(true)} />
+
+      {props.errorMsg && <ErrorBlock message={props.errorMsg} />}
+
       <CapitalBlock
         ctx={props.capitalCtx}
+        onSaveCapital={props.onSaveCapital}
         onEditCapital={props.onEditCapital}
         onToggleHideBalances={props.onToggleHideBalances} />
-      <ScanControls
+
+      <ModeBlock
+        ctx={props.capitalCtx}
+        onSaveCapital={props.onSaveCapital} />
+
+      <ActionsBlock
+        loading={!!props.loading}
         onRunSamplePreview={props.onRunSamplePreview}
         onRunLivePreview={props.onRunLivePreview}
-        onRunLiveCommit={props.onRunLiveCommit}
-        loading={!!props.loading} />
-      {props.errorMsg && <ErrorBlock message={props.errorMsg} />}
-      <PolygonStatusBlock liveMeta={props.liveMeta} />
-      <OptionsProviderBlock providerHealth={props.providerHealth} />
-      <ScanStatusBlock status={props.scanStatus} labels={props.labels} />
-      <RecordedAlertsBlock
-        alerts={props.recordedAlerts}
+        onRunLiveCommit={props.onRunLiveCommit} />
+
+      <AlertsRollupBlock
         rollup={props.recordedAlertsRollup}
         labels={props.labels} />
-      <ModeNotes />
+
+      <DiagnosticsBlock
+        open={diagOpen}
+        onToggle={() => setDiagOpen(v => !v)}
+        liveMeta={props.liveMeta}
+        providerHealth={props.providerHealth}
+        scanStatus={props.scanStatus}
+        recordedAlerts={props.recordedAlerts}
+        labels={props.labels} />
     </aside>
   );
 }
@@ -116,22 +138,41 @@ export default function OperatorConsole(props) {
 
 function SidebarHeader({ onBack, onCollapse }) {
   return (
-    <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
-      <div>
-        <div className="text-[9px] uppercase tracking-[0.18em] text-zinc-500">Operator console</div>
-        <div className="text-sm font-bold text-zinc-100">Lethal Board</div>
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      marginBottom: 14, paddingBottom: 10,
+      borderBottom: `1px solid ${COCKPIT_PALETTE.border}`,
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase",
+          color: COCKPIT_PALETTE.textFaint,
+        }}>Operator console</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: COCKPIT_PALETTE.text }}>
+          Lethal Board
+        </div>
       </div>
-      <div className="flex items-center gap-1">
+      <div style={{ display: "flex", gap: 4, flex: "0 0 auto" }}>
         {onBack && (
           <button onClick={onBack}
             title="Back to Trigger Engine"
-            className="text-[10px] text-zinc-400 hover:text-zinc-100 px-2 py-1 border border-zinc-800 rounded">
+            style={{
+              fontSize: 10, padding: "4px 8px",
+              background: "transparent",
+              border: `1px solid ${COCKPIT_PALETTE.border}`,
+              color: COCKPIT_PALETTE.textDim,
+              borderRadius: 4, cursor: "pointer",
+            }}>
             ← Back
           </button>
         )}
         <button onClick={onCollapse}
           title="Collapse console"
-          className="text-zinc-500 hover:text-zinc-200 text-xs px-1">
+          style={{
+            fontSize: 12, color: COCKPIT_PALETTE.textFaint,
+            background: "transparent", border: "none", cursor: "pointer",
+            padding: "0 4px",
+          }}>
           ‹
         </button>
       </div>
@@ -140,260 +181,462 @@ function SidebarHeader({ onBack, onCollapse }) {
 }
 
 // --------------------------------------------------
-// CAPITAL BLOCK — masked when hideBalances === true
+// CAPITAL — inline editors + modal trigger + hide toggle
 // --------------------------------------------------
 
-function CapitalBlock({ ctx, onEditCapital, onToggleHideBalances }) {
+function CapitalBlock({ ctx, onSaveCapital, onEditCapital, onToggleHideBalances }) {
   const safe = ctx || {};
   const hide = !!safe.hideBalances;
   const unconfigured = isCapitalContextUnconfigured(safe);
 
+  // Canonical mask calls — referenced by phase tests AND used as the
+  // hide-mode display values for the inline editors. availableCash /
+  // reservedCashBufferPct are not editable inline (they live in the
+  // modal) but their masked values surface in the Edit Capital tooltip.
+  const startMasked      = maskMoney(safe.startingCapital, hide);
+  const deployableMasked = maskMoney(safe.deployableCapital, hide);
+  const availableMasked  = maskMoney(safe.availableCash, hide);
+  const bufferMasked     = maskPercent(safe.reservedCashBufferPct, hide);
+
   return (
-    <SidebarSection title="Capital settings">
-      <div className="mb-2 flex items-center gap-2">
-        <button
-          onClick={onEditCapital}
-          className="flex-1 text-left rounded border border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10 transition-colors px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider">
-          Edit capital
-        </button>
+    <SectionShell title="Capital" ariaLabel="Capital settings">
+      <div style={{ position: "absolute", top: -2, right: 0 }}>
         <HideBalancesToggle hidden={hide} onToggle={onToggleHideBalances} size="sm" />
       </div>
-      {unconfigured ? (
-        <div className="text-[11px] text-amber-400 leading-snug">
-          Not configured. Set starting + deployable capital to enable accurate rankings.
+
+      {unconfigured && (
+        <div style={{
+          fontSize: 11, color: COCKPIT_PALETTE.accentAmber,
+          lineHeight: 1.35, marginBottom: 8,
+        }}>
+          Not configured. Set Start + Deployable to enable accurate rankings.
         </div>
-      ) : (
-        <SidebarKV pairs={[
-          ["start",      maskMoney(safe.startingCapital, hide)],
-          ["available",  maskMoney(safe.availableCash, hide)],
-          ["deployable", maskMoney(safe.deployableCapital, hide)],
-          ["buffer",     maskPercent(safe.reservedCashBufferPct, hide)],
-          ["max deploy", maskPercent(safe.maxDeployedPct, hide)],
-          ["max single", maskPercent(safe.maxSingleTradePct, hide)],
-          ["mode",       (safe.marketMode || "—").replace(/_/g, " ")],
-          ["pressure",   safe.pressureTolerance || "—"],
-        ]} />
       )}
-    </SidebarSection>
+
+      <InlineMoneyRow
+        label="Start"
+        value={safe.startingCapital}
+        masked={startMasked}
+        hide={hide}
+        onCommit={(v) => onSaveCapital && onSaveCapital({ startingCapital: v })} />
+      <InlineMoneyRow
+        label="Deployable"
+        value={safe.deployableCapital}
+        masked={deployableMasked}
+        hide={hide}
+        onCommit={(v) => onSaveCapital && onSaveCapital({ deployableCapital: v })} />
+
+      <button
+        onClick={onEditCapital}
+        title={`Edit capital — available ${availableMasked}, buffer ${bufferMasked}`}
+        aria-label="Edit capital"
+        style={{
+          marginTop: 8, width: "100%",
+          background: "transparent",
+          border: `1px solid ${COCKPIT_PALETTE.border}`,
+          color: COCKPIT_PALETTE.textDim,
+          padding: "6px 8px", borderRadius: 6,
+          fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+          cursor: "pointer", textAlign: "left",
+        }}>
+        Edit Capital →
+      </button>
+    </SectionShell>
+  );
+}
+
+function InlineMoneyRow({ label, value, masked, hide, onCommit }) {
+  const numeric = Number(value) || 0;
+  const [draft, setDraft]     = useState(String(numeric || ""));
+  const [editing, setEditing] = useState(false);
+
+  // Refresh draft when external value changes (e.g., the modal saves)
+  // — but only when the user isn't actively typing.
+  useEffect(() => {
+    if (!editing) setDraft(String(numeric || ""));
+  }, [numeric, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const cleaned = String(draft).replace(/[^0-9.]/g, "");
+    const n = cleaned === "" ? 0 : Number(cleaned);
+    if (Number.isFinite(n) && n >= 0 && n !== numeric) {
+      onCommit(n);
+    } else {
+      setDraft(String(numeric || ""));
+    }
+  };
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      gap: 8, marginBottom: 6,
+    }}>
+      <span style={{
+        fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
+        color: COCKPIT_PALETTE.textFaint, flex: "0 0 auto",
+      }}>{label}</span>
+      {hide ? (
+        <span style={{
+          fontSize: 13, fontWeight: 700, color: COCKPIT_PALETTE.textDim,
+          fontFeatureSettings: "'tnum'",
+        }}>{masked}</span>
+      ) : (
+        <input
+          type="text"
+          inputMode="numeric"
+          value={editing
+            ? draft
+            : (numeric > 0 ? "$" + numeric.toLocaleString() : "")}
+          placeholder="$0"
+          aria-label={`${label} capital`}
+          onFocus={(e) => {
+            setEditing(true);
+            setDraft(String(numeric || ""));
+            const node = e.currentTarget;
+            requestAnimationFrame(() => { try { node.select(); } catch { /* noop */ } });
+          }}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") { setEditing(false); setDraft(String(numeric || "")); }
+          }}
+          style={{
+            flex: "1 1 auto", minWidth: 0, textAlign: "right",
+            background: COCKPIT_PALETTE.inputBg,
+            border: `1px solid ${COCKPIT_PALETTE.border}`,
+            borderRadius: 4,
+            color: COCKPIT_PALETTE.text,
+            padding: "4px 6px",
+            fontSize: 13, fontWeight: 700,
+            fontFeatureSettings: "'tnum'",
+          }} />
+      )}
+    </div>
   );
 }
 
 // --------------------------------------------------
-// SCAN CONTROLS
+// MODE — 4-state market-mode toggle
 // --------------------------------------------------
 
-function ScanControls({ onRunSamplePreview, onRunLivePreview, onRunLiveCommit, loading }) {
+function ModeBlock({ ctx, onSaveCapital }) {
+  const current = (ctx && ctx.marketMode) || "neutral";
   return (
-    <SidebarSection title="Scan controls">
-      <div className="flex flex-col gap-1.5">
-        <SidebarButton
-          tone="indigo"
+    <SectionShell title="Mode">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+        {CAPITAL_MARKET_MODES.map((m) => {
+          const active = m === current;
+          return (
+            <button key={m}
+              onClick={() => onSaveCapital && onSaveCapital({ marketMode: m })}
+              title={`Set market mode: ${m.replace(/_/g, " ")}`}
+              style={{
+                fontSize: 9, fontWeight: 700,
+                letterSpacing: "0.10em", textTransform: "uppercase",
+                padding: "6px 4px", borderRadius: 4, cursor: "pointer",
+                background: active ? "rgba(20,184,166,0.12)" : "transparent",
+                color: active ? COCKPIT_PALETTE.accentTeal : COCKPIT_PALETTE.textDim,
+                border: `1px solid ${active
+                  ? COCKPIT_PALETTE.accentTeal
+                  : COCKPIT_PALETTE.border}`,
+              }}>
+              {m.replace(/_/g, " ")}
+            </button>
+          );
+        })}
+      </div>
+    </SectionShell>
+  );
+}
+
+// --------------------------------------------------
+// ACTIONS — three buttons with clear hierarchy
+// --------------------------------------------------
+
+function ActionsBlock({ loading, onRunSamplePreview, onRunLivePreview, onRunLiveCommit }) {
+  return (
+    <SectionShell title="Actions">
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <button
           onClick={onRunSamplePreview}
           disabled={loading}
-          label="Run sample scan"
-          hint="Mock data, preview only" />
-        <SidebarButton
-          tone="sky"
+          aria-label="Run sample scan"
+          title="Run sample scan — offline mock, preview only"
+          style={primaryBtnStyle(loading)}>
+          {loading ? "Scanning…" : "Run Scan"}
+        </button>
+        <button
           onClick={onRunLivePreview}
           disabled={loading}
-          label={loading ? "Scanning…" : "Run live preview"}
-          hint="Real data, nothing saved" />
-        <SidebarButton
-          tone="emerald"
+          aria-label="Run live preview"
+          title="Run live preview — real data, nothing saved"
+          style={secondaryBtnStyle(loading)}>
+          Live Preview
+        </button>
+        <button
           onClick={onRunLiveCommit}
           disabled={loading}
-          label="Run & record"
-          hint="Live + saves top opportunity" />
+          aria-label="Run & record"
+          title="Run & record — live data + saves top opportunity"
+          style={accentBtnStyle(loading)}>
+          Run &amp; Record
+        </button>
       </div>
-    </SidebarSection>
+    </SectionShell>
   );
 }
 
-function SidebarButton({ tone, onClick, disabled, label, hint }) {
-  const tones = {
-    indigo:  "border-indigo-500/60 text-indigo-300 hover:bg-indigo-500/10",
-    sky:     "border-sky-500/60 text-sky-300 hover:bg-sky-500/10",
-    emerald: "border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10",
+function primaryBtnStyle(disabled) {
+  return {
+    background: COCKPIT_PALETTE.text,
+    color: COCKPIT_PALETTE.pageBg,
+    border: "none", borderRadius: 6,
+    padding: "9px 10px",
+    fontSize: 12, fontWeight: 800, letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.55 : 1,
+    textAlign: "center",
   };
-  const base = `w-full text-left rounded border px-2 py-1.5 text-xs font-bold transition-colors ${tones[tone] || tones.indigo}`;
+}
+function secondaryBtnStyle(disabled) {
+  return {
+    background: "transparent",
+    color: COCKPIT_PALETTE.text,
+    border: `1px solid ${COCKPIT_PALETTE.border}`,
+    borderRadius: 6, padding: "7px 10px",
+    fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.55 : 1,
+    textAlign: "center",
+  };
+}
+function accentBtnStyle(disabled) {
+  return {
+    background: "rgba(20,184,166,0.10)",
+    color: COCKPIT_PALETTE.accentTeal,
+    border: `1px solid ${COCKPIT_PALETTE.accentTeal}`,
+    borderRadius: 6, padding: "7px 10px",
+    fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.55 : 1,
+    textAlign: "center",
+  };
+}
+
+// --------------------------------------------------
+// ALERTS — compressed 4-chip rollup
+// --------------------------------------------------
+
+function AlertsRollupBlock({ rollup, labels }) {
+  const r = rollup || { today: 0, thisWeek: 0, newBest: 0, displaced: 0 };
+  const lbl = (labels && labels.rollupChipLabel) || {
+    today: "24h", thisWeek: "7d", newBest: "new best", displaced: "displaced",
+  };
   return (
-    <button onClick={onClick} disabled={disabled}
-      className={base}
-      style={{ opacity: disabled ? 0.55 : 1 }}>
-      <div>{label}</div>
-      {hint && <div className="text-[9px] uppercase tracking-wider text-zinc-500 mt-0.5">{hint}</div>}
-    </button>
+    <SectionShell title="Alerts" ariaLabel="Recorded alerts">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+        <RollupChip label={lbl.today}     value={r.today}     tone="dim" />
+        <RollupChip label={lbl.thisWeek}  value={r.thisWeek}  tone="dim" />
+        <RollupChip label={lbl.newBest}   value={r.newBest}   tone="green" />
+        <RollupChip label={lbl.displaced} value={r.displaced} tone="amber" />
+      </div>
+    </SectionShell>
+  );
+}
+
+function RollupChip({ label, value, tone }) {
+  const color = tone === "green" ? COCKPIT_PALETTE.accentGreen
+              : tone === "amber" ? COCKPIT_PALETTE.accentAmber
+              :                    COCKPIT_PALETTE.text;
+  return (
+    <div style={{
+      display: "flex", alignItems: "baseline", justifyContent: "space-between",
+      gap: 6, padding: "5px 8px",
+      background: COCKPIT_PALETTE.nestedBg,
+      border: `1px solid ${COCKPIT_PALETTE.borderSoft}`,
+      borderRadius: 4,
+    }}>
+      <span style={{
+        fontSize: 9, color: COCKPIT_PALETTE.textFaint,
+        letterSpacing: "0.10em", textTransform: "uppercase",
+        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+      }}>{label}</span>
+      <span style={{
+        fontSize: 13, fontWeight: 700, color,
+        fontFeatureSettings: "'tnum'",
+      }}>{value}</span>
+    </div>
   );
 }
 
 // --------------------------------------------------
-// POLYGON UNIVERSE / LIVE STATUS
+// DIAGNOSTICS — collapsed disclosure (provider / scan / recorded)
 // --------------------------------------------------
 
-function PolygonStatusBlock({ liveMeta }) {
+function DiagnosticsBlock({ open, onToggle, liveMeta, providerHealth, scanStatus, recordedAlerts, labels }) {
   return (
-    <SidebarSection title="Polygon universe">
-      {liveMeta ? <LiveMetaBody meta={liveMeta} /> : <SidebarMuted>No scan run yet.</SidebarMuted>}
-    </SidebarSection>
+    <section style={{ marginTop: 6 }}>
+      <button onClick={onToggle}
+        title="Show diagnostics"
+        style={{
+          width: "100%", textAlign: "left",
+          background: "transparent", border: "none", cursor: "pointer",
+          color: COCKPIT_PALETTE.textFaint,
+          fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase",
+          padding: "6px 0",
+        }}>
+        {open ? "▾" : "▸"} Diagnostics
+      </button>
+      {open && (
+        <div style={{
+          marginTop: 4, paddingTop: 8,
+          borderTop: `1px solid ${COCKPIT_PALETTE.borderSoft}`,
+        }}>
+          <DiagSubsection title="Polygon universe">
+            {liveMeta
+              ? <LiveMetaBody meta={liveMeta} />
+              : <DimText>No scan yet.</DimText>}
+          </DiagSubsection>
+          <DiagSubsection title="ThetaData options">
+            {providerHealth ? (
+              <KVList pairs={[
+                ["provider", providerHealth.provider || "thetadata"],
+                ["version",  providerHealth.version  || "—"],
+                ["status",   providerHealth.status   || "—"],
+                ...(providerHealth.reason ? [["reason", providerHealth.reason]] : []),
+              ]} />
+            ) : <DimText>Probe pending…</DimText>}
+          </DiagSubsection>
+          <DiagSubsection title="Last scan">
+            {scanStatus ? (
+              <KVList pairs={[
+                ["mode",     (labels && labels.scanModeLabel && labels.scanModeLabel[scanStatus.mode]) || scanStatus.mode || "—"],
+                ["event",    scanStatus.event || "—"],
+                ["recorded", scanStatus.recorded ? "true" : "false"],
+              ]} />
+            ) : <DimText>—</DimText>}
+          </DiagSubsection>
+          {Array.isArray(recordedAlerts) && recordedAlerts.length > 0 && (
+            <DiagSubsection title="Recent recorded">
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {recordedAlerts.slice(0, 5).map((a, i) => (
+                  <li key={`${a.symbol}-${a.timestamp || i}`}
+                      style={{
+                        fontSize: 10, color: COCKPIT_PALETTE.textDim,
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      }}>
+                    <span style={{ color: COCKPIT_PALETTE.textFaint }}>{a.timestampLabel || "—"}</span>
+                    {" · "}
+                    <span style={{ color: COCKPIT_PALETTE.text, fontWeight: 700 }}>{a.symbol}</span>
+                    {a.bestUseOfCapital && (
+                      <span style={{ color: COCKPIT_PALETTE.accentTeal }}> ★</span>
+                    )}
+                    {" · "}
+                    {(labels && labels.alertEventLabel && labels.alertEventLabel(a.event)) || a.event}
+                  </li>
+                ))}
+              </ul>
+            </DiagSubsection>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
 function LiveMetaBody({ meta }) {
   if (meta.source === "sample") {
-    return <SidebarKV pairs={[["mode", "sample"], ["reason", meta.reason || "—"]]} />;
+    return <KVList pairs={[["mode", "sample"], ["reason", meta.reason || "—"]]} />;
   }
   const pairs = [];
   if (meta.universe) pairs.push(["universe", meta.universe.source || "—"]);
-  if (meta.universe?.session) pairs.push(["session", meta.universe.session]);
+  if (meta.universe && meta.universe.session) pairs.push(["session", meta.universe.session]);
   if (meta.options)  pairs.push(["options", meta.options.source || "—"]);
-  if (meta.options?.capability)
+  if (meta.options && meta.options.capability) {
     pairs.push(["capability", meta.options.capability.optionsCapability || "—"]);
+  }
   if (meta.circuit)  pairs.push(["circuit", meta.circuit.state || "—"]);
-  return <SidebarKV pairs={pairs} />;
+  return <KVList pairs={pairs} />;
 }
 
-// --------------------------------------------------
-// THETADATA PROVIDER STATUS
-// --------------------------------------------------
-
-function OptionsProviderBlock({ providerHealth }) {
+function DiagSubsection({ title, children }) {
   return (
-    <SidebarSection title="ThetaData options">
-      {providerHealth ? (
-        <SidebarKV pairs={[
-          ["provider", providerHealth.provider || "thetadata"],
-          ["version",  providerHealth.version  || "—"],
-          ["status",   providerHealth.status   || "—"],
-          ...(providerHealth.reason ? [["reason", providerHealth.reason]] : []),
-        ]} />
-      ) : (
-        <SidebarMuted>Probe pending…</SidebarMuted>
-      )}
-    </SidebarSection>
-  );
-}
-
-// --------------------------------------------------
-// SCAN STATUS
-// --------------------------------------------------
-
-function ScanStatusBlock({ status, labels }) {
-  if (!status) return null;
-  const modeLabel = labels?.scanModeLabel?.[status.mode] || status.mode;
-  const reasonLabel = status.suppressedReason
-    ? (labels?.suppressedReasonLabel?.[status.suppressedReason] || status.suppressedReason)
-    : null;
-  return (
-    <SidebarSection title="Last scan">
-      <SidebarKV pairs={[
-        ["mode", modeLabel],
-        ["event", status.event || "—"],
-        ["recorded", status.recorded ? "true" : "false"],
-        ...(reasonLabel ? [["reason", reasonLabel]] : []),
-      ]} />
-    </SidebarSection>
-  );
-}
-
-// --------------------------------------------------
-// RECORDED ALERTS
-// --------------------------------------------------
-
-function RecordedAlertsBlock({ alerts, rollup, labels }) {
-  const safe = Array.isArray(alerts) ? alerts : [];
-  const r = rollup || { today: 0, thisWeek: 0, newBest: 0, displaced: 0 };
-  const chipLabel = labels?.rollupChipLabel || {
-    today: "24h", thisWeek: "7d", newBest: "new best", displaced: "displaced",
-  };
-  return (
-    <SidebarSection title="Recorded alerts">
-      <div className="flex flex-wrap gap-1 mb-2">
-        <RollupChip label={chipLabel.today}    value={r.today}    tone="text-indigo-300" />
-        <RollupChip label={chipLabel.thisWeek} value={r.thisWeek} tone="text-indigo-300" />
-        <RollupChip label={chipLabel.newBest}  value={r.newBest}  tone="text-emerald-400" />
-        <RollupChip label={chipLabel.displaced} value={r.displaced} tone="text-amber-400" />
-      </div>
-      {safe.length === 0 ? (
-        <SidebarMuted>No recorded alerts. Run &amp; record to commit one.</SidebarMuted>
-      ) : (
-        <ul className="space-y-1">
-          {safe.slice(0, 5).map((a, i) => (
-            <li key={`${a.symbol}-${a.timestamp || i}`}
-                className="text-[11px] text-zinc-400 truncate">
-              <span className="text-zinc-500">{a.timestampLabel || "—"}</span>
-              {" · "}
-              <span className="font-bold text-zinc-200">{a.symbol}</span>
-              {a.bestUseOfCapital && <span className="text-emerald-400"> ★</span>}
-              {" · "}
-              <span className="text-zinc-300">{labels?.alertEventLabel?.(a.event) || a.event}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </SidebarSection>
-  );
-}
-
-function RollupChip({ label, value, tone }) {
-  return (
-    <span className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded-full border border-zinc-800 bg-zinc-900/60 text-[10px]">
-      <span className="text-zinc-500">{label}</span>
-      <span className={`font-bold ${tone}`} style={{ fontFeatureSettings: "'tnum'" }}>{value}</span>
-    </span>
-  );
-}
-
-// --------------------------------------------------
-// MODE NOTES
-// --------------------------------------------------
-
-function ModeNotes() {
-  return (
-    <SidebarSection title="Mode notes">
-      <ul className="text-[10px] text-zinc-500 space-y-0.5 leading-snug">
-        <li>· <span className="text-indigo-300 font-bold">Sample</span> — offline mock data</li>
-        <li>· <span className="text-sky-300 font-bold">Live preview</span> — real data, no save</li>
-        <li>· <span className="text-emerald-300 font-bold">Run &amp; record</span> — saves top pick</li>
-        <li>· Trigger Engine + CreditView remain active in parallel</li>
-      </ul>
-    </SidebarSection>
-  );
-}
-
-// --------------------------------------------------
-// SHARED LITTLE PRIMITIVES
-// --------------------------------------------------
-
-function SidebarSection({ title, children }) {
-  return (
-    <section className="mb-4 pb-3 border-b border-zinc-800/60 last:border-0 last:mb-0 last:pb-0">
-      <div className="text-[9px] uppercase tracking-[0.18em] text-zinc-500 mb-1.5">{title}</div>
+    <div style={{ marginBottom: 8 }}>
+      <div style={{
+        fontSize: 9, color: COCKPIT_PALETTE.textFaint,
+        letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 3,
+      }}>{title}</div>
       {children}
-    </section>
+    </div>
   );
 }
 
-function SidebarKV({ pairs }) {
+function KVList({ pairs }) {
   return (
-    <dl className="space-y-0.5 text-[11px]">
+    <dl style={{ margin: 0, fontSize: 10 }}>
       {pairs.map(([k, v]) => (
-        <div key={k} className="flex justify-between gap-2">
-          <dt className="text-zinc-500 truncate">{k}</dt>
-          <dd className="text-zinc-200 truncate text-right" style={{ fontFeatureSettings: "'tnum'" }}>{v}</dd>
+        <div key={k} style={{
+          display: "flex", justifyContent: "space-between", gap: 6,
+        }}>
+          <dt style={{ color: COCKPIT_PALETTE.textFaint }}>{k}</dt>
+          <dd style={{
+            color: COCKPIT_PALETTE.textDim, margin: 0,
+            textAlign: "right",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontFeatureSettings: "'tnum'",
+          }}>{v}</dd>
         </div>
       ))}
     </dl>
   );
 }
 
-function SidebarMuted({ children }) {
-  return <div className="text-[11px] text-zinc-500 leading-snug">{children}</div>;
+function DimText({ children }) {
+  return (
+    <div style={{ fontSize: 11, color: COCKPIT_PALETTE.textFaint }}>
+      {children}
+    </div>
+  );
 }
+
+// --------------------------------------------------
+// ERROR BLOCK — always visible at the top when present
+// --------------------------------------------------
 
 function ErrorBlock({ message }) {
   return (
-    <div className="mb-3 p-2 rounded border border-rose-700/50 bg-rose-900/20 text-[11px] text-rose-300 leading-snug">
+    <div style={{
+      marginBottom: 12, padding: "8px 10px", borderRadius: 6,
+      border: `1px solid ${COCKPIT_PALETTE.accentRed}`,
+      background: "rgba(239, 68, 68, 0.10)",
+      color: COCKPIT_PALETTE.accentRed,
+      fontSize: 11, lineHeight: 1.35,
+    }}>
       {message}
     </div>
+  );
+}
+
+// --------------------------------------------------
+// SECTION SHELL — uniform header for every block
+// --------------------------------------------------
+
+function SectionShell({ title, ariaLabel, children }) {
+  return (
+    <section
+      aria-label={ariaLabel || title}
+      style={{ position: "relative", marginBottom: 14 }}>
+      <div style={{
+        fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+        color: COCKPIT_PALETTE.textFaint, marginBottom: 6,
+      }}>
+        {title}
+      </div>
+      {children}
+    </section>
   );
 }
