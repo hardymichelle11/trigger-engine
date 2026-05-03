@@ -339,8 +339,11 @@ group("TopPicksGrid: 3-column top picks with chart slot");
   // now reads the card source.
   const gridSrc = readFileSync(COCKPIT_FILES.topGrid, "utf8");
   const cardSrc = readFileSync("src/components/discovery/cockpit/OpportunityCard.jsx", "utf8");
-  assert("OpportunityCard renders a TradingViewChartPlaceholder",
-    /TradingViewChartPlaceholder/.test(cardSrc));
+  // Phase 4.7.5 swapped the placeholder for the real TradingViewMiniChart.
+  // Accept either: the spec's contract is "card has a chart slot."
+  assert("OpportunityCard renders a chart component (placeholder OR real mini chart)",
+    /TradingViewChartPlaceholder/.test(cardSrc)
+      || /TradingViewMiniChart/.test(cardSrc));
   assert("TopPicksGrid composes OpportunityCard",
     /OpportunityCard/.test(gridSrc));
   assert("default topN is 3", /topN\s*=\s*3/.test(gridSrc));

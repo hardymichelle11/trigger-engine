@@ -107,11 +107,17 @@ export default function OpportunityDetailPanel({
           <SectionRangeBars row={row} tradeContext={tradeContext} />
           <SectionC_CapitalImpact row={row} tradeContext={tradeContext}
             summary={summary} capitalCtx={capitalCtx} />
+          {/* Phase 4.7.5: probability + IV + chart-context fields */}
+          <SectionProbability row={row} tradeContext={tradeContext} />
           <SectionD_PracticalInsights row={row} summary={summary}
             tradeContext={tradeContext} providerHealth={providerHealth} />
           <SectionE_TechnicalContext tradeContext={tradeContext} />
           <SectionF_NewsInsight items={newsItems} />
           <SectionG_WhyHigh row={row} />
+          {/* Phase 4.7.5: trader-facing decision aids */}
+          <SectionWhatUpgrades row={row} tradeContext={tradeContext} />
+          <SectionWhatInvalidates row={row} tradeContext={tradeContext} />
+          <SectionExecutionPlan row={row} tradeContext={tradeContext} />
           <SectionH_Risks row={row} tradeContext={tradeContext} providerHealth={providerHealth} />
         </div>
       </div>
@@ -807,6 +813,180 @@ function buildPracticalInsights({ row, summary, tradeContext, providerHealth }) 
     });
   }
   return out;
+}
+
+// --------------------------------------------------
+// Probability / IV  (Phase 4.7.5)
+// --------------------------------------------------
+
+function SectionProbability({ row, tradeContext }) {
+  const tc = tradeContext || {};
+  // The discovery engine exposes a probability_status (validated|unverified)
+  // via row.signalQuality. Raw probabilities are intentionally NOT exposed
+  // to the cockpit (engine-internal). We surface qualitative status only.
+  const aboveLabel = row.signalQuality === "validated"
+    ? "Validated by engine"
+    : "Not validated yet";
+  const touchLabel = row.signalQuality === "validated"
+    ? "Validated by engine"
+    : "Not validated yet";
+  // IV percentile is provider-dependent. Surface as "—" when missing rather
+  // than fabricating. liquidityGrade is the closest verified-data proxy
+  // for chain quality.
+  const ivLabel = "—";
+  return (
+    <section>
+      <SectionHeader title="Probability · IV" />
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <KV label="Probability above strike" value={aboveLabel}
+            valueClass={row.signalQuality === "validated" ? "text-emerald-400" : "text-zinc-400"} />
+        <KV label="Touch probability" value={touchLabel}
+            valueClass={row.signalQuality === "validated" ? "text-emerald-400" : "text-zinc-400"} />
+        <KV label="IV percentile" value={ivLabel} />
+        <KV label="Liquidity grade" value={tc.liquidityGrade || "unknown"} />
+      </div>
+      {row.signalQuality !== "validated" && (
+        <div className="mt-2 text-[10px]" style={{ color: "#9ca3af", lineHeight: 1.5 }}>
+          Probabilities are not yet validated for this candidate. The engine
+          surfaces qualitative status only — raw probabilities stay internal.
+        </div>
+      )}
+    </section>
+  );
+}
+
+// --------------------------------------------------
+// What upgrades it / What invalidates it / Execution plan
+// (Phase 4.7.5 — derived from existing view-model + trade context)
+// --------------------------------------------------
+
+function SectionWhatUpgrades({ row, tradeContext }) {
+  const items = buildUpgrades(row, tradeContext);
+  return (
+    <section>
+      <SectionHeader title="What upgrades this" />
+      {items.length === 0 ? (
+        <div className="text-[11px] text-zinc-500">
+          Already at the engine's bar for this regime.
+        </div>
+      ) : (
+        <ul className="space-y-1.5 text-[12px]">
+          {items.map((line, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <ToneDot tone="good" />
+              <span className="text-zinc-200 leading-snug">{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function buildUpgrades(row, tc = {}) {
+  const out = [];
+  if (!row.premiumIsLive) out.push("Live ThetaData chain available for this symbol.");
+  if (row.regimeAlignment !== "aligned") out.push("Regime aligns with the setup type.");
+  if (tc?.spreadWidthLabel === "wide") out.push("Spread tightens during regular session.");
+  if (tc?.liquidityGrade === "unknown") out.push("Liquidity grade verified from chain data.");
+  if (row.signalQuality !== "validated") out.push("Probability validated against the existing engine.");
+  if (row.capitalFitCode === "poor" || row.capitalFitCode === "not_affordable") {
+    out.push("Capital fit improves (smaller strike or more deployable cash).");
+  }
+  return out;
+}
+
+function SectionWhatInvalidates({ row, tradeContext }) {
+  const items = buildInvalidators(row, tradeContext);
+  return (
+    <section>
+      <SectionHeader title="What invalidates this" />
+      {items.length === 0 ? (
+        <div className="text-[11px] text-zinc-500">
+          No specific invalidators surfaced — review risks before entry anyway.
+        </div>
+      ) : (
+        <ul className="space-y-1.5 text-[12px]">
+          {items.map((line, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <ToneDot tone="bad" />
+              <span className="text-zinc-200 leading-snug">{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function buildInvalidators(row, tc = {}) {
+  const out = [];
+  if (row.regimeAlignment === "mismatch") out.push("Regime turns hostile to this setup.");
+  if (row.capitalFitCode === "not_affordable") out.push("Capital remains insufficient for entry.");
+  if (tc?.spreadWidthLabel === "wide") out.push("Spread stays wide into regular session — execution risk.");
+  if (tc?.premiumSource === "unavailable") out.push("Option chain remains unavailable at entry time.");
+  if (tc?.resolvedExpirationMatched === "fallback") out.push("Resolver fallback expiration is the only option — chain too thin.");
+  if (row.displacedBy) out.push(`Displaced by ${row.displacedBy} — capital better used there.`);
+  return out;
+}
+
+function SectionExecutionPlan({ row, tradeContext }) {
+  const steps = buildExecutionSteps(row, tradeContext);
+  return (
+    <section>
+      <SectionHeader title="Execution plan" />
+      <ol className="space-y-1.5 text-[12px]" style={{ counterReset: "step", paddingLeft: 0 }}>
+        {steps.map((s, i) => (
+          <li key={i}
+              style={{
+                display: "grid", gridTemplateColumns: "20px 1fr",
+                alignItems: "start", gap: 8,
+              }}>
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: "#14b8a6",
+              fontFeatureSettings: "'tnum'",
+            }}>
+              {i + 1}.
+            </span>
+            <span style={{ color: "#e5e7eb", lineHeight: 1.5 }}>{s}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function buildExecutionSteps(row, tc = {}) {
+  const steps = [];
+  // Step 1 — confirmation
+  if (row.actionCode === "option_candidate") {
+    steps.push("Wait for Trigger Engine timing confirmation on this symbol.");
+  } else if (row.actionCode === "deep_scan") {
+    steps.push("Open the existing watch list and review historical setups for this symbol.");
+  } else if (row.actionCode === "watch") {
+    steps.push("Add to watch list and monitor for tighter setup.");
+  } else if (String(row.actionCode || "").startsWith("skip")) {
+    steps.push("Skip — does not meet the engine's bar in this regime.");
+  } else {
+    steps.push("Review Trigger Engine state for this symbol before considering entry.");
+  }
+  // Step 2 — broker verify (always)
+  steps.push("Verify the broker option chain matches the suggested strike, expiration, bid/ask.");
+  // Step 3 — sizing
+  if (row.capitalFitCode === "excellent" || row.capitalFitCode === "good") {
+    steps.push("Size within Capital Settings deployable cash; respect max-single-trade %.");
+  } else {
+    steps.push("Reconcile capital fit before sizing — adjust strike or skip.");
+  }
+  // Step 4 — limit price
+  if (tc?.spreadWidthLabel === "tight") {
+    steps.push("Submit at mid as a limit; expect a quick fill.");
+  } else {
+    steps.push("Submit at limit between bid and mid; do not chase a wide spread.");
+  }
+  // Step 5 — record
+  steps.push("Record the entry to alert history (Run & record) for outcome tracking.");
+  return steps;
 }
 
 // --------------------------------------------------
