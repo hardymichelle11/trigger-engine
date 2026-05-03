@@ -341,8 +341,10 @@ group("LethalBoardPage.jsx — owns lifted selection state");
   // Phase 4.2/4.3 wiring still intact
   assert("still imports recordAlert + loadAlertHistory",
     /\brecordAlert\b/.test(src) && /\bloadAlertHistory\b/.test(src));
-  assert("still renders RecordedAlertsPanel",
-    /<RecordedAlertsPanel/.test(src));
+  // Phase 4.7: surface relocated to AdminSidebar via the cockpit. Either
+  // shape preserves the recorded-alerts visibility contract.
+  assert("still surfaces recorded alerts (panel in page or cockpit prop)",
+    /<RecordedAlertsPanel/.test(src) || /recordedAlerts\s*=\s*\{?\s*recordedAlerts\s*\}?/.test(src));
 }
 
 // =================================================================

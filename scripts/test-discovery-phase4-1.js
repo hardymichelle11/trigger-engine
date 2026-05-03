@@ -296,8 +296,11 @@ group("LethalBoardPage.jsx wired correctly");
     /PREVIEW_LIVE/.test(src));
   assert("LethalBoardPage uses PREVIEW_SAMPLE mode",
     /PREVIEW_SAMPLE/.test(src));
-  assert("LethalBoardPage renders ScanStatusPanel",
-    /ScanStatusPanel/.test(src));
+  // Phase 4.7: ScanStatusPanel was retired as a direct child of LethalBoardPage;
+  // its functionality now lives in AdminSidebar.ScanStatusBlock, fed via the
+  // `scanStatus` prop on <LethalBoardCockpit>. Accept either shape.
+  assert("LethalBoardPage surfaces scan status (ScanStatusPanel or cockpit prop)",
+    /ScanStatusPanel/.test(src) || /scanStatus\s*=\s*\{?\s*scanStatus\s*\}?/.test(src));
 }
 
 // =================================================================

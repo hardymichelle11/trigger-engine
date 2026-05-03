@@ -428,10 +428,15 @@ group("wire-through — placeholder removed, props plumbed end-to-end");
   const pageCode = stripComments(page);
   assert("LethalBoardPage imports buildTradeConstructionContext",
     /buildTradeConstructionContext/.test(pageCode));
-  assert("LethalBoardPage builds tradeContext from existing scanResult + selectedSymbol",
-    /tradeContext\s*=\s*\{\s*buildTradeConstructionContext\s*\(/.test(pageCode));
-  assert("LethalBoardPage passes tradeContext to LethalBoard",
-    /<LethalBoard[\s\S]*?tradeContext\s*=\s*\{\s*buildTradeConstructionContext/.test(pageCode));
+  // Phase 4.7: per-symbol tradeContextBySymbol map built via useMemo and
+  // passed to LethalBoardCockpit. The Phase 4.4 single-context-per-render
+  // shape is also accepted for backward-compat.
+  assert("LethalBoardPage builds trade context (single tradeContext or per-symbol map) from buildTradeConstructionContext",
+    /tradeContext\s*=\s*\{\s*buildTradeConstructionContext\s*\(/.test(pageCode)
+      || /tradeContextBySymbol\s*=\s*useMemo\([\s\S]*buildTradeConstructionContext/.test(pageCode));
+  assert("LethalBoardPage passes trade context to LethalBoard or LethalBoardCockpit",
+    /<LethalBoard[\s\S]*?tradeContext\s*=\s*\{\s*buildTradeConstructionContext/.test(pageCode)
+      || /<LethalBoardCockpit[\s\S]*?tradeContextBySymbol\s*=\s*\{\s*tradeContextBySymbol\s*\}/.test(pageCode));
   // No NEW fetch added; helper takes existing in-memory state.
   // Existing loadAlertHistory references stay at 2 (Phase 4.2 contract).
   const loadHits = (pageCode.match(/loadAlertHistory/g) || []).length;

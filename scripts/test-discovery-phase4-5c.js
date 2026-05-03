@@ -749,8 +749,11 @@ group("scanner regression — discovery works without ThetaData");
   // Provider is wired, but scanResult-driven trade-construction only
   // populates live fields when snapshot is non-null. The fallback path
   // is preserved.
-  assert("LethalBoardPage passes optionChainSnapshot via tradeContext",
-    /optionChainSnapshot:\s*selectedSymbol\s*\?\s*optionSnapshotsBySymbol\[selectedSymbol\]/.test(page));
+  // Phase 4.7: useMemo loop builds tradeContextBySymbol[r.symbol] with the
+  // per-symbol snapshot. Phase 4.5C inline form on selectedSymbol also accepted.
+  assert("LethalBoardPage passes optionChainSnapshot via tradeContext (selected-symbol or per-symbol map)",
+    /optionChainSnapshot:\s*selectedSymbol\s*\?\s*optionSnapshotsBySymbol\[selectedSymbol\]/.test(page)
+      || /optionChainSnapshot:\s*optionSnapshotsBySymbol\[r\.symbol\]/.test(page));
   // No direct WS in the page
   assert("LethalBoardPage has no new WebSocket(",
     !/new\s+WebSocket\s*\(/.test(stripComments(page)));

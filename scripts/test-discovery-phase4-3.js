@@ -373,12 +373,16 @@ group("LethalBoardPage.jsx — chip wired correctly");
     /computeAlertsRollup/.test(src));
   assert("imports ROLLUP_CHIP_LABEL",
     /ROLLUP_CHIP_LABEL/.test(src));
-  assert("renders RecordedAlertsRollupChip",
-    /<RecordedAlertsRollupChip/.test(src));
-  // Chip computed from the panel's existing `alerts` prop / `safe` array,
-  // not from a new fetch:
+  // Phase 4.7: rollup chip rendering moved from LethalBoardPage's inline
+  // RecordedAlertsRollupChip into AdminSidebar.RollupChip cluster. The page
+  // now passes a precomputed rollup via the cockpit's recordedAlertsRollup
+  // prop. Both shapes call computeAlertsRollup over in-memory rows (no fetch).
+  assert("renders rollup chip (RecordedAlertsRollupChip OR cockpit recordedAlertsRollup)",
+    /<RecordedAlertsRollupChip/.test(src)
+      || /recordedAlertsRollup\s*=\s*\{?\s*computeAlertsRollup\s*\(/.test(src));
   assert("chip computed from existing in-memory rows (no extra fetch added in chip path)",
-    /computeAlertsRollup\(safe\)/.test(src));
+    /computeAlertsRollup\(safe\)/.test(src)
+      || /computeAlertsRollup\s*\(\s*recordedAlerts\s*\)/.test(src));
   // Phase 4.2 protections still hold:
   assert("does not render scoreBreakdown anywhere",
     !/scoreBreakdown/.test(src));

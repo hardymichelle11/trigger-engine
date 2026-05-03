@@ -5,3 +5,26 @@
   padding: 0;
   box-sizing: border-box;
 }
+
+/* Phase 4.7.3: page-level no-horizontal-scroll guarantee.
+   The Lethal Board cockpit is a strict 100vh / 100vw experience —
+   horizontal scroll is never desired. */
+html, body, #root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Minimal scrollbar styling for internal panels.
+   Keeps the page feeling premium rather than developer-console. */
+.cockpit-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.cockpit-scroll::-webkit-scrollbar-track { background: transparent; }
+.cockpit-scroll::-webkit-scrollbar-thumb {
+  background: #2b2f34;
+  border-radius: 4px;
+}
+.cockpit-scroll::-webkit-scrollbar-thumb:hover { background: #3a3f46; }
+.cockpit-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #2b2f34 transparent;
+}
