@@ -172,11 +172,15 @@ function SparklineFallback({ height, candles, symbol, unverified }) {
   const min = Math.min(...points);
   const max = Math.max(...points);
   const range = max - min || 1;
-  const width = 240;
-  const stepX = width / Math.max(1, points.length - 1);
+  // Use a fixed internal viewBox so the SVG can be scaled to any CSS height
+  // (including "100%" / flex-fill). preserveAspectRatio="none" stretches the
+  // path vertically to fit whatever pixel size the container resolves to.
+  const VB_W = 240;
+  const VB_H = 100;
+  const stepX = VB_W / Math.max(1, points.length - 1);
   const path = points.map((p, i) => {
     const x = i * stepX;
-    const y = height - ((p - min) / range) * (height - 8) - 4;
+    const y = VB_H - ((p - min) / range) * (VB_H - 8) - 4;
     return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(" ");
   const tone = points[points.length - 1] >= points[0] ? "#22c55e" : "#ef4444";
@@ -184,7 +188,7 @@ function SparklineFallback({ height, candles, symbol, unverified }) {
     <div style={{ position: "relative", height, width: "100%", minWidth: 0,
                   background: "#202225", borderRadius: 6, overflow: "hidden" }}
          aria-label={`Sparkline fallback — ${symbol}`}>
-      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none"
+      <svg viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none"
            style={{ width: "100%", height: "100%" }}>
         <path d={path} fill="none" stroke={tone} strokeWidth="1.5" strokeLinecap="round" />
       </svg>

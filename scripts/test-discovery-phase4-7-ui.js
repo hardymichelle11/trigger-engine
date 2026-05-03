@@ -351,11 +351,20 @@ group("TopPicksGrid: 3-column top picks with chart slot");
     /xl:grid-cols-3/.test(gridSrc)
       || /gridTemplateColumns:\s*["']repeat\(\s*auto-fit/.test(gridSrc)
       || /gridTemplateColumns:\s*["']repeat\(\s*3\s*,/.test(gridSrc));
-  assert("chart placeholder height ≥ 180px (chart-dominant)",
+  // Phase 4.7.5.1: chart switched from a fixed 180px height to flex-fill
+  // (`flex: 1 1 auto` with `minHeight: 110`) so it never clips card content
+  // on short viewports. Accept either form: numeric chartHeight ≥ 140 OR
+  // flex-fill with a sane minHeight.
+  assert("chart is visually dominant (fixed height ≥ 140 OR flex-fill)",
     (() => {
       const m = cardSrc.match(/chartHeight\s*=\s*(\d+)/)
             || cardSrc.match(/<TradingViewChartPlaceholder[^/]*height=\{(\d+)\}/);
-      return m ? Number(m[1]) >= 180 : false;
+      if (m && Number(m[1]) >= 140) return true;
+      // Accept both literal `flex: "1 1 auto"` and ternary forms
+      // (e.g. `flex: cond ? "1 1 auto" : "0 0 auto"`).
+      const flexFill = /["']1\s*1\s*auto["']/.test(cardSrc)
+                    && /minHeight:\s*\d+/.test(cardSrc);
+      return flexFill;
     })());
 }
 

@@ -105,6 +105,12 @@ group("tradingViewSymbolResolver — resolution order");
   const r3c = resolveTradingViewSymbol({ symbol: "JEPI" });
   assert("meta: JEPI → AMEX:JEPI", r3c.symbol === "AMEX:JEPI");
 
+  // Cboe-listed leveraged ETFs (Tradr 2X Long NBIS = NEBX). Default would
+  // produce NASDAQ:NEBX (TV returns "Invalid symbol"); meta routes to CBOE.
+  const r3d = resolveTradingViewSymbol({ symbol: "NEBX" });
+  assert("meta: NEBX → CBOE:NEBX", r3d.symbol === "CBOE:NEBX");
+  assert("meta: NEBX is verified", r3d.verified === true);
+
   // 4. Default — unverified
   const r4 = resolveTradingViewSymbol({ symbol: "ZZ_UNKNOWN" });
   assert("default: ZZ_UNKNOWN → NASDAQ:ZZ_UNKNOWN", r4.symbol === "NASDAQ:ZZ_UNKNOWN");

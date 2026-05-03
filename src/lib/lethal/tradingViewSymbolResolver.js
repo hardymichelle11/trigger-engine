@@ -74,6 +74,10 @@ export const SYMBOL_META = Object.freeze({
   GLD:  { exchange: "AMEX", type: "etf" },
   SLV:  { exchange: "AMEX", type: "etf" },
   FXI:  { exchange: "AMEX", type: "etf" },
+
+  // Cboe-listed ETFs (Tradr leveraged products etc.). TradingView's
+  // "CBOE:" namespace covers Cboe BZX-listed funds.
+  NEBX: { exchange: "CBOE", type: "etf" },   // Tradr 2X Long NBIS Daily ETF
 });
 
 const DEFAULT_EXCHANGE = "NASDAQ";

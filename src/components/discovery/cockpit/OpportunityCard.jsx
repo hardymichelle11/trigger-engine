@@ -44,7 +44,10 @@ export default function OpportunityCard({
   tradeContext = null,
   selected = false,
   onSelect,
-  chartHeight = 180,
+  // chartHeight is honored when explicitly passed, otherwise the chart
+  // fills the remaining flex space inside the card (Phase 4.7.5.1 — fixes
+  // the "card content clipped on small viewports" regression).
+  chartHeight = null,
 }) {
   const isBest = !!row.isBestUseOfCapital;
   const fitTone = fitToneClass(row.capitalFitCode);
@@ -88,13 +91,24 @@ export default function OpportunityCard({
       className="cursor-pointer transition-colors flex flex-col h-full overflow-hidden"
       style={cardStyle}>
 
-      {/* CHART — TradingView mini, with sparkline / "Chart unavailable" fallback */}
-      <TradingViewMiniChart
-        symbol={row.symbol}
-        exchange={candidate?.exchange}
-        tradingViewSymbol={candidate?.tradingViewSymbol}
-        verified={candidate?.hasLiveChart}
-        height={chartHeight} />
+      {/* CHART — TradingView mini, with sparkline / "Chart unavailable" fallback.
+          Wrapped in a flex-grow box so the chart fills whatever vertical space
+          remains after the text content below — prevents bottom-clipping when
+          the parent grid row is short. */}
+      <div style={{
+        flex: chartHeight == null ? "1 1 auto" : "0 0 auto",
+        minHeight: 110,
+        marginBottom: 12,
+        minWidth: 0,
+        overflow: "hidden",
+      }}>
+        <TradingViewMiniChart
+          symbol={row.symbol}
+          exchange={candidate?.exchange}
+          tradingViewSymbol={candidate?.tradingViewSymbol}
+          verified={candidate?.hasLiveChart}
+          height={chartHeight == null ? "100%" : chartHeight} />
+      </div>
 
       {/* HEADER ROW — slot/best · ticker (teal, large) · current price · score */}
       <div className="mt-3 flex items-start justify-between gap-3 min-w-0">
