@@ -332,8 +332,12 @@ group("LethalBoardCockpit — strict 100vh + capital pipe");
   assert("page is height 100vh", /height:\s*["']100vh["']/.test(src));
   assert("page has overflow hidden",
     /overflow:\s*["']hidden["']/.test(src));
+  // Phase 4.7.5.3 added a min-height floor on the top picks row so cards
+  // never clip on shorter viewports — accept either the original "36%"
+  // form or the floored `minmax(<floor>, 36%)` form.
   assert("main workspace uses auto / 36% / 1fr rows",
-    /gridTemplateRows:\s*["']auto\s+36%\s+1fr["']/.test(src));
+    /gridTemplateRows:\s*["']auto\s+36%\s+1fr["']/.test(src)
+      || /gridTemplateRows:\s*["']auto\s+minmax\(\s*\d+px\s*,\s*36%\s*\)\s+1fr["']/.test(src));
   assert("lower workspace uses 60% / 40% columns",
     /gridTemplateColumns:\s*["']60%\s+40%["']/.test(src));
   // imports the renamed components

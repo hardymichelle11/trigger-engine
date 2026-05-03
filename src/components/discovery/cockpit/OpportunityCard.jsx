@@ -72,7 +72,9 @@ export default function OpportunityCard({
                      || tc.bid != null || tc.ask != null;
 
   const cardStyle = {
-    padding: 16,
+    // Phase 4.7.5.3: padding 16 → 14 to claw back vertical space for the
+    // chart on shorter viewports.
+    padding: 14,
     background: selected ? COCKPIT_PALETTE.selectedTint : COCKPIT_PALETTE.panelBg,
     border: `1px solid ${COCKPIT_PALETTE.border}`,
     borderLeft: selected
@@ -97,7 +99,10 @@ export default function OpportunityCard({
           the parent grid row is short. */}
       <div style={{
         flex: chartHeight == null ? "1 1 auto" : "0 0 auto",
-        minHeight: 110,
+        // Phase 4.7.5.2: bumped from 110 to 140 so TradingView's mini
+        // widget has enough vertical resolution to render the price
+        // line meaningfully (110px squashed it into the time-axis row).
+        minHeight: 140,
         marginBottom: 12,
         minWidth: 0,
         overflow: "hidden",
@@ -148,7 +153,11 @@ export default function OpportunityCard({
         <span className={`text-[11px] truncate ${fitTone}`}>fit {row.capitalFit}</span>
       </div>
 
-      {/* CONTRACT BLOCK — clean fallback when chain is missing */}
+      {/* CONTRACT BLOCK — 4 essential fields only.
+          Collateral, Premium source, signal/liq/spread tags moved to the
+          Detail Panel (Phase 4.7.5.2) so the card stays scannable in
+          narrow vertical space. The card focuses on the at-a-glance
+          decision: strike, DTE, premium, break-even. */}
       {chainVerified ? (
         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 min-w-0"
              style={{ fontSize: 11 }}>
@@ -157,13 +166,8 @@ export default function OpportunityCard({
           <Field label="Premium"
                  value={premium != null ? `$${premium.toFixed(2)}` : "—"}
                  tone={row.premiumIsLive ? "green" : "amber"} />
-          <Field label="Collateral"
-                 value={collateral != null
-                   ? `$${collateral.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                   : "—"} />
           <Field label="Break-even"
                  value={breakeven != null ? `$${breakeven.toFixed(2)}` : "—"} />
-          <Field label="Premium src" value={row.premiumMethod} />
         </div>
       ) : (
         <div className="mt-3 text-[11px]"
@@ -172,20 +176,9 @@ export default function OpportunityCard({
         </div>
       )}
 
-      {/* SIGNAL ROW — probability status + signal quality + spread */}
-      <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 min-w-0"
-           style={{ fontSize: 10, color: COCKPIT_PALETTE.textDim }}>
-        <Tag label="signal" value={row.signalQuality || "—"}
-             tone={row.signalQuality === "validated" ? "green" : "muted"} />
-        <Tag label="liq"  value={tc.liquidityGrade || "unknown"} />
-        <Tag label="spread" value={tc.spreadWidthLabel || "—"}
-             tone={tc.spreadWidthLabel === "tight" ? "green"
-                  : tc.spreadWidthLabel === "wide" ? "amber" : "muted"} />
-      </div>
-
       {/* INSIGHT — single line */}
       {row.reasonSummary && (
-        <p className="mt-3 text-[11px] leading-snug min-w-0"
+        <p className="mt-2 text-[11px] leading-snug min-w-0"
            style={{ color: COCKPIT_PALETTE.textDim, ...truncate }}>
           {row.reasonSummary}
         </p>
@@ -214,18 +207,6 @@ function Field({ label, value, tone = "default" }) {
         fontFeatureSettings: "'tnum'", ...truncate,
       }}>{value}</div>
     </div>
-  );
-}
-
-function Tag({ label, value, tone = "muted" }) {
-  const fg = tone === "green" ? COCKPIT_PALETTE.accentGreen
-           : tone === "amber" ? COCKPIT_PALETTE.accentAmber
-           :                    COCKPIT_PALETTE.textDim;
-  return (
-    <span style={{ display: "inline-flex", gap: 4, alignItems: "baseline", minWidth: 0 }}>
-      <span style={{ color: COCKPIT_PALETTE.textFaint }}>{label}</span>
-      <span style={{ color: fg, fontWeight: 600 }}>{value}</span>
-    </span>
   );
 }
 

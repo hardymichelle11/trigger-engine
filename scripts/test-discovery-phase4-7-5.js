@@ -186,8 +186,11 @@ group("OpportunityCard — chart + content");
       new RegExp(`${prop}=\\{candidate\\?\\.${prop === "verified" ? "hasLiveChart" : prop}\\}`).test(stripped)
         || new RegExp(`${prop}=\\{[^}]*${prop}`).test(stripped));
   }
-  // Card content fields
-  for (const label of ["Strike", "DTE", "Premium", "Collateral", "Break-even", "Premium src"]) {
+  // Card content fields. Phase 4.7.5.2 trimmed the contract grid to four
+  // essentials (Strike / DTE / Premium / Break-even) so the chart has
+  // room to render at 36% viewport. Collateral, Premium-src, and the
+  // signal/liq/spread tags are now detail-panel-only.
+  for (const label of ["Strike", "DTE", "Premium", "Break-even"]) {
     assert(`card surfaces "${label}"`,
       new RegExp(`label=["']${label}["']`).test(stripped));
   }
@@ -199,10 +202,6 @@ group("OpportunityCard — chart + content");
   // Current price visible (formatted from currentPrice)
   assert("card surfaces current price",
     /currentPrice/.test(stripped));
-  // Signal-row tags
-  assert("card surfaces signal tag", /label="signal"/.test(stripped));
-  assert("card surfaces liquidity tag", /label="liq"/.test(stripped));
-  assert("card surfaces spread tag", /label="spread"/.test(stripped));
 }
 
 // =================================================================

@@ -111,7 +111,12 @@ export default function LethalBoardCockpit(props) {
         className="main-workspace"
         style={{
           display: "grid",
-          gridTemplateRows: "auto 36% 1fr",
+          // Phase 4.7.5.3: top picks row gets a 360px floor so cards always
+          // have room for chart (≥130) + header + action + 4-field contract
+          // + insight without clipping. On tall viewports, 36% > 360, so
+          // behavior unchanged. On shorter viewports, the floor wins and
+          // the lower workspace shrinks (its panels have internal scroll).
+          gridTemplateRows: "auto minmax(360px, 36%) 1fr",
           gap: 16,
           padding: 16,
           overflow: "hidden",
@@ -163,7 +168,12 @@ export default function LethalBoardCockpit(props) {
             className="lower-left"
             style={{
               display: "grid",
-              gridTemplateRows: "minmax(0, 1fr) minmax(0, 240px) minmax(0, 200px)",
+              // Phase 4.7.5.3: was `1fr 240px 200px` with minmax(0,...) so
+              // panels could collapse to 0. Switched to `1fr auto auto` —
+              // Intel and Alerts always render their natural height; the
+              // ranked-candidates panel (1fr) absorbs all the slack and
+              // scrolls internally.
+              gridTemplateRows: "minmax(0, 1fr) auto auto",
               gap: 16,
               minWidth: 0,
               minHeight: 0,
