@@ -98,14 +98,9 @@ for (const [name, path] of Object.entries(COCKPIT_FILES)) {
 group("LethalBoardCockpit composes the right sub-components");
 {
   const src = readFileSync(COCKPIT_FILES.cockpit, "utf8");
-  // Phase 4.7.2 renames — assert by NEW names. The mapping is:
-  //   AdminSidebar         → OperatorConsole
-  //   CommandBar           → CapitalCommandBar
-  //   TopOpportunityGrid   → TopPicksGrid
-  //   RankedWorkspace      → RankedCandidatesPanel
-  //   DetailSidePanel      → OpportunityDetailPanel
-  //   MarketNewsPanel      → MarketIntelligencePanel
-  //   RecentAlertsPanel    → AlertsPanel
+  // Phase 4.7.6 retired AlertsPanel from the cockpit (alerts moved into the
+  // OperatorConsole's collapsible debug section). The remaining 6 must
+  // still be threaded through.
   for (const name of [
     "OperatorConsole",
     "CapitalCommandBar",
@@ -113,7 +108,6 @@ group("LethalBoardCockpit composes the right sub-components");
     "RankedCandidatesPanel",
     "OpportunityDetailPanel",
     "MarketIntelligencePanel",
-    "AlertsPanel",
   ]) {
     assert(`Cockpit imports/uses ${name}`,
       new RegExp(`\\b${name}\\b`).test(src));
@@ -312,16 +306,20 @@ group("safety — no scraping / auto-trading / direct WebSocket");
 // =================================================================
 // 11. AdminSidebar surfaces required admin info
 // =================================================================
-group("OperatorConsole exposes scan controls + status surfaces");
+group("OperatorConsole exposes scan controls + diagnostics");
 {
   const src = readFileSync(COCKPIT_FILES.adminSidebar, "utf8");
+  // Phase 4.7.6 renames + reorganization:
+  //   "Run sample scan"   → "Live preview (sample)"
+  //   "Run live preview"  → "Run Scan"
+  //   "Run & record"      → "Run & Record"
+  //   provider/version/status moved to a collapsed "Advanced diagnostics" section
   for (const fragment of [
-    "Run sample scan",
-    "Run live preview",
-    "Run & record",
+    "Run Scan",
+    "sample",
+    "Run & Record",
     "Polygon universe",
     "ThetaData options",
-    "Last scan",
     "Recorded alerts",
   ]) {
     assert(`OperatorConsole contains "${fragment}"`,
@@ -355,16 +353,19 @@ group("TopPicksGrid: 3-column top picks with chart slot");
   // (`flex: 1 1 auto` with `minHeight: 110`) so it never clips card content
   // on short viewports. Accept either form: numeric chartHeight ≥ 140 OR
   // flex-fill with a sane minHeight.
-  assert("chart is visually dominant (fixed height ≥ 140 OR flex-fill)",
+  // Phase 4.7.6: the card uses `flex: "6 1 0"` for the chart zone (60%
+  // of card height) and `flex: "2.5 1 0"` / `flex: "1.5 1 0"` for the
+  // contract grid and insight zones — all flex-based. Accept any of:
+  //   - fixed chartHeight ≥ 140
+  //   - `flex: "1 1 auto"` literal/ternary
+  //   - `flex: "6 1 0"` (60%-zone form, Phase 4.7.6)
+  assert("chart is visually dominant (fixed ≥ 140 OR flex-fill OR 60% zone)",
     (() => {
-      const m = cardSrc.match(/chartHeight\s*=\s*(\d+)/)
-            || cardSrc.match(/<TradingViewChartPlaceholder[^/]*height=\{(\d+)\}/);
+      const m = cardSrc.match(/chartHeight\s*=\s*(\d+)/);
       if (m && Number(m[1]) >= 140) return true;
-      // Accept both literal `flex: "1 1 auto"` and ternary forms
-      // (e.g. `flex: cond ? "1 1 auto" : "0 0 auto"`).
-      const flexFill = /["']1\s*1\s*auto["']/.test(cardSrc)
-                    && /minHeight:\s*\d+/.test(cardSrc);
-      return flexFill;
+      if (/["']1\s*1\s*auto["']/.test(cardSrc)) return true;
+      if (/["']6\s*1\s*0["']/.test(cardSrc)) return true;
+      return false;
     })());
 }
 
@@ -409,16 +410,14 @@ group("CapitalCommandBar — top horizontal bar");
 // =================================================================
 // 15. Cockpit lower split: 60/40
 // =================================================================
-group("Cockpit lower split — 60/40");
+group("Cockpit lower split");
 {
-  // Phase 4.7.2: cockpit went strict 100vh; the 60/40 split is now applied
-  // unconditionally via inline JSX style (no media query). The Phase 4.7.1
-  // @media-query approach was retired in favor of the simpler always-on
-  // desktop grid the spec calls for.
+  // Phase 4.7.6: the lower workspace ratio shifted from 60/40 to 65/35
+  // (more room for ranked candidates table). Either form accepted.
   const src = readFileSync(COCKPIT_FILES.cockpit, "utf8");
-  assert("cockpit applies an explicit 60/40 grid",
-    /grid-template-columns:\s*60%\s+40%/.test(src)
-      || /gridTemplateColumns:\s*["']60%\s+40%["']/.test(src));
+  assert("cockpit applies an explicit 60/40 OR 65/35 grid",
+    /gridTemplateColumns:\s*["']60%\s+40%["']/.test(src)
+      || /gridTemplateColumns:\s*["']65%\s+35%["']/.test(src));
 }
 
 // =================================================================

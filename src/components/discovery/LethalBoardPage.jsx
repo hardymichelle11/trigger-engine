@@ -417,6 +417,7 @@ export default function LethalBoardPage({ onBack }) {
         capitalCtx={capitalCtx}
         onEditCapital={() => setCapitalModalOpen(true)}
         onToggleHideBalances={toggleHideBalances}
+        onCapitalPatch={saveContext}
         cockpitActions={cockpitActions}
       />
       <CapitalSettingsModal

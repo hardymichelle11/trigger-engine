@@ -117,7 +117,7 @@ export default function TradingViewMiniChart({
   }, [resolved?.symbol, interval, theme]);
 
   if (!resolved) {
-    return <ChartUnavailable height={height} reason="No symbol provided" />;
+    return <ChartUnavailable height={height} />;
   }
 
   // Sparkline-only mode: caller explicitly suppressed the embed by passing
@@ -129,9 +129,7 @@ export default function TradingViewMiniChart({
     return (
       <SparklineFallback
         height={height}
-        candles={fallbackCandles}
-        symbol={resolved.ticker}
-        unverified />
+        candles={fallbackCandles} />
     );
   }
 
@@ -139,12 +137,9 @@ export default function TradingViewMiniChart({
     if (Array.isArray(fallbackCandles) && fallbackCandles.length > 0) {
       return <SparklineFallback
         height={height}
-        candles={fallbackCandles}
-        symbol={resolved.ticker}
-        unverified={!isVerified} />;
+        candles={fallbackCandles} />;
     }
-    return <ChartUnavailable height={height} symbol={resolved.ticker}
-                             unverified={!isVerified} />;
+    return <ChartUnavailable height={height} />;
   }
 
   return (
@@ -155,7 +150,6 @@ export default function TradingViewMiniChart({
         ref={containerRef}
         className="tradingview-widget-container"
         style={{ height: "100%", width: "100%" }} />
-      {!isVerified && <UnverifiedBadge />}
     </div>
   );
 }
@@ -164,17 +158,14 @@ export default function TradingViewMiniChart({
 // FALLBACK: SVG SPARKLINE
 // --------------------------------------------------
 
-function SparklineFallback({ height, candles, symbol, unverified }) {
+function SparklineFallback({ height, candles }) {
   const points = Array.isArray(candles) ? candles.filter(n => Number.isFinite(Number(n))) : [];
   if (points.length === 0) {
-    return <ChartUnavailable height={height} symbol={symbol} unverified={unverified} />;
+    return <ChartUnavailable height={height} />;
   }
   const min = Math.min(...points);
   const max = Math.max(...points);
   const range = max - min || 1;
-  // Use a fixed internal viewBox so the SVG can be scaled to any CSS height
-  // (including "100%" / flex-fill). preserveAspectRatio="none" stretches the
-  // path vertically to fit whatever pixel size the container resolves to.
   const VB_W = 240;
   const VB_H = 100;
   const stepX = VB_W / Math.max(1, points.length - 1);
@@ -186,72 +177,28 @@ function SparklineFallback({ height, candles, symbol, unverified }) {
   const tone = points[points.length - 1] >= points[0] ? "#22c55e" : "#ef4444";
   return (
     <div style={{ position: "relative", height, width: "100%", minWidth: 0,
-                  background: "#202225", borderRadius: 6, overflow: "hidden" }}
-         aria-label={`Sparkline fallback — ${symbol}`}>
+                  background: "transparent", overflow: "hidden" }}
+         aria-label="sparkline">
       <svg viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none"
            style={{ width: "100%", height: "100%" }}>
         <path d={path} fill="none" stroke={tone} strokeWidth="1.5" strokeLinecap="round" />
       </svg>
-      {unverified && <UnverifiedBadge />}
-      <div style={{
-        position: "absolute", bottom: 4, left: 6,
-        fontSize: 10, color: "#9ca3af", letterSpacing: "0.06em",
-      }}>
-        {symbol} · sparkline
-      </div>
     </div>
   );
 }
 
 // --------------------------------------------------
-// FALLBACK: clean "Chart unavailable" message
+// EMPTY-STATE — silent. No "placeholder" text, no border.
+// Phase 4.7.6: spec says "no placeholder text EVER" — show a
+// subtle dim block and let the chart be quiet.
 // --------------------------------------------------
 
-function ChartUnavailable({ height, symbol = null, unverified = false, reason = null }) {
+function ChartUnavailable({ height }) {
   return (
-    <div role="img"
-         aria-label={`Chart unavailable${symbol ? ` for ${symbol}` : ""}`}
+    <div aria-hidden="true"
          style={{
            height, width: "100%", minWidth: 0,
-           background: "#202225",
-           border: "1px dashed #2b2f34",
-           borderRadius: 6,
-           display: "flex", alignItems: "center", justifyContent: "center",
-           position: "relative",
-         }}>
-      <div style={{ textAlign: "center", padding: 8 }}>
-        {symbol && (
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#14b8a6",
-                         letterSpacing: "0.02em" }}>
-            {symbol}
-          </div>
-        )}
-        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-          {reason || "Chart unavailable"}
-        </div>
-      </div>
-      {unverified && <UnverifiedBadge />}
-    </div>
-  );
-}
-
-// --------------------------------------------------
-// "chart unverified" badge — small, top-right
-// --------------------------------------------------
-
-function UnverifiedBadge() {
-  return (
-    <div style={{
-      position: "absolute", top: 6, right: 6,
-      fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase",
-      padding: "2px 6px",
-      background: "rgba(245, 158, 11, 0.15)",
-      border: "1px solid rgba(245, 158, 11, 0.4)",
-      color: "#f59e0b",
-      borderRadius: 4,
-      pointerEvents: "none",
-    }}>
-      Chart unverified
-    </div>
+           background: "transparent",
+         }} />
   );
 }
