@@ -26,12 +26,16 @@ import { COCKPIT_PALETTE } from "./cockpitTheme.js";
  * @param {object} props
  * @param {object|null} props.summary               viewModel.summary
  * @param {object} props.capitalCtx                 CapitalContext
+ * @param {object|null} [props.liveMeta]            metadata from the active scan;
+ *                                                  used to surface a REPLAY pill
+ *                                                  when liveMeta.replay === true.
  * @param {() => void} props.onEditCapital
  * @param {() => void} props.onToggleHideBalances
  */
 export default function CapitalCommandBar({
   summary,
   capitalCtx,
+  liveMeta,
   onEditCapital,
   onToggleHideBalances,
 }) {
@@ -57,6 +61,26 @@ export default function CapitalCommandBar({
         <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
           Trader cockpit
         </span>
+        {/* Phase 4.7.6: REPLAY pill — visible only when the active scan
+            was loaded via Replay Last Close. Honest mode label so the
+            operator never confuses replay analysis with live data. */}
+        {liveMeta?.replay && (
+          <span
+            aria-label="REPLAY mode"
+            title={`Replay last close · ${liveMeta?.universe?.sessionDateLabel || liveMeta?.sessionDateLabel || "previous session"}`}
+            style={{
+              fontSize: 10, fontWeight: 800, letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              padding: "3px 8px", borderRadius: 4,
+              background: "rgba(245, 158, 11, 0.14)",
+              border: `1px solid ${COCKPIT_PALETTE.accentAmber}`,
+              color: COCKPIT_PALETTE.accentAmber,
+            }}>
+            ● Replay {liveMeta?.universe?.sessionDateLabel
+              ? `· ${liveMeta.universe.sessionDateLabel}`
+              : (liveMeta?.sessionDateLabel ? `· ${liveMeta.sessionDateLabel}` : "")}
+          </span>
+        )}
 
         <div className="flex flex-1 flex-wrap items-baseline justify-around gap-x-6 gap-y-1.5 min-w-[20rem]">
           <CommandItem

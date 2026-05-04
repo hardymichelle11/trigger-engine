@@ -54,6 +54,16 @@ export const FRESHNESS_POLICY = Object.freeze({
     neutral:      { disabled: true },
     aggressive:   { disabled: true },
   }),
+  // Phase 4.7.6: explicit "replay" session for the Replay Last Close
+  // operator workflow. Behaves like closed (freshness disabled) but is a
+  // distinct session label so the UI can render REPLAY indicators rather
+  // than "market closed" warnings — replay is a deliberate operator
+  // choice, not a side-effect of the current clock.
+  replay: Object.freeze({
+    conservative: { disabled: true },
+    neutral:      { disabled: true },
+    aggressive:   { disabled: true },
+  }),
 });
 
 // Back-compat defaults: matches the existing SCANNER_MODE_RULES.maxStaleSec

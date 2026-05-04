@@ -23,6 +23,19 @@ export const SCAN_MODE = Object.freeze({
   PREVIEW_SAMPLE: "preview_sample",
   PREVIEW_LIVE: "preview_live",
   COMMIT_LIVE: "commit_live",
+  // Phase 4.7.6: Replay Last Close — real previous-session market data
+  // played back through the same scanner/ranker, with freshness checks
+  // disabled (session = "replay"). Preview-only by default; record paths
+  // tag the alert with recordedSource: "replay_last_close" so committed
+  // replay alerts are not confused with live alerts.
+  REPLAY_LAST_CLOSE: "replay_last_close",
+  COMMIT_REPLAY: "commit_replay",
+});
+
+// Phase 4.7.6: alert audit tag for replay-sourced commits.
+export const RECORDED_SOURCE = Object.freeze({
+  LIVE: "live",
+  REPLAY_LAST_CLOSE: "replay_last_close",
 });
 
 export const SUPPRESSED_REASON = Object.freeze({
@@ -77,8 +90,10 @@ export function createScanController(options = {}) {
       };
     }
 
-    if (mode !== SCAN_MODE.COMMIT_LIVE) {
-      // PREVIEW_SAMPLE and PREVIEW_LIVE: never touch the alert pipeline.
+    if (mode !== SCAN_MODE.COMMIT_LIVE && mode !== SCAN_MODE.COMMIT_REPLAY) {
+      // PREVIEW_SAMPLE / PREVIEW_LIVE / REPLAY_LAST_CLOSE: never touch the
+      // alert pipeline. Replay preview is loud about its source on the UI
+      // (badge + banner + mode label) but does not persist anything.
       return {
         mode,
         scanResult,
@@ -89,8 +104,12 @@ export function createScanController(options = {}) {
       };
     }
 
-    // Commit path
-    const r = wireup.route(scanResult);
+    // Commit path. recordedSource is forwarded so the persisted alert
+    // carries an honest live/replay tag (Phase 4.7.6).
+    const recordedSource = mode === SCAN_MODE.COMMIT_REPLAY
+      ? RECORDED_SOURCE.REPLAY_LAST_CLOSE
+      : RECORDED_SOURCE.LIVE;
+    const r = wireup.route(scanResult, { recordedSource });
     let suppressedReason = null;
     if (!r.recorded) {
       if (r.event === SCANNER_STATE_EVENT.NO_CHANGE) suppressedReason = SUPPRESSED_REASON.NO_CHANGE;
@@ -123,6 +142,8 @@ export const SCAN_MODE_LABEL = Object.freeze({
   [SCAN_MODE.PREVIEW_SAMPLE]: "preview (sample)",
   [SCAN_MODE.PREVIEW_LIVE]: "preview (live)",
   [SCAN_MODE.COMMIT_LIVE]: "recorded (live)",
+  [SCAN_MODE.REPLAY_LAST_CLOSE]: "replay — last close",
+  [SCAN_MODE.COMMIT_REPLAY]: "recorded (replay)",
 });
 
 export const SUPPRESSED_REASON_LABEL = Object.freeze({

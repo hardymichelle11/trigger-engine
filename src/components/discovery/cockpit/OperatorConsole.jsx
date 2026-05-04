@@ -43,6 +43,7 @@ import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
  * @param {() => void} props.onRunSamplePreview
  * @param {() => void} props.onRunLivePreview
  * @param {() => void} props.onRunLiveCommit
+ * @param {() => void} [props.onRunReplayLastClose]    Phase 4.7.6 — replay last completed session
  * @param {boolean} [props.loading]
  * @param {() => void} [props.onBack]
  * @param {object|null} [props.providerHealth]
@@ -114,7 +115,8 @@ export default function OperatorConsole(props) {
         loading={!!props.loading}
         onRunSamplePreview={props.onRunSamplePreview}
         onRunLivePreview={props.onRunLivePreview}
-        onRunLiveCommit={props.onRunLiveCommit} />
+        onRunLiveCommit={props.onRunLiveCommit}
+        onRunReplayLastClose={props.onRunReplayLastClose} />
 
       <AlertsRollupBlock
         rollup={props.recordedAlertsRollup}
@@ -355,7 +357,13 @@ function ModeBlock({ ctx, onSaveCapital }) {
 // ACTIONS — three buttons with clear hierarchy
 // --------------------------------------------------
 
-function ActionsBlock({ loading, onRunSamplePreview, onRunLivePreview, onRunLiveCommit }) {
+function ActionsBlock({
+  loading,
+  onRunSamplePreview,
+  onRunLivePreview,
+  onRunLiveCommit,
+  onRunReplayLastClose,
+}) {
   return (
     <SectionShell title="Actions">
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -366,6 +374,17 @@ function ActionsBlock({ loading, onRunSamplePreview, onRunLivePreview, onRunLive
           title="Run sample scan — offline mock, preview only"
           style={primaryBtnStyle(loading)}>
           {loading ? "Scanning…" : "Run Scan"}
+        </button>
+        {/* Phase 4.7.6: Replay Last Close. Distinct amber border so it
+            reads as the "after-hours staging" lane, separate from sample
+            (which is synthetic) and live (which requires market open). */}
+        <button
+          onClick={onRunReplayLastClose}
+          disabled={loading || typeof onRunReplayLastClose !== "function"}
+          aria-label="Replay last close"
+          title="Replay last close — real previous-session OHLCV played through the scanner"
+          style={replayBtnStyle(loading || typeof onRunReplayLastClose !== "function")}>
+          Replay Last Close
         </button>
         <button
           onClick={onRunLivePreview}
@@ -408,6 +427,19 @@ function secondaryBtnStyle(disabled) {
     border: `1px solid ${COCKPIT_PALETTE.border}`,
     borderRadius: 6, padding: "7px 10px",
     fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.55 : 1,
+    textAlign: "center",
+  };
+}
+function replayBtnStyle(disabled) {
+  return {
+    background: "rgba(245, 158, 11, 0.10)",         // soft amber wash
+    color: COCKPIT_PALETTE.accentAmber,
+    border: `1px solid ${COCKPIT_PALETTE.accentAmber}`,
+    borderRadius: 6, padding: "7px 10px",
+    fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+    textTransform: "uppercase",
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.55 : 1,
     textAlign: "center",

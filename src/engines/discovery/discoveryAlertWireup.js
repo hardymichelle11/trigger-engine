@@ -51,8 +51,16 @@ export function createDiscoveryAlertWireup(options = {}) {
 
   /**
    * @param {object} scanResult                runMarketDiscoveryScan() output
+   * @param {object} [opts]
+   * @param {string} [opts.recordedSource]     Phase 4.7.6 — "live" | "replay_last_close".
+   *                                           Stamped onto the persisted alert so the
+   *                                           audit trail can distinguish live commits
+   *                                           from replay-staging commits without
+   *                                           changing dedup behavior.
    */
-  function route(scanResult) {
+  function route(scanResult, opts = {}) {
+    const recordedSource = (opts && typeof opts.recordedSource === "string" && opts.recordedSource)
+      || "live";
     totalScans += 1;
     if (!scanResult || typeof scanResult !== "object") {
       return { event: SCANNER_STATE_EVENT.NO_CHANGE, alert: null, recorded: false };
@@ -95,8 +103,14 @@ export function createDiscoveryAlertWireup(options = {}) {
 
     let recorded = false;
     if (recordAlertFn) {
+      // Stamp recordedSource onto the alert before persistence so the
+      // audit trail carries an honest live-vs-replay tag without having
+      // to mutate the bridge's pure output.
+      const alertWithSource = recordedSource && recordedSource !== "live"
+        ? { ...alert, recordedSource }
+        : { ...alert, recordedSource: "live" };
       try {
-        recordAlertFn(alert);
+        recordAlertFn(alertWithSource);
         recorded = true;
       } catch {
         // Failure to persist must not break the wire-up.

@@ -46,6 +46,8 @@ import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
  * @param {object|null} [props.providerHealth]          ThetaData provider health
  * @param {Array<object>|null} [props.newsItems]        future Phase 4.9 wiring
  * @param {object|null} [props.capitalCtx]              CapitalContext (private)
+ * @param {boolean} [props.replay]                      Phase 4.7.6 — true when active scan is replay
+ * @param {string} [props.replaySessionDate]            human-readable session date label
  */
 export default function OpportunityDetailPanel({
   row,
@@ -54,6 +56,8 @@ export default function OpportunityDetailPanel({
   providerHealth = null,
   newsItems = null,
   capitalCtx = null,
+  replay = false,
+  replaySessionDate = null,
   // Phase 4.7.4: bottom-action-bar wiring. Consumed from useCockpitActions
   // in LethalBoardPage. All four are no-ops by default so the component
   // still renders standalone in tests.
@@ -93,6 +97,32 @@ export default function OpportunityDetailPanel({
 
       {/* Fidelity-style quote header (title left + price right) */}
       <QuoteHeader row={row} tradeContext={tradeContext} />
+
+      {/* Phase 4.7.6: REPLAY banner — visible only when the active scan
+          was loaded via Replay Last Close. Sits flush below the quote
+          header so the operator never reads the detail panel without
+          knowing the data is replay, not live. */}
+      {replay && (
+        <div
+          aria-label="Replay analysis banner"
+          style={{
+            background: "rgba(245, 158, 11, 0.10)",
+            borderTop: `1px solid ${COCKPIT_PALETTE.accentAmber}`,
+            borderBottom: `1px solid ${COCKPIT_PALETTE.accentAmber}`,
+            color: COCKPIT_PALETTE.accentAmber,
+            padding: "8px 16px",
+            fontSize: 11, lineHeight: 1.35,
+            fontWeight: 600,
+          }}>
+          <div style={{ letterSpacing: "0.10em", textTransform: "uppercase",
+                         fontSize: 10, fontWeight: 800 }}>
+            ● Replay {replaySessionDate ? `· ${replaySessionDate}` : ""}
+          </div>
+          <div style={{ marginTop: 2, fontWeight: 500, color: COCKPIT_PALETTE.text }}>
+            This is replay analysis from the last completed session. Confirm live pricing before entry.
+          </div>
+        </div>
+      )}
 
       {/* Scrollable body */}
       <div className={COCKPIT_SCROLL_CLASS}

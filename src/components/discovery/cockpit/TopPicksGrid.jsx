@@ -25,6 +25,8 @@ import { buildComparativeInsight } from "./cockpitInsight.js";
  * @param {(sym: string) => void} [props.onSelectSymbol]
  * @param {Record<string, object>} [props.tradeContextBySymbol]
  * @param {number} [props.topN]
+ * @param {boolean} [props.replay]                    Phase 4.7.6 — surfaces REPLAY pill on cards
+ * @param {string} [props.replaySessionDate]
  */
 export default function TopPicksGrid({
   rows,
@@ -32,6 +34,8 @@ export default function TopPicksGrid({
   onSelectSymbol,
   tradeContextBySymbol = {},
   topN = 3,
+  replay = false,
+  replaySessionDate = null,
 }) {
   const top = Array.isArray(rows) ? rows.slice(0, topN) : [];
 
@@ -59,6 +63,8 @@ export default function TopPicksGrid({
           selected={r.symbol === selectedSymbol}
           onSelect={onSelectSymbol}
           insight={buildComparativeInsight(r, rows, tradeContextBySymbol)}
+          replay={replay}
+          replaySessionDate={replaySessionDate}
         />
       ))}
     </div>

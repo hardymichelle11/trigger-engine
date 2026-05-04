@@ -17,7 +17,10 @@ export function recordAlert(alert) {
   const key = `${alert.card.symbol}:${alert.timestamp}`;
   _recentAlerts.add(key);
 
-  // Persist to history
+  // Persist to history. Phase 4.7.6: optional recordedSource carries an
+  // honest live-vs-replay tag onto every persisted alert. Defaults to
+  // "live" when the caller does not supply one, preserving back-compat
+  // for any existing recordAlert callers.
   const history = loadAlertHistory();
   history.unshift({
     symbol: alert.card.symbol,
@@ -32,6 +35,8 @@ export function recordAlert(alert) {
     passedGates: alert.passedGates.length,
     timestamp: alert.timestamp,
     dateStr: new Date(alert.timestamp).toLocaleString(),
+    recordedSource: typeof alert.recordedSource === "string" && alert.recordedSource
+      ? alert.recordedSource : "live",
   });
 
   // Trim to max

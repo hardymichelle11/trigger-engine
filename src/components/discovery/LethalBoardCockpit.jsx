@@ -53,6 +53,7 @@ import AlertsPanel from "./cockpit/AlertsPanel.jsx";
  * @param {() => void} props.onRunSamplePreview
  * @param {() => void} props.onRunLivePreview
  * @param {() => void} props.onRunLiveCommit
+ * @param {() => void} [props.onRunReplayLastClose]    Phase 4.7.6 — replay last completed session
  * @param {() => void} [props.onBack]
  * @param {object} [props.labels]
  * @param {object} props.capitalCtx                    CapitalContext (private to user)
@@ -94,6 +95,7 @@ export default function LethalBoardCockpit(props) {
         onRunSamplePreview={props.onRunSamplePreview}
         onRunLivePreview={props.onRunLivePreview}
         onRunLiveCommit={props.onRunLiveCommit}
+        onRunReplayLastClose={props.onRunReplayLastClose}
         loading={props.loading}
         onBack={props.onBack}
         providerHealth={props.providerHealth}
@@ -131,6 +133,7 @@ export default function LethalBoardCockpit(props) {
         <CapitalCommandBar
           summary={summary}
           capitalCtx={props.capitalCtx}
+          liveMeta={props.liveMeta}
           onEditCapital={props.onEditCapital}
           onToggleHideBalances={props.onToggleHideBalances} />
 
@@ -149,7 +152,13 @@ export default function LethalBoardCockpit(props) {
               selectedSymbol={selectedRow?.symbol || null}
               onSelectSymbol={props.onSelectSymbol}
               tradeContextBySymbol={props.tradeContextBySymbol || {}}
-              topN={3} />
+              topN={3}
+              replay={!!props.liveMeta?.replay}
+              replaySessionDate={
+                props.liveMeta?.universe?.sessionDateLabel
+                  || props.liveMeta?.sessionDateLabel
+                  || null
+              } />
           )}
         </section>
 
@@ -211,6 +220,12 @@ export default function LethalBoardCockpit(props) {
             providerHealth={props.providerHealth}
             newsItems={null}
             capitalCtx={props.capitalCtx}
+            replay={!!props.liveMeta?.replay}
+            replaySessionDate={
+              props.liveMeta?.universe?.sessionDateLabel
+                || props.liveMeta?.sessionDateLabel
+                || null
+            }
             isWatching={props.cockpitActions?.isWatching}
             isCandidate={props.cockpitActions?.isCandidate}
             getAlert={props.cockpitActions?.getAlert}

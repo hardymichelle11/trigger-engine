@@ -20,6 +20,7 @@ import LethalBoardCockpit from "./LethalBoardCockpit.jsx";
 import { runMarketDiscoveryScan } from "../../engines/discovery/marketDiscoveryScanner.js";
 import { createPolygonGlue, fetchScannerInputBundle, GLUE_SOURCE } from "../../engines/discovery/polygonGlue.js";
 import { UNIVERSE_SOURCE } from "../../engines/discovery/polygonUniverseAdapter.js";
+import { fetchReplayLastCloseBundle } from "../../engines/discovery/replayLastCloseLoader.js";
 import { recordAlert, loadAlertHistory } from "../../lib/alerts/alertHistory.js";
 import {
   createScanController,
@@ -102,6 +103,42 @@ function buildSampleScan(accountState) {
     scannerMode: "neutral",
     now,
   });
+}
+
+// --------------------------------------------------
+// REPLAY LAST CLOSE — pulls last completed session's OHLCV
+// from Polygon (grouped daily → prev-close fallback) and runs
+// the same scanner. Honest about what it is: session=replay
+// disables freshness rejection, metadata.replay=true so the UI
+// can surface REPLAY indicators on cards and the detail panel.
+// --------------------------------------------------
+
+async function runReplayScan(accountState) {
+  const bundle = await fetchReplayLastCloseBundle({});
+
+  if (!Array.isArray(bundle.symbols) || bundle.symbols.length === 0) {
+    return { result: null, bundle, errorMsg:
+      `Replay data unavailable (${bundle.metadata?.universe?.reason || "unknown"}). ` +
+      "Check the Polygon proxy / API key, then try again." };
+  }
+
+  const result = runMarketDiscoveryScan({
+    symbols: bundle.symbols,
+    marketDataBySymbol: bundle.marketDataBySymbol,
+    optionsDataBySymbol: bundle.optionsDataBySymbol,
+    accountState,
+    regimeContext: { detectedRegime: "RISK_ON" },
+    scannerMode: "neutral",
+    // session: "replay" → freshness rejection disabled in marketDiscoveryScanner.
+    session: bundle.metadata.universe.session,
+  });
+
+  const enrichedWarnings = [
+    ...(result.warnings || []),
+    ...(bundle.warnings || []),
+    `Replay tier: ${bundle.metadata.universe.tier || "unknown"} (${bundle.symbols.length} symbols)`,
+  ];
+  return { result: { ...result, warnings: enrichedWarnings }, bundle, errorMsg: null };
 }
 
 async function runLiveScan(accountState) {
@@ -329,6 +366,29 @@ export default function LethalBoardPage({ onBack }) {
     applyResult(buildSampleScan(toAccountState(capitalCtx)), SCAN_MODE.PREVIEW_SAMPLE);
   }, [capitalCtx]);
 
+  // Phase 4.7.6: Replay Last Close. Always preview-only on first click;
+  // committing replay-sourced alerts requires the operator to use Run &
+  // Record while a replay scan is the active scanResult, and the commit
+  // path tags the persisted alert with recordedSource: "replay_last_close".
+  const runReplayLastClose = useCallback(async () => {
+    setLoading(true); setErrorMsg(""); setLiveMeta(null);
+    try {
+      const { result, bundle, errorMsg: e } = await runReplayScan(toAccountState(capitalCtx));
+      setLiveMeta(bundle.metadata);
+      if (e) {
+        setErrorMsg(e);
+        setScanResult(null);
+        setScanStatus(null);
+        return;
+      }
+      applyResult(result, SCAN_MODE.REPLAY_LAST_CLOSE);
+    } catch (err) {
+      setErrorMsg(`Unexpected error: ${err?.message || String(err)}`);
+      setScanResult(null);
+      setScanStatus(null);
+    } finally { setLoading(false); }
+  }, [capitalCtx]);
+
   const runLivePreview = useCallback(async () => {
     setLoading(true); setErrorMsg(""); setLiveMeta(null);
     try {
@@ -349,6 +409,27 @@ export default function LethalBoardPage({ onBack }) {
   }, [capitalCtx]);
 
   const runLiveCommit = useCallback(async () => {
+    // Phase 4.7.6: when the active scanResult was loaded via Replay Last
+    // Close, Run & Record commits the replay scan tagged with
+    // recordedSource: "replay_last_close" — never silently overwrites a
+    // live alert with replay data, never pretends replay is live. The
+    // confirm dialog gives the operator one chance to back out.
+    const isReplayActive = !!liveMeta?.replay;
+    if (isReplayActive) {
+      const ok = typeof window !== "undefined" && typeof window.confirm === "function"
+        ? window.confirm(
+            "The active scan is REPLAY data from " +
+            (liveMeta?.universe?.sessionDateLabel || "a previous session") +
+            ".\n\nRecording will commit this as a REPLAY alert (audit-tagged). " +
+            "It will not overwrite live alerts.\n\nProceed?"
+          )
+        : true;
+      if (!ok) return;
+      // No new HTTP fetch — commit the existing replay scanResult.
+      if (scanResult) applyResult(scanResult, SCAN_MODE.COMMIT_REPLAY);
+      return;
+    }
+
     setLoading(true); setErrorMsg(""); setLiveMeta(null);
     try {
       const { result, bundle, errorMsg: e } = await runLiveScan(toAccountState(capitalCtx));
@@ -365,7 +446,7 @@ export default function LethalBoardPage({ onBack }) {
       setScanResult(null);
       setScanStatus(null);
     } finally { setLoading(false); }
-  }, [capitalCtx]);
+  }, [capitalCtx, liveMeta, scanResult]);
 
   // Phase 4.7: per-symbol trade-construction contexts so the cockpit's
   // top opportunity grid can show suggested expiration / strike / live
@@ -407,6 +488,7 @@ export default function LethalBoardPage({ onBack }) {
         onRunSamplePreview={runSamplePreview}
         onRunLivePreview={runLivePreview}
         onRunLiveCommit={runLiveCommit}
+        onRunReplayLastClose={runReplayLastClose}
         onBack={onBack}
         labels={{
           scanModeLabel: SCAN_MODE_LABEL,

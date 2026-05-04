@@ -40,6 +40,10 @@ import { COCKPIT_PALETTE } from "./cockpitTheme.js";
  *                                          buildComparativeInsight(); falls
  *                                          back to row.reasonSummary when not
  *                                          supplied.
+ * @param {boolean} [props.replay]          Phase 4.7.6 — true when this card
+ *                                          is rendered from a Replay Last Close
+ *                                          scan; surfaces a REPLAY pill.
+ * @param {string} [props.replaySessionDate]  human-readable session date
  */
 export default function OpportunityCard({
   row,
@@ -53,6 +57,8 @@ export default function OpportunityCard({
   // the "card content clipped on small viewports" regression).
   chartHeight = null,
   insight = null,
+  replay = false,
+  replaySessionDate = null,
 }) {
   const isBest = !!row.isBestUseOfCapital;
   const fitTone = fitToneClass(row.capitalFitCode);
@@ -199,9 +205,11 @@ export default function OpportunityCard({
       {/* ACTION + PHASE + FIT + SCORE row — sits below the full-bleed chart.
           BEST USE badge leads when applicable. Score is right-aligned so the
           engine's assessments cluster reads left-to-right: best · action ·
-          phase · capital fit · final score. */}
+          phase · capital fit · final score. The REPLAY pill, when active,
+          leads everything so the operator never confuses replay with live. */}
       <div className="flex items-center gap-2 flex-wrap min-w-0"
            style={{ padding: "10px 14px 0" }}>
+        {replay && <ReplayBadge sessionDate={replaySessionDate} />}
         {isBest && <BestUseBadge />}
         <ActionPill action={row.action} actionCode={row.actionCode} />
         <PhaseBadge primaryType={row.primaryType} />
@@ -292,6 +300,24 @@ function Field({ label, value, tone = "default", size = "md" }) {
         fontFeatureSettings: "'tnum'", ...truncate,
       }}>{value}</div>
     </div>
+  );
+}
+
+function ReplayBadge({ sessionDate }) {
+  return (
+    <span
+      title={sessionDate ? `REPLAY — last close · ${sessionDate}` : "REPLAY — last close"}
+      style={{
+        fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase",
+        padding: "2px 6px",
+        background: "rgba(245, 158, 11, 0.16)",
+        border: `1px solid ${COCKPIT_PALETTE.accentAmber}`,
+        borderRadius: 4,
+        color: COCKPIT_PALETTE.accentAmber,
+        whiteSpace: "nowrap",
+      }}>
+      ● Replay{sessionDate ? ` · ${sessionDate}` : ""}
+    </span>
   );
 }
 
