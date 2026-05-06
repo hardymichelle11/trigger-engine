@@ -61,4 +61,38 @@
 
 ---
 
-*Last updated: 2026-04-15*
+## Tech Debt — Hosting / Deploy
+
+Notes from the 2026-05-05 Firebase Hosting experiment (rolled back). None are blocking; capture so they're not forgotten when remote-access is revisited.
+
+- [ ] **Decide canonical production host** — currently three competing paths:
+  1. GitHub Pages workflow at `.github/workflows/deploy.yml` (still active, deploys on push to `main`)
+  2. Custom domain `aipicks.shop` declared in `public/CNAME` (GitHub-Pages-specific artifact)
+  3. Firebase project `aipicks-stock` (hosting disabled but project exists on Spark plan)
+  Pick one, kill the other two. Live data caveats apply to all (see below).
+
+- [ ] **Production runtime services missing for any remote deploy**
+  - **KnowledgeBot** — `KnowledgeBotPanel.jsx` calls `/api/knowledgebot/chat`; the Express server (`server/knowledgeBotServer.js`) has no production host. Pick Cloud Run / Render / Fly when needed.
+  - **ThetaData** — `vite.config.js` proxies `/theta` → `127.0.0.1:25503`. Terminal v3 is local-only by design; any remote viewer needs to run their own Terminal. Document this reality on whatever landing page is built.
+  - **BigQuery read path** — `bqReader.js` requires `VITE_BQ_PROXY_URL` at build time. No proxy exists yet. Until then, BQ-backed views return null in production builds. (Phase 4.7.6 BQ tier-1 stub is also waiting on this proxy — see `replayLastCloseLoader.js` `// TODO(phase 4.8?)`.)
+
+- [ ] **Cloudflare Worker `worker/polygon-proxy.js` deployment status unknown**
+  Local file + `wrangler.toml` exist, but no record of which Cloudflare account owns the deployed Worker URL. Verify it's still alive and that `src/lib/polygonProxy.js` points at the right URL before relying on it for production.
+
+- [ ] **Empty GCP project `my-project-trigger-engine-lb`**
+  Created during the Firebase experiment, never used. Safe to delete from GCP console (IAM & Admin → Manage Resources). Not urgent — empty projects don't bill.
+
+- [ ] **`firebase-tools` global npm install**
+  `npm install -g firebase-tools` was run during the experiment. ~150MB on disk, zero ongoing cost. Remove with `npm uninstall -g firebase-tools` if reclaiming disk space matters.
+
+---
+
+## Tech Debt — Open Bugs (Discovered 2026-05-05)
+
+- [ ] **LB button on mobile not working** — reported during 2026-05-05 session, root cause not identified. Wiring inspected and looks correct (`main.jsx:195` → `App.jsx:705,930`; CSS at `App.jsx:846-847`). User did not specify whether the symptom is missing button, dead click, or broken target page. Re-investigate with a specific repro on the next mobile-test pass.
+
+- [ ] **"Engine not generating output correctly"** — reported during 2026-05-05 session, no specifics captured. Which engine (Trigger / Lethal Board / CreditVol), what's wrong (empty results / wrong values / stale / errors), mock-vs-live, and console state all unknown. Capture symptom + screenshot + console next time it reproduces.
+
+---
+
+*Last updated: 2026-05-05*
