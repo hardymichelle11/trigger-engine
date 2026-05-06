@@ -249,15 +249,30 @@ export function maskPercent(value, hide) {
  * shape the discovery scanner expects. Pure projection; engine
  * vocabulary is preserved.
  *
+ * Sensible fallback: the inline editors only expose Start +
+ * Deployable. If a user sets either of those without explicitly
+ * filling in Available Cash, the scanner would otherwise see
+ * availableCash = 0 and reject every candidate as "not affordable".
+ * Treat unset/zero availableCash as "all deployable cash is available"
+ * (or, failing that, starting capital). Users who explicitly track
+ * committed positions can still override via the modal.
+ *
+ * Same for deployableCapital: if unset, fall back to availableCash
+ * or startingCapital so scanning works after a single field-edit.
+ *
  * @param {CapitalContext} ctx
  * @returns {object}
  */
 export function toAccountState(ctx) {
   const c = ctx || {};
+  const start = Number(c.startingCapital) || 0;
+  const deployable = Number(c.deployableCapital) || 0;
+  const available = Number(c.availableCash) || 0;
+
   return Object.freeze({
-    totalAccountValue: Number(c.startingCapital) || 0,
-    availableCash: Number(c.availableCash) || 0,
-    deployableCapital: Number(c.deployableCapital) || 0,
+    totalAccountValue: start,
+    availableCash: available || deployable || start,
+    deployableCapital: deployable || available || start,
     maxDeployedPct: Number(c.maxDeployedPct) || 0.65,
     reservedCashBufferPct: Number(c.reservedCashBufferPct) || 0.20,
     maxSingleTradePct: Number(c.maxSingleTradePct) || 0.10,
