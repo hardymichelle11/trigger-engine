@@ -83,10 +83,14 @@ export default function LethalBoardCockpit(props) {
         gridTemplateColumns: "280px minmax(0, 1fr)",
         width: "100vw",
         maxWidth: "100vw",
-        height: "100vh",
+        // Use min-height + page-level scroll so the layout never clips content
+        // on shorter viewports (laptops, windowed browsers, devtools open).
+        // The cockpit still feels like a full-height workspace when there's
+        // room; when there isn't, the page scrolls instead of slicing panels.
+        minHeight: "100vh",
         background: COCKPIT_PALETTE.pageBg,
         color: COCKPIT_PALETTE.text,
-        overflow: "hidden",
+        overflowX: "hidden",
         fontFamily:
           "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
       }}>
@@ -115,15 +119,13 @@ export default function LethalBoardCockpit(props) {
         className="main-workspace"
         style={{
           display: "grid",
-          // Phase 4.7.5.3: top picks row gets a 360px floor so cards always
-          // have room for chart (≥130) + header + action + 4-field contract
-          // + insight without clipping. On tall viewports, 36% > 360, so
-          // behavior unchanged. On shorter viewports, the floor wins and
-          // the lower workspace shrinks (its panels have internal scroll).
-          gridTemplateRows: "auto minmax(360px, 36%) 1fr",
+          // Top picks gets a 360px floor; the rest sizes naturally now that
+          // the page can scroll. Removed `1fr` on the lower workspace so it
+          // takes its natural height instead of being squeezed when there
+          // isn't enough viewport space.
+          gridTemplateRows: "auto minmax(360px, auto) auto",
           gap: 16,
           padding: 16,
-          overflow: "hidden",
           minWidth: 0,
           minHeight: 0,
           background: COCKPIT_PALETTE.workspaceBg,

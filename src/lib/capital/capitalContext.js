@@ -80,9 +80,10 @@ function generateUuid() {
 // --------------------------------------------------
 
 /**
- * Safe defaults when no settings exist. All dollar values are 0
- * so the UI knows to prompt the user to configure capital before
- * trusting the rankings.
+ * Safe defaults when no settings exist. All dollar values are 0 so the
+ * UI prompts the user to configure capital before trusting the rankings.
+ * Users set their own values via the inline editors and the settings
+ * modal; those values persist via saveCapitalContext.
  *
  * @param {string} userId
  * @returns {CapitalContext}
@@ -182,19 +183,28 @@ export function loadCapitalContext(userId) {
 }
 
 /**
- * Persist this user's capital context to localStorage. Returns the
- * normalized context that was stored. Stamps `updatedAt` to now.
- * Never throws — silently no-ops when storage is unavailable.
+ * Persist this user's capital context. Returns the normalized merged
+ * context. Stamps `updatedAt` to now. Never throws — silently no-ops
+ * when storage is unavailable.
  *
- * @param {object} patch                values to merge over the existing context
+ * `current` is the merge base. Callers MUST pass their live state
+ * (e.g. React) when storage may be unreliable — otherwise a previous
+ * save that failed to persist would be lost on the next call.
+ * The fallback (`loadCapitalContext`) is kept for one-off / non-React
+ * callers; in that path, persistence-failure does cause data loss.
+ *
+ * @param {object} patch                 values to merge over the existing context
  * @param {string} [userId]
+ * @param {CapitalContext} [current]     live state to use as the merge base
  * @returns {CapitalContext}
  */
-export function saveCapitalContext(patch, userId) {
+export function saveCapitalContext(patch, userId, current) {
   const id = userId || resolveUserId();
-  const current = loadCapitalContext(id);
+  const base = current && typeof current === "object"
+    ? current
+    : loadCapitalContext(id);
   const merged = normalizeCapitalContext(
-    { ...current, ...(patch || {}), updatedAt: new Date().toISOString(), userId: id },
+    { ...base, ...(patch || {}), updatedAt: new Date().toISOString(), userId: id },
     id,
   );
   try {

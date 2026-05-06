@@ -30,6 +30,7 @@
     "test:calibration": "node scripts/test-calibration.js",
     "test:regime": "node scripts/test-regime-v2.js",
     "test:knowledgebot": "node scripts/test-knowledge-bot.js",
+    "test:capital": "node scripts/test-capital-incognito.js",
     "test:livestate": "node scripts/test-live-state.js",
     "test:timing": "node scripts/test-timing.js",
     "test:discovery-engine": "node scripts/test-discovery-engine.js",

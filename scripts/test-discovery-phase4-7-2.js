@@ -124,6 +124,7 @@ group("capitalContext — pure helpers");
 {
   const def = defaultCapitalContext("u1");
   assert("defaultCapitalContext userId carried", def.userId === "u1");
+  // Defaults are zeros — the UI prompts the user to configure capital.
   assert("defaults: startingCapital === 0", def.startingCapital === 0);
   assert("defaults: reservedCashBufferPct === 0.20", def.reservedCashBufferPct === 0.20);
   assert("defaults: maxDeployedPct === 0.65", def.maxDeployedPct === 0.65);

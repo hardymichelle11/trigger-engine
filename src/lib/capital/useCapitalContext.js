@@ -52,16 +52,20 @@ export function useCapitalContext() {
     return () => window.removeEventListener("storage", handler);
   }, [userId]);
 
+  // CRITICAL: pass the live React state (`prev`) as the merge base into
+  // saveCapitalContext. If we relied on its internal loadCapitalContext,
+  // a silently-failed setItem (Incognito quota, sandboxed iframe, etc.)
+  // would cause the next save to merge the patch onto the *default*
+  // context — wiping every previously-saved field. See regression in
+  // scripts/test-capital-incognito.js.
   const saveContext = useCallback((patch) => {
-    const next = saveCapitalContext(patch, userId);
-    setCtx(next);
+    setCtx((prev) => saveCapitalContext(patch, userId, prev));
   }, [userId]);
 
   const toggleHideBalances = useCallback(() => {
-    setCtx((prev) => {
-      const next = saveCapitalContext({ hideBalances: !prev.hideBalances }, userId);
-      return next;
-    });
+    setCtx((prev) =>
+      saveCapitalContext({ hideBalances: !prev.hideBalances }, userId, prev),
+    );
   }, [userId]);
 
   const resetContext = useCallback(() => {
