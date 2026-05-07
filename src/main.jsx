@@ -165,7 +165,12 @@ function Root() {
   // --- Page routing ---
 
   if (page === "landing") {
-    return <LandingPage onOpenDashboard={() => setPage("scanner")} />;
+    return (
+      <LandingPage
+        onOpenDashboard={() => setPage("scanner")}
+        onOpenLethal={() => setPage("lethal-board")}
+      />
+    );
   }
 
   if (page === "builder") {

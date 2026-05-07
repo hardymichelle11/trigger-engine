@@ -6,7 +6,7 @@
 // Single "Launch Dashboard" in header only.
 // =====================================================
 
-export default function LandingPage({ onOpenDashboard }) {
+export default function LandingPage({ onOpenDashboard, onOpenLethal }) {
   const capabilities = [
     { title: "Deep Market Scanning", benefit: "Surface the setups that matter most across stocks and options — ranked, filtered, and ready to review." },
     { title: "Options Intelligence", benefit: "Evaluate premium opportunities with strike selection, probability context, and risk-aware put ladder guidance." },
@@ -50,10 +50,20 @@ export default function LandingPage({ onOpenDashboard }) {
               <div className="mt-0.5 text-[11px] text-[#22c55e]">Invest like institutional investors.</div>
             </div>
           </div>
-          <button onClick={onOpenDashboard}
-            className="rounded-lg bg-[#22c55e] px-5 py-2 text-[13px] font-semibold text-[#060a0f] transition hover:bg-[#16a34a]">
-            Launch Dashboard
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenLethal && (
+              <button
+                onClick={onOpenLethal}
+                title="Open the Lethal Board operator console — direct access to scan + capital allocation"
+                className="rounded-lg border border-[#22c55e]/60 bg-[#22c55e]/10 px-4 py-2 text-[13px] font-semibold text-[#22c55e] transition hover:bg-[#22c55e]/20">
+                LB
+              </button>
+            )}
+            <button onClick={onOpenDashboard}
+              className="rounded-lg bg-[#22c55e] px-5 py-2 text-[13px] font-semibold text-[#060a0f] transition hover:bg-[#16a34a]">
+              Launch Dashboard
+            </button>
+          </div>
         </div>
       </header>
 
