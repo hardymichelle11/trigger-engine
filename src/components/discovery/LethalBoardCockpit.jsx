@@ -36,6 +36,7 @@ import RankedCandidatesPanel from "./cockpit/RankedCandidatesPanel.jsx";
 import OpportunityDetailPanel from "./cockpit/OpportunityDetailPanel.jsx";
 import MarketIntelligencePanel from "./cockpit/MarketIntelligencePanel.jsx";
 import AlertsPanel from "./cockpit/AlertsPanel.jsx";
+import { fetchNews, fetchNewsForTickers } from "../../lib/newsFeed.js";
 
 /**
  * @param {object} props
@@ -74,6 +75,42 @@ export default function LethalBoardCockpit(props) {
   const selectedTradeContext = props.tradeContextBySymbol && props.selectedSymbol
     ? (props.tradeContextBySymbol[props.selectedSymbol] || null)
     : null;
+
+  // -- Live news feeds --------------------------------------------------
+  // Workspace intel: aggregate news for the top-3 ranked tickers (so the
+  // operator and any downstream model see real, sentiment-tagged news
+  // for what's actually being recommended this cycle).
+  const topTickers = React.useMemo(
+    () => rows.slice(0, 3).map((r) => r.symbol).filter(Boolean),
+    [rows],
+  );
+  const [workspaceNews, setWorkspaceNews] = React.useState([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    if (topTickers.length === 0) {
+      setWorkspaceNews([]);
+      return undefined;
+    }
+    fetchNewsForTickers(topTickers, 4).then((items) => {
+      if (!cancelled) setWorkspaceNews(items);
+    });
+    return () => { cancelled = true; };
+  }, [topTickers.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Detail panel: news for the currently-selected ticker only.
+  const selectedSymbol = selectedRow?.symbol || null;
+  const [detailNews, setDetailNews] = React.useState([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!selectedSymbol) {
+      setDetailNews([]);
+      return undefined;
+    }
+    fetchNews({ ticker: selectedSymbol, limit: 6 }).then((items) => {
+      if (!cancelled) setDetailNews(items);
+    });
+    return () => { cancelled = true; };
+  }, [selectedSymbol]);
 
   return (
     <div
@@ -200,7 +237,9 @@ export default function LethalBoardCockpit(props) {
                   selectedSymbol={selectedRow?.symbol || null}
                   onSelectSymbol={props.onSelectSymbol}
                   tradeContextBySymbol={props.tradeContextBySymbol || {}} />
-                <MarketIntelligencePanel items={null} title="Market intelligence" />
+                <MarketIntelligencePanel
+                  items={workspaceNews.length > 0 ? workspaceNews : null}
+                  title="Market intelligence" />
                 <AlertsPanel
                   alerts={props.recordedAlerts}
                   alertEventLabel={props.labels?.alertEventLabel}
@@ -220,7 +259,7 @@ export default function LethalBoardCockpit(props) {
             tradeContext={selectedTradeContext}
             summary={summary}
             providerHealth={props.providerHealth}
-            newsItems={null}
+            newsItems={detailNews.length > 0 ? detailNews : null}
             capitalCtx={props.capitalCtx}
             replay={!!props.liveMeta?.replay}
             replaySessionDate={
