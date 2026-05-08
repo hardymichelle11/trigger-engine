@@ -45,6 +45,10 @@ import { useCapitalContext } from "../../lib/capital/useCapitalContext.js";
 import { toAccountState } from "../../lib/capital/capitalContext.js";
 import CapitalSettingsModal from "./cockpit/CapitalSettingsModal.jsx";
 import { useCockpitActions } from "../../lib/cockpit/useCockpitActions.js";
+import { resolveSessionState } from "../../lib/sessionState.js";
+import { refreshPolicyForSession } from "../../lib/refreshPolicy.js";
+import { useAutoRefreshPreference } from "../../lib/autoRefreshPreference.js";
+import { useAutoRefresh, useClockTick } from "../../lib/useAutoRefresh.js";
 
 // --------------------------------------------------
 // SAMPLE SCAN — used by "Run sample scan" so the UI is
@@ -218,6 +222,28 @@ export default function LethalBoardPage({ onBack }) {
   // consumes them via the cockpit's prop pipe.
   const cockpitActions = useCockpitActions();
 
+  // Phase 4.7.9: live-state synchronization
+  // ---------------------------------------
+  // The cockpit auto-refreshes by default. Session state controls cadence
+  // (premarket runs slower than regular session); replay-only sessions
+  // pause auto-refresh entirely. The operator can toggle via the status
+  // bar; preference persists in localStorage. Tracks lastScanAtMs so the
+  // freshness chips on cards / detail panel can age correctly.
+  const [lastScanAtMs, setLastScanAtMs] = useState(null);
+  const { enabled: autoRefreshEnabled, toggle: toggleAutoRefresh } =
+    useAutoRefreshPreference();
+  // Re-evaluate session every minute so the cadence + status bar
+  // automatically transition (e.g., 9:30 AM ET premarket → regular).
+  const clockNow = useClockTick(60_000);
+  const sessionState = useMemo(() => resolveSessionState(clockNow), [clockNow]);
+  const refreshPolicy = useMemo(
+    () => refreshPolicyForSession(sessionState),
+    [sessionState],
+  );
+  // Drive a separate ticking clock at 5s for "12s ago / 2m ago" UI labels.
+  const fineClockNow = useClockTick(5_000);
+  const analyticsAgeMs = lastScanAtMs ? fineClockNow - lastScanAtMs : null;
+
   // Single options provider per session. Falls back to "missing_credentials"
   // when env config is absent or the terminal is offline.
   const optionsProviderRef = useRef(null);
@@ -353,6 +379,7 @@ export default function LethalBoardPage({ onBack }) {
     const out = getController().processScan({ scanResult: result, mode });
     setScanResult(out.scanResult);
     setScanStatus(out.status);
+    setLastScanAtMs(Date.now());
     if (mode === SCAN_MODE.COMMIT_LIVE) {
       // Always re-read after a commit attempt — even if recorded=false the
       // panel should reflect the current persisted state, not stale data.
@@ -471,6 +498,18 @@ export default function LethalBoardPage({ onBack }) {
     return out;
   }, [scanResult, optionSnapshotsBySymbol, resolvedExpirationBySymbol]);
 
+  // Phase 4.7.9: drive the auto-refresh cadence. Pause when the operator
+  // disabled it OR when the session has no live cadence (weekend / closed).
+  // The hook also pauses while the tab is hidden and prevents overlapping
+  // fetches if the previous tick is still in flight.
+  useAutoRefresh({
+    enabled: autoRefreshEnabled && !!refreshPolicy.analyticsIntervalMs,
+    intervalMs: refreshPolicy.analyticsIntervalMs,
+    onTick: runLivePreview,
+    runOnMount: false, // do not fire a refresh on first mount; let the
+                       // operator click into the cockpit naturally
+  });
+
   return (
     <>
       <LethalBoardCockpit
@@ -490,6 +529,12 @@ export default function LethalBoardPage({ onBack }) {
         onRunLiveCommit={runLiveCommit}
         onRunReplayLastClose={runReplayLastClose}
         onBack={onBack}
+        sessionState={sessionState}
+        refreshPolicy={refreshPolicy}
+        autoRefreshEnabled={autoRefreshEnabled}
+        onToggleAutoRefresh={toggleAutoRefresh}
+        analyticsAgeMs={analyticsAgeMs}
+        lastScanAtMs={lastScanAtMs}
         labels={{
           scanModeLabel: SCAN_MODE_LABEL,
           suppressedReasonLabel: SUPPRESSED_REASON_LABEL,

@@ -37,6 +37,7 @@ import OpportunityDetailPanel from "./cockpit/OpportunityDetailPanel.jsx";
 import MarketIntelligencePanel from "./cockpit/MarketIntelligencePanel.jsx";
 import AlertsPanel from "./cockpit/AlertsPanel.jsx";
 import { fetchNews, fetchNewsForTickers } from "../../lib/newsFeed.js";
+import RefreshStatusBar from "./cockpit/RefreshStatusBar.jsx";
 import { buildNewsThesis } from "../../lib/newsIntelligence.js";
 import { buildCandidateIntelligenceSummary } from "../../lib/candidateIntelligence.js";
 import { buildEntryReadiness } from "../../lib/entryReadiness.js";
@@ -206,13 +207,29 @@ export default function LethalBoardCockpit(props) {
           background: COCKPIT_PALETTE.workspaceBg,
         }}>
 
-        {/* 1. CAPITAL COMMAND BAR */}
-        <CapitalCommandBar
-          summary={summary}
-          capitalCtx={props.capitalCtx}
-          liveMeta={props.liveMeta}
-          onEditCapital={props.onEditCapital}
-          onToggleHideBalances={props.onToggleHideBalances} />
+        {/* 1. CAPITAL COMMAND BAR + REFRESH STATUS BAR */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          <CapitalCommandBar
+            summary={summary}
+            capitalCtx={props.capitalCtx}
+            liveMeta={props.liveMeta}
+            onEditCapital={props.onEditCapital}
+            onToggleHideBalances={props.onToggleHideBalances} />
+          {/* Refresh status: session, auto/paused, freshness, manual tick.
+              Single source of truth for "is the data the operator sees
+              actually current?" */}
+          {props.sessionState && (
+            <RefreshStatusBar
+              sessionState={props.sessionState}
+              autoRefreshEnabled={!!props.autoRefreshEnabled}
+              onToggleAutoRefresh={props.onToggleAutoRefresh}
+              onRefreshNow={props.onRunLivePreview}
+              refreshInFlight={!!props.loading}
+              quoteAgeMs={props.analyticsAgeMs}
+              analyticsAgeMs={props.analyticsAgeMs}
+              policyReason={props.refreshPolicy?.reason || ""} />
+          )}
+        </div>
 
         {/* 2. TOP PICKS GRID — 36% of viewport, 3 equal cards */}
         <section
