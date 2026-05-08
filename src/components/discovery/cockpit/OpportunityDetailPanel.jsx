@@ -134,6 +134,7 @@ export default function OpportunityDetailPanel({
         <div className="space-y-6">
           <SectionA_Summary row={row} summary={summary} />
           <SectionB_TradeConstruction tradeContext={tradeContext} />
+          <SectionCrossCheck row={row} tradeContext={tradeContext} />
           <SectionRangeBars row={row} tradeContext={tradeContext} />
           <SectionC_CapitalImpact row={row} tradeContext={tradeContext}
             summary={summary} capitalCtx={capitalCtx} />
@@ -711,6 +712,185 @@ function SectionB_TradeConstruction({ tradeContext }) {
     <section>
       <SectionHeader title="Trade construction" />
       <TradeConstructionSection tradeContext={tradeContext} />
+    </section>
+  );
+}
+
+// --------------------------------------------------
+// B2. Cross-check — independent recompute + provenance
+// --------------------------------------------------
+// Verifies the displayed numbers are internally consistent (recomputed
+// from primitives) AND surfaces the provenance flags that are easy to
+// miss in plain text: estimated vs live premium, fallback expirations,
+// unverified signals, missing levels.
+//
+// Math integrity:
+//   Collateral      = strike × 100
+//   ATR× to strike  = (spot − strike) / atr
+//   Distance ($)    = spot − strike
+// Plausibility:
+//   Premium % of strike, annualized yield (premium scaled to 365d),
+//   ATR-derived implied annual vol (rough sanity check vs the premium).
+// Provenance:
+//   premiumSource, resolvedExpirationMatched, signalState, missing
+//   support/resistance.
+
+function SectionCrossCheck({ row, tradeContext }) {
+  const tc = tradeContext || {};
+
+  // Resolve primitives (be tolerant of mixed string/number fields).
+  const spot   = numericOrNull(row?.price ?? tc.currentPrice);
+  const strike = numericOrNull(tc.suggestedStrike);
+  const atr    = numericOrNull(tc.atr);
+  const dte    = numericOrNull(tc.resolvedExpirationDte ?? tc.expirationDte);
+  const premium = numericOrNull(tc.estimatedPremium);                  // dollars
+  const collateralShown = numericOrNull(tc.estimatedCollateral);
+
+  // Recomputed values
+  const expectedCollateral = strike != null ? strike * 100 : null;
+  const expectedAtrDistance =
+    spot != null && strike != null && atr ? (spot - strike) / atr : null;
+  const expectedDistance =
+    spot != null && strike != null ? spot - strike : null;
+
+  const close = (a, b, eps) => a != null && b != null && Math.abs(a - b) <= eps;
+
+  const checks = [];
+  if (expectedCollateral != null && collateralShown != null) {
+    checks.push({
+      label: "Collateral",
+      shown: `$${collateralShown.toLocaleString()}`,
+      expected: `$${strike} × 100 = $${expectedCollateral.toLocaleString()}`,
+      ok: close(expectedCollateral, collateralShown, 1),
+    });
+  }
+  if (expectedAtrDistance != null && tc.atrDistanceFromStrike != null) {
+    checks.push({
+      label: "ATR× to strike",
+      shown: `${Number(tc.atrDistanceFromStrike).toFixed(2)}×`,
+      expected: `(${spot.toFixed(2)} − ${strike.toFixed(2)}) ÷ ${atr.toFixed(2)} = ${expectedAtrDistance.toFixed(2)}×`,
+      ok: close(expectedAtrDistance, Number(tc.atrDistanceFromStrike), 0.05),
+    });
+  }
+  if (expectedDistance != null && tc.distanceFromPriceToStrike != null) {
+    checks.push({
+      label: "Spot → strike",
+      shown: `$${Number(tc.distanceFromPriceToStrike).toFixed(2)}`,
+      expected: `${spot.toFixed(2)} − ${strike.toFixed(2)} = $${expectedDistance.toFixed(2)}`,
+      ok: close(expectedDistance, Number(tc.distanceFromPriceToStrike), 0.05),
+    });
+  }
+
+  // Plausibility metrics (no pass/fail — just expose for the operator)
+  const premiumPctOfStrike =
+    premium != null && strike != null && strike > 0
+      ? (premium / 100) / strike
+      : null;
+  const annualizedYield =
+    premiumPctOfStrike != null && dte != null && dte > 0
+      ? premiumPctOfStrike * (365 / dte)
+      : null;
+  const distancePct =
+    spot != null && strike != null && spot > 0
+      ? Math.abs(spot - strike) / spot
+      : null;
+  // ATR is daily; sqrt(252) converts to annualized vol.
+  const impliedAnnualVol =
+    atr != null && spot != null && spot > 0
+      ? (atr / spot) * Math.sqrt(252)
+      : null;
+
+  // Provenance flags
+  const flags = [];
+  const ps = tc.premiumSource;
+  if (ps === "live") flags.push({ tone: "good", text: "Premium: live chain quote" });
+  else if (ps === "estimated") flags.push({ tone: "warn", text: "Premium: model estimate (no live chain quote)" });
+  else if (ps === "unavailable") flags.push({ tone: "bad", text: "Premium: UNAVAILABLE — option pricing unknown" });
+
+  const xm = tc.resolvedExpirationMatched;
+  if (xm === "preferred") flags.push({ tone: "good", text: "Expiration: matched preferred DTE" });
+  else if (xm === "fallback") flags.push({ tone: "warn", text: "Expiration: resolver fallback (chain may be thin)" });
+  else if (tc.resolvedExpirationReason) {
+    flags.push({ tone: "bad", text: `Expiration: ${tc.resolvedExpirationReason}` });
+  }
+
+  if (row?.signalState === "verified") flags.push({ tone: "good", text: "Signal: verified" });
+  else if (row?.signalState === "unverified") flags.push({ tone: "warn", text: "Signal: unverified — needs confirmation" });
+
+  if (tc.support == null && tc.r1 == null && tc.r2 == null) {
+    flags.push({ tone: "warn", text: "Support / R1 / R2: no levels resolved" });
+  }
+  if (tc.spreadWidthLabel === "wide") {
+    flags.push({ tone: "warn", text: "Bid/ask spread: wide — verify before entry" });
+  }
+
+  return (
+    <section>
+      <SectionHeader title="Cross-check · numbers" />
+
+      {checks.length > 0 ? (
+        <div className="space-y-1 text-[11px]">
+          {checks.map((c, i) => (
+            <div key={i} className="flex items-baseline justify-between gap-3 border-b border-zinc-800/60 pb-1 last:border-0">
+              <div>
+                <div className="text-zinc-400">{c.label}</div>
+                <div className="text-[10px] text-zinc-600">{c.expected}</div>
+              </div>
+              <div className={`text-[12px] font-semibold tabular ${c.ok ? "text-emerald-400" : "text-rose-400"}`}>
+                {c.shown} {c.ok ? "✓" : "✗"}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[11px] text-zinc-500">Not enough primitives to recompute.</div>
+      )}
+
+      <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-zinc-500 mb-1">
+        Plausibility
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <KV
+          label="Premium % of strike"
+          value={premiumPctOfStrike != null ? `${(premiumPctOfStrike * 100).toFixed(2)}%` : "—"}
+        />
+        <KV
+          label="Annualized yield"
+          value={annualizedYield != null ? `${(annualizedYield * 100).toFixed(0)}%` : "—"}
+          valueClass={
+            annualizedYield != null && annualizedYield > 1.0
+              ? "text-amber-400"      // >100% annualized → either juicy or overestimated
+              : "text-zinc-200"
+          }
+        />
+        <KV
+          label="Distance % to strike"
+          value={distancePct != null ? `${(distancePct * 100).toFixed(2)}%` : "—"}
+        />
+        <KV
+          label="Implied annual vol (ATR-derived)"
+          value={impliedAnnualVol != null ? `${(impliedAnnualVol * 100).toFixed(0)}%` : "—"}
+        />
+      </div>
+
+      {flags.length > 0 && (
+        <>
+          <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-zinc-500 mb-1">
+            Provenance
+          </div>
+          <ul className="space-y-0.5 text-[11px]">
+            {flags.map((f, i) => (
+              <li key={i} className={
+                f.tone === "good" ? "text-emerald-400"
+                : f.tone === "warn" ? "text-amber-400"
+                : "text-rose-400"
+              }>
+                {f.text}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }
