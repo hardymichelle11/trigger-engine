@@ -37,6 +37,7 @@ import TradeConstructionSection from "../TradeConstructionSection.jsx";
 import MarketIntelligencePanel from "./MarketIntelligencePanel.jsx";
 import CandidateIntelligenceSummary from "./CandidateIntelligenceSummary.jsx";
 import EntryReadinessCard from "./EntryReadinessCard.jsx";
+import FreshnessChip from "./FreshnessChip.jsx";
 import { maskMoney } from "../../../lib/capital/capitalContext.js";
 import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
 
@@ -63,6 +64,15 @@ export default function OpportunityDetailPanel({
   newsThesis = null,
   candidateIntelligence = null,
   entryReadiness = null,
+  // Phase 4.7.9 — freshness ages for the per-detail FreshnessChip in the
+  // QuoteHeader. analyticsAgeMs is whole-scan; quoteAgeMs is per-symbol
+  // when the quote-only refresh has data, falls back to analyticsAgeMs.
+  quoteAgeMs = null,
+  analyticsAgeMs = null,
+  // Live-quote overlay for the selected symbol (price/%/previousClose).
+  // Score and rank still come from the engine (`row`); this just keeps
+  // the detail-panel header in sync with the cards on the quote cadence.
+  liveQuote = null,
   capitalCtx = null,
   replay = false,
   replaySessionDate = null,
@@ -104,7 +114,12 @@ export default function OpportunityDetailPanel({
     }} aria-label="Selected ticker detail">
 
       {/* Fidelity-style quote header (title left + price right) */}
-      <QuoteHeader row={row} tradeContext={tradeContext} />
+      <QuoteHeader
+        row={row}
+        tradeContext={tradeContext}
+        liveQuote={liveQuote}
+        quoteAgeMs={quoteAgeMs}
+        analyticsAgeMs={analyticsAgeMs} />
 
       {/* Phase 4.7.6: REPLAY banner — visible only when the active scan
           was loaded via Replay Last Close. Sits flush below the quote
@@ -188,11 +203,32 @@ export default function OpportunityDetailPanel({
 // QUOTE HEADER (Fidelity-style)
 // --------------------------------------------------
 
-function QuoteHeader({ row, tradeContext }) {
-  const price = parsePrice(tradeContext?.currentPrice ?? tradeContext?.suggestedStrike);
+function QuoteHeader({ row, tradeContext, liveQuote = null, quoteAgeMs = null, analyticsAgeMs = null }) {
+  // Prefer the live-quote overlay (price + %) when present; fall back to
+  // scan-time tradeContext. Score/rank are NOT derived here — they still
+  // come from the engine via `row` and are rendered as-is below.
+  const livePrice = parsePrice(liveQuote?.price);
+  const price = livePrice ?? parsePrice(tradeContext?.currentPrice ?? tradeContext?.suggestedStrike);
+  const livePercent = liveQuote?.percentChange != null && Number.isFinite(Number(liveQuote.percentChange))
+    ? Number(liveQuote.percentChange)
+    : null;
+  const livePrevClose = parsePrice(liveQuote?.previousClose);
+  // Compute % change from price/prevClose only when the provider didn't
+  // supply percentChange directly. Outside regular hours the provider's
+  // todaysChangePerc handles extended-session logic correctly.
+  const computedPercent = (livePercent == null && price != null && livePrevClose != null && livePrevClose > 0)
+    ? ((price - livePrevClose) / livePrevClose) * 100
+    : null;
+  const percentChange = livePercent ?? computedPercent;
   const mid = tradeContext?.mid != null ? Number(tradeContext.mid) : null;
   const bid = tradeContext?.bid != null ? Number(tradeContext.bid) : null;
   const ask = tradeContext?.ask != null ? Number(tradeContext.ask) : null;
+  const showFreshness = quoteAgeMs != null || analyticsAgeMs != null;
+  const pctTone = percentChange == null
+    ? COCKPIT_PALETTE.textDim
+    : percentChange >= 0
+      ? COCKPIT_PALETTE.accentGreen
+      : COCKPIT_PALETTE.accentRed;
   return (
     <header style={{
       flex: "none", padding: 16,
@@ -204,13 +240,22 @@ function QuoteHeader({ row, tradeContext }) {
         <div style={{
           fontSize: 22, fontWeight: 700, letterSpacing: "0.02em",
           color: COCKPIT_PALETTE.accentTeal,
+          display: "flex", alignItems: "center", gap: 8,
+          flexWrap: "wrap",
           ...truncate,
         }}>
-          {row.symbol}
+          <span style={truncate}>{row.symbol}</span>
           {row.isBestUseOfCapital && (
-            <span style={{ marginLeft: 8, fontSize: 11, color: COCKPIT_PALETTE.accentTeal }}>
+            <span style={{ fontSize: 11, color: COCKPIT_PALETTE.accentTeal }}>
               ★ BEST USE
             </span>
+          )}
+          {showFreshness && (
+            <FreshnessChip
+              quoteAgeMs={quoteAgeMs}
+              analyticsAgeMs={analyticsAgeMs}
+              showAge={true}
+              size="sm" />
           )}
         </div>
         <div style={{
@@ -227,8 +272,14 @@ function QuoteHeader({ row, tradeContext }) {
         <div style={{
           fontSize: 22, fontWeight: 700, color: COCKPIT_PALETTE.text,
           fontFeatureSettings: "'tnum'",
+          display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 8,
         }}>
-          {price != null ? `$${price.toFixed(2)}` : "—"}
+          <span>{price != null ? `$${price.toFixed(2)}` : "—"}</span>
+          {percentChange != null && (
+            <span style={{ fontSize: 13, fontWeight: 700, color: pctTone }}>
+              {percentChange >= 0 ? "+" : ""}{percentChange.toFixed(2)}%
+            </span>
+          )}
         </div>
         <div style={{
           fontSize: 11, color: COCKPIT_PALETTE.textDim, marginTop: 4,

@@ -36,6 +36,14 @@ export default function TopPicksGrid({
   topN = 3,
   replay = false,
   replaySessionDate = null,
+  // Phase 4.7.9 — freshness ages threaded down to per-card chip.
+  // analyticsAgeMs is whole-scan; quoteAgeMsBySymbol may differ per
+  // symbol once the quote-only refresh path is live.
+  analyticsAgeMs = null,
+  quoteAgeMsBySymbol = null,
+  // Live-quote overlay (price / percent change / volume). Score and
+  // rank still come from rows (engine output).
+  liveQuotesBySymbol = null,
 }) {
   const top = Array.isArray(rows) ? rows.slice(0, topN) : [];
 
@@ -65,6 +73,13 @@ export default function TopPicksGrid({
           insight={buildComparativeInsight(r, rows, tradeContextBySymbol)}
           replay={replay}
           replaySessionDate={replaySessionDate}
+          quoteAgeMs={
+            quoteAgeMsBySymbol && quoteAgeMsBySymbol[r.symbol] != null
+              ? quoteAgeMsBySymbol[r.symbol]
+              : analyticsAgeMs
+          }
+          analyticsAgeMs={analyticsAgeMs}
+          liveQuote={liveQuotesBySymbol ? liveQuotesBySymbol[r.symbol] : null}
         />
       ))}
     </div>

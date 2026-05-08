@@ -252,7 +252,10 @@ export default function LethalBoardCockpit(props) {
                 props.liveMeta?.universe?.sessionDateLabel
                   || props.liveMeta?.sessionDateLabel
                   || null
-              } />
+              }
+              analyticsAgeMs={props.analyticsAgeMs}
+              quoteAgeMsBySymbol={props.quoteAgeMsBySymbol}
+              liveQuotesBySymbol={props.liveQuotesBySymbol} />
           )}
         </section>
 
@@ -319,6 +322,19 @@ export default function LethalBoardCockpit(props) {
             newsThesis={detailNewsThesis}
             candidateIntelligence={candidateIntelligence}
             entryReadiness={entryReadiness}
+            quoteAgeMs={
+              props.quoteAgeMsBySymbol &&
+              selectedRow &&
+              props.quoteAgeMsBySymbol[selectedRow.symbol] != null
+                ? props.quoteAgeMsBySymbol[selectedRow.symbol]
+                : props.analyticsAgeMs
+            }
+            analyticsAgeMs={props.analyticsAgeMs}
+            liveQuote={
+              props.liveQuotesBySymbol && selectedRow
+                ? (props.liveQuotesBySymbol[selectedRow.symbol] || null)
+                : null
+            }
             capitalCtx={props.capitalCtx}
             replay={!!props.liveMeta?.replay}
             replaySessionDate={

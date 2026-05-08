@@ -24,6 +24,7 @@ import {
 } from "./cockpitPrimitives.jsx";
 import TradingViewMiniChart from "../../lethal/TradingViewMiniChart.jsx";
 import { COCKPIT_PALETTE } from "./cockpitTheme.js";
+import FreshnessChip from "./FreshnessChip.jsx";
 
 /**
  * @param {object} props
@@ -59,6 +60,16 @@ export default function OpportunityCard({
   insight = null,
   replay = false,
   replaySessionDate = null,
+  // Phase 4.7.9: per-card freshness. quoteAgeMs comes from the live-quote
+  // refresh layer; analyticsAgeMs from the last full scanner recompute.
+  // When quote is fresher than analytics by > tolerance, the chip
+  // shows RECALCULATING.
+  quoteAgeMs = null,
+  analyticsAgeMs = null,
+  // Phase 4.7.9: live-quote overlay. When present, its price /
+  // percentChange / previousClose drive the price strip — score and
+  // rank still come from `row` (engine output).
+  liveQuote = null,
 }) {
   const isBest = !!row.isBestUseOfCapital;
   const fitTone = fitToneClass(row.capitalFitCode);
@@ -75,8 +86,14 @@ export default function OpportunityCard({
   const premium = numericOrNull(tc.estimatedPremium);
   const collateral = numericOrNull(tc.estimatedCollateral);
   const breakeven = (strike != null && premium != null) ? (strike - premium) : null;
-  const currentPrice = numericOrNull(tc.currentPrice);
-  const previousClose = numericOrNull(candidate?.previousClose);
+  // Live-quote overlay wins when present; otherwise fall back to scan-time
+  // values. Score and rank remain row-driven (engine), unchanged.
+  const currentPrice =
+    numericOrNull(liveQuote?.price) ?? numericOrNull(tc.currentPrice);
+  const previousClose =
+    numericOrNull(liveQuote?.previousClose) ?? numericOrNull(candidate?.previousClose);
+  // Polygon's todaysChangePerc is already a percent (e.g., 2.01 = 2.01%).
+  const livePercentChange = numericOrNull(liveQuote?.percentChange);
 
   // Honest "Option chain not verified" — preferred over repeating
   // "premium unavailable" in three different cells.
@@ -148,6 +165,23 @@ export default function OpportunityCard({
           {slotLabel}
         </div>
 
+        {/* FRESHNESS CHIP — top-right, floating.
+            Tells the operator at a glance whether the card's data is
+            current. Sits above the ticker so it doesn't compete with
+            the price overlay at the bottom. */}
+        {(quoteAgeMs != null || analyticsAgeMs != null) && (
+          <div style={{
+            position: "absolute", top: 8, right: 12,
+            pointerEvents: "none",
+          }}>
+            <FreshnessChip
+              quoteAgeMs={quoteAgeMs}
+              analyticsAgeMs={analyticsAgeMs}
+              showAge={false}
+              size="xs" />
+          </div>
+        )}
+
         {/* Score moved off the chart — it now lives in the action row below
             so it sits with the engine's other assessments (action / phase /
             fit) instead of competing with TradingView's own chrome. */}
@@ -183,8 +217,16 @@ export default function OpportunityCard({
           }}>
             {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
           </span>
-          {currentPrice != null && previousClose != null && previousClose !== 0 && (() => {
-            const pct = ((currentPrice - previousClose) / previousClose) * 100;
+          {(() => {
+            // Prefer the provider's todaysChangePerc when we have it
+            // (handles extended-hours math correctly). Otherwise compute
+            // from price + previousClose.
+            const pct = livePercentChange != null
+              ? livePercentChange
+              : (currentPrice != null && previousClose != null && previousClose !== 0)
+                ? ((currentPrice - previousClose) / previousClose) * 100
+                : null;
+            if (pct == null) return null;
             return (
               <span style={{
                 fontSize: 12,

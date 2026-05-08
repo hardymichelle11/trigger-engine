@@ -49,6 +49,7 @@ import { resolveSessionState } from "../../lib/sessionState.js";
 import { refreshPolicyForSession } from "../../lib/refreshPolicy.js";
 import { useAutoRefreshPreference } from "../../lib/autoRefreshPreference.js";
 import { useAutoRefresh, useClockTick } from "../../lib/useAutoRefresh.js";
+import { fetchQuotes, mergeQuotes } from "../../lib/quoteFetch.js";
 
 // --------------------------------------------------
 // SAMPLE SCAN — used by "Run sample scan" so the UI is
@@ -243,6 +244,38 @@ export default function LethalBoardPage({ onBack }) {
   // Drive a separate ticking clock at 5s for "12s ago / 2m ago" UI labels.
   const fineClockNow = useClockTick(5_000);
   const analyticsAgeMs = lastScanAtMs ? fineClockNow - lastScanAtMs : null;
+
+  // Phase 4.7.9 — quote-only refresh layer
+  // ---------------------------------------
+  // The full scanner re-fetches everything at the analytics cadence
+  // (60-120s). Cards would otherwise show stale prices for that whole
+  // window. The quote-only layer hits Polygon's bulk snapshot API at
+  // the faster `quoteIntervalMs` cadence and overlays just price /
+  // percentChange / volume on cards. Score and rank only update on
+  // the analytics path — engine output is unaffected.
+  const [liveQuotesBySymbol, setLiveQuotesBySymbol] = useState({});
+  const refreshQuotesNow = useCallback(async (symbols) => {
+    if (!Array.isArray(symbols) || symbols.length === 0) return;
+    const fresh = await fetchQuotes(symbols);
+    if (Object.keys(fresh).length === 0) return;
+    setLiveQuotesBySymbol((prev) => mergeQuotes(prev, fresh));
+  }, []);
+
+  // Per-symbol quote age derived from the merged map. Cards consume
+  // this so the FreshnessChip can show RECALCULATING when the quote
+  // moved but the analytics scan hasn't caught up.
+  const quoteAgeMsBySymbol = useMemo(() => {
+    if (!liveQuotesBySymbol || Object.keys(liveQuotesBySymbol).length === 0) {
+      return null;
+    }
+    const out = {};
+    for (const [sym, q] of Object.entries(liveQuotesBySymbol)) {
+      if (Number.isFinite(q?.lastQuoteAtMs)) {
+        out[sym] = fineClockNow - q.lastQuoteAtMs;
+      }
+    }
+    return out;
+  }, [liveQuotesBySymbol, fineClockNow]);
 
   // Single options provider per session. Falls back to "missing_credentials"
   // when env config is absent or the terminal is offline.
@@ -502,12 +535,34 @@ export default function LethalBoardPage({ onBack }) {
   // disabled it OR when the session has no live cadence (weekend / closed).
   // The hook also pauses while the tab is hidden and prevents overlapping
   // fetches if the previous tick is still in flight.
+  //
+  // Two cadences run side by side:
+  //   - analyticsIntervalMs (60-120s) → full runLivePreview (re-rank, re-score)
+  //   - quoteIntervalMs (15-30s)      → quote-only fetch (price/%, no scoring)
   useAutoRefresh({
     enabled: autoRefreshEnabled && !!refreshPolicy.analyticsIntervalMs,
     intervalMs: refreshPolicy.analyticsIntervalMs,
     onTick: runLivePreview,
     runOnMount: false, // do not fire a refresh on first mount; let the
                        // operator click into the cockpit naturally
+  });
+
+  // Quote cadence — only runs once we actually have rows to update.
+  // Symbols are derived from the latest scan result so we never request
+  // quotes for tickers the engine hasn't scored.
+  const quoteRefreshSymbols = useMemo(() => {
+    const ranked = Array.isArray(scanResult?.ranked) ? scanResult.ranked : [];
+    return ranked.map((r) => r?.symbol).filter(Boolean);
+  }, [scanResult]);
+
+  useAutoRefresh({
+    enabled:
+      autoRefreshEnabled &&
+      !!refreshPolicy.quoteIntervalMs &&
+      quoteRefreshSymbols.length > 0,
+    intervalMs: refreshPolicy.quoteIntervalMs,
+    onTick: () => refreshQuotesNow(quoteRefreshSymbols),
+    runOnMount: false,
   });
 
   return (
@@ -535,6 +590,8 @@ export default function LethalBoardPage({ onBack }) {
         onToggleAutoRefresh={toggleAutoRefresh}
         analyticsAgeMs={analyticsAgeMs}
         lastScanAtMs={lastScanAtMs}
+        liveQuotesBySymbol={liveQuotesBySymbol}
+        quoteAgeMsBySymbol={quoteAgeMsBySymbol}
         labels={{
           scanModeLabel: SCAN_MODE_LABEL,
           suppressedReasonLabel: SUPPRESSED_REASON_LABEL,
