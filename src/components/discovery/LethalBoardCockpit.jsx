@@ -37,6 +37,8 @@ import OpportunityDetailPanel from "./cockpit/OpportunityDetailPanel.jsx";
 import MarketIntelligencePanel from "./cockpit/MarketIntelligencePanel.jsx";
 import AlertsPanel from "./cockpit/AlertsPanel.jsx";
 import { fetchNews, fetchNewsForTickers } from "../../lib/newsFeed.js";
+import { buildNewsThesis } from "../../lib/newsIntelligence.js";
+import { buildCandidateIntelligenceSummary } from "../../lib/candidateIntelligence.js";
 
 /**
  * @param {object} props
@@ -111,6 +113,29 @@ export default function LethalBoardCockpit(props) {
     });
     return () => { cancelled = true; };
   }, [selectedSymbol]);
+
+  // News thesis — narrative summary built from enriched articles.
+  // Computed per render off the latest fetched news; cheap, no I/O.
+  const workspaceNewsThesis = React.useMemo(
+    () => buildNewsThesis(topTickers[0] || null, workspaceNews),
+    [workspaceNews, topTickers],
+  );
+  const detailNewsThesis = React.useMemo(
+    () => buildNewsThesis(selectedSymbol, detailNews),
+    [detailNews, selectedSymbol],
+  );
+
+  // Candidate intelligence summary for the selected row. Engine posture
+  // comes from the row; news context comes from detailNews. The summary
+  // never lets news override the engine — a WAIT row stays a wait even
+  // if news is positive.
+  const candidateIntelligence = React.useMemo(
+    () =>
+      selectedRow
+        ? buildCandidateIntelligenceSummary(selectedRow, detailNews)
+        : null,
+    [selectedRow, detailNews],
+  );
 
   return (
     <div
@@ -239,7 +264,8 @@ export default function LethalBoardCockpit(props) {
                   tradeContextBySymbol={props.tradeContextBySymbol || {}} />
                 <MarketIntelligencePanel
                   items={workspaceNews.length > 0 ? workspaceNews : null}
-                  title="Market intelligence" />
+                  title="Market intelligence"
+                  newsThesis={workspaceNewsThesis} />
                 <AlertsPanel
                   alerts={props.recordedAlerts}
                   alertEventLabel={props.labels?.alertEventLabel}
@@ -260,6 +286,8 @@ export default function LethalBoardCockpit(props) {
             summary={summary}
             providerHealth={props.providerHealth}
             newsItems={detailNews.length > 0 ? detailNews : null}
+            newsThesis={detailNewsThesis}
+            candidateIntelligence={candidateIntelligence}
             capitalCtx={props.capitalCtx}
             replay={!!props.liveMeta?.replay}
             replaySessionDate={

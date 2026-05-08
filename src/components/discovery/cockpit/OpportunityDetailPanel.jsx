@@ -35,6 +35,7 @@ import {
 } from "./cockpitPrimitives.jsx";
 import TradeConstructionSection from "../TradeConstructionSection.jsx";
 import MarketIntelligencePanel from "./MarketIntelligencePanel.jsx";
+import CandidateIntelligenceSummary from "./CandidateIntelligenceSummary.jsx";
 import { maskMoney } from "../../../lib/capital/capitalContext.js";
 import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
 
@@ -44,7 +45,9 @@ import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
  * @param {object|null} [props.tradeContext]            buildTradeConstructionContext output
  * @param {object|null} [props.summary]                 view-model summary
  * @param {object|null} [props.providerHealth]          ThetaData provider health
- * @param {Array<object>|null} [props.newsItems]        future Phase 4.9 wiring
+ * @param {Array<object>|null} [props.newsItems]        enriched news (catalystType, newsConfidence, newsScoreAdjustment)
+ * @param {{ text: string, tone: string, reliable: boolean }|null} [props.newsThesis]
+ * @param {object|null} [props.candidateIntelligence]   buildCandidateIntelligenceSummary() output
  * @param {object|null} [props.capitalCtx]              CapitalContext (private)
  * @param {boolean} [props.replay]                      Phase 4.7.6 — true when active scan is replay
  * @param {string} [props.replaySessionDate]            human-readable session date label
@@ -55,6 +58,8 @@ export default function OpportunityDetailPanel({
   summary = null,
   providerHealth = null,
   newsItems = null,
+  newsThesis = null,
+  candidateIntelligence = null,
   capitalCtx = null,
   replay = false,
   replaySessionDate = null,
@@ -133,6 +138,9 @@ export default function OpportunityDetailPanel({
            }}>
         <div className="space-y-6">
           <SectionA_Summary row={row} summary={summary} />
+          {candidateIntelligence && (
+            <CandidateIntelligenceSummary summary={candidateIntelligence} />
+          )}
           <SectionB_TradeConstruction tradeContext={tradeContext} />
           <SectionCrossCheck row={row} tradeContext={tradeContext} />
           <SectionRangeBars row={row} tradeContext={tradeContext} />
@@ -143,7 +151,7 @@ export default function OpportunityDetailPanel({
           <SectionD_PracticalInsights row={row} summary={summary}
             tradeContext={tradeContext} providerHealth={providerHealth} />
           <SectionE_TechnicalContext tradeContext={tradeContext} />
-          <SectionF_NewsInsight items={newsItems} />
+          <SectionF_NewsInsight items={newsItems} newsThesis={newsThesis} />
           <SectionG_WhyHigh row={row} />
           {/* Phase 4.7.5: trader-facing decision aids */}
           <SectionWhatUpgrades row={row} tradeContext={tradeContext} />
@@ -1231,11 +1239,15 @@ function SectionE_TechnicalContext({ tradeContext }) {
 // F. News / market insight placeholder
 // --------------------------------------------------
 
-function SectionF_NewsInsight({ items }) {
+function SectionF_NewsInsight({ items, newsThesis }) {
   return (
     <section>
       <SectionHeader title="News / market insight" />
-      <MarketIntelligencePanel items={items || null} title="Headlines" />
+      <MarketIntelligencePanel
+        items={items || null}
+        title="Headlines"
+        newsThesis={newsThesis || null}
+      />
     </section>
   );
 }

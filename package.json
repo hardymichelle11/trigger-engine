@@ -22,6 +22,8 @@
     "test:stack": "node scripts/test-stack-backtest.js",
     "test:discovery": "node scripts/test-discovery.js",
     "test:structure": "node scripts/test-structure.js",
+    "test:news-intelligence": "node scripts/test-news-intelligence.js",
+    "test:candidate-intelligence": "node scripts/test-candidate-intelligence.js",
     "backtest": "node scripts/run-backtest.js",
     "backtest:stack": "node scripts/run-stack-backtest.js",
     "calibrate": "node scripts/run-calibration.js",

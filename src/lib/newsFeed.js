@@ -18,6 +18,7 @@
 // =====================================================================
 
 import { buildPolygonUrl } from "./polygonProxy.js";
+import { enrichArticle } from "./newsIntelligence.js";
 
 const CACHE_MS = 60 * 1000;
 const _cache = new Map(); // cacheKey → { ts, items }
@@ -54,19 +55,32 @@ function projectArticle(article, primaryTicker) {
 
   const sentiment = insight?.sentiment || null;
   const reasoning = insight?.sentiment_reasoning || article.description || "";
+  const publisherName = article.publisher?.name || article.author || "—";
 
-  return {
+  // Carry the raw fields the news-intelligence layer needs to classify
+  // (description / keywords / insights) alongside the projection so
+  // enrichment is self-contained from this point forward.
+  const projected = {
     headline: article.title || "Untitled",
-    source: article.publisher?.name || article.author || "—",
+    title: article.title || "Untitled",
+    source: publisherName,
+    publisherName,
     timestamp: humanizeTimestamp(article.published_utc),
     publishedAt: article.published_utc || null,
+    publishedIso: article.published_utc || null,
     why: reasoning,
+    description: article.description || "",
+    keywords: article.keywords || [],
+    insights: article.insights || [],
     relevance: SENTIMENT_TO_RELEVANCE[sentiment] || "low",
     sentiment,
+    sentiment_reasoning: insight?.sentiment_reasoning || null,
     tickers: article.tickers || [],
     url: article.article_url || null,
-    publishedIso: article.published_utc || null,
+    isPlaceholder: false,
   };
+
+  return enrichArticle(projected, primaryTicker);
 }
 
 /**
