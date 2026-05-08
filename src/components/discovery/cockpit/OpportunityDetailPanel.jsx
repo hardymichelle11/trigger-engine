@@ -38,6 +38,7 @@ import MarketIntelligencePanel from "./MarketIntelligencePanel.jsx";
 import CandidateIntelligenceSummary from "./CandidateIntelligenceSummary.jsx";
 import EntryReadinessCard from "./EntryReadinessCard.jsx";
 import FreshnessChip from "./FreshnessChip.jsx";
+import { freshnessForCandidate, FRESHNESS, humanizeAge } from "../../../lib/marketFreshness.js";
 import { maskMoney } from "../../../lib/capital/capitalContext.js";
 import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
 
@@ -205,8 +206,13 @@ export default function OpportunityDetailPanel({
 
 function QuoteHeader({ row, tradeContext, liveQuote = null, quoteAgeMs = null, analyticsAgeMs = null }) {
   // Prefer the live-quote overlay (price + %) when present; fall back to
-  // scan-time tradeContext. Score/rank are NOT derived here — they still
-  // come from the engine via `row` and are rendered as-is below.
+  // scan-time tradeContext.
+  //
+  // Quote-only invariant: the live-quote path drives ONLY the price strip
+  // (price + percentChange). rank, score, action, phase ("primaryType"),
+  // and capital fit all read from `row` — they are engine output and
+  // change only when the analytics path re-ranks. If you ever wire a
+  // field below to liveQuote, double-check it isn't one of those.
   const livePrice = parsePrice(liveQuote?.price);
   const price = livePrice ?? parsePrice(tradeContext?.currentPrice ?? tradeContext?.suggestedStrike);
   const livePercent = liveQuote?.percentChange != null && Number.isFinite(Number(liveQuote.percentChange))
@@ -224,6 +230,10 @@ function QuoteHeader({ row, tradeContext, liveQuote = null, quoteAgeMs = null, a
   const bid = tradeContext?.bid != null ? Number(tradeContext.bid) : null;
   const ask = tradeContext?.ask != null ? Number(tradeContext.ask) : null;
   const showFreshness = quoteAgeMs != null || analyticsAgeMs != null;
+  const freshness = showFreshness
+    ? freshnessForCandidate({ quoteAgeMs, analyticsAgeMs })
+    : null;
+  const isRecalculating = freshness === FRESHNESS.RECALCULATING;
   const pctTone = percentChange == null
     ? COCKPIT_PALETTE.textDim
     : percentChange >= 0
@@ -233,66 +243,110 @@ function QuoteHeader({ row, tradeContext, liveQuote = null, quoteAgeMs = null, a
     <header style={{
       flex: "none", padding: 16,
       borderBottom: `1px solid ${COCKPIT_PALETTE.borderSoft}`,
-      display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-      gap: 12, minWidth: 0,
+      display: "flex", flexDirection: "column", gap: 8, minWidth: 0,
     }}>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{
-          fontSize: 22, fontWeight: 700, letterSpacing: "0.02em",
-          color: COCKPIT_PALETTE.accentTeal,
-          display: "flex", alignItems: "center", gap: 8,
-          flexWrap: "wrap",
-          ...truncate,
-        }}>
-          <span style={truncate}>{row.symbol}</span>
-          {row.isBestUseOfCapital && (
-            <span style={{ fontSize: 11, color: COCKPIT_PALETTE.accentTeal }}>
-              ★ BEST USE
-            </span>
-          )}
-          {showFreshness && (
-            <FreshnessChip
-              quoteAgeMs={quoteAgeMs}
-              analyticsAgeMs={analyticsAgeMs}
-              showAge={true}
-              size="sm" />
-          )}
+      <div style={{
+        display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+        gap: 12, minWidth: 0,
+      }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            fontSize: 22, fontWeight: 700, letterSpacing: "0.02em",
+            color: COCKPIT_PALETTE.accentTeal,
+            display: "flex", alignItems: "center", gap: 8,
+            flexWrap: "wrap",
+            ...truncate,
+          }}>
+            <span style={truncate}>{row.symbol}</span>
+            {row.isBestUseOfCapital && (
+              <span style={{ fontSize: 11, color: COCKPIT_PALETTE.accentTeal }}>
+                ★ BEST USE
+              </span>
+            )}
+            {showFreshness && (
+              <FreshnessChip
+                quoteAgeMs={quoteAgeMs}
+                analyticsAgeMs={analyticsAgeMs}
+                showAge={true}
+                size="sm" />
+            )}
+          </div>
+          <div style={{
+            fontSize: 11, color: COCKPIT_PALETTE.textDim, marginTop: 4,
+            ...truncate,
+          }}>
+            {row.primaryType ? humanize(row.primaryType) : "—"}
+            {" · rank #"}{row.rank}
+            {" · score "}{row.score}
+          </div>
         </div>
-        <div style={{
-          fontSize: 11, color: COCKPIT_PALETTE.textDim, marginTop: 4,
-          ...truncate,
-        }}>
-          {row.primaryType ? humanize(row.primaryType) : "—"}
-          {" · rank #"}{row.rank}
-          {" · score "}{row.score}
+
+        <div style={{ textAlign: "right", flex: "none" }}>
+          <div style={{
+            fontSize: 22, fontWeight: 700, color: COCKPIT_PALETTE.text,
+            fontFeatureSettings: "'tnum'",
+            display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 8,
+          }}>
+            <span>{price != null ? `$${price.toFixed(2)}` : "—"}</span>
+            {percentChange != null && (
+              <span style={{ fontSize: 13, fontWeight: 700, color: pctTone }}>
+                {percentChange >= 0 ? "+" : ""}{percentChange.toFixed(2)}%
+              </span>
+            )}
+          </div>
+          <div style={{
+            fontSize: 11, color: COCKPIT_PALETTE.textDim, marginTop: 4,
+            fontFeatureSettings: "'tnum'",
+          }}>
+            {bid != null && ask != null
+              ? `bid $${bid.toFixed(2)}  ·  ask $${ask.toFixed(2)}`
+              : mid != null
+                ? `mid $${mid.toFixed(2)}`
+                : "no live quote"}
+          </div>
         </div>
       </div>
 
-      <div style={{ textAlign: "right", flex: "none" }}>
-        <div style={{
-          fontSize: 22, fontWeight: 700, color: COCKPIT_PALETTE.text,
-          fontFeatureSettings: "'tnum'",
-          display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 8,
-        }}>
-          <span>{price != null ? `$${price.toFixed(2)}` : "—"}</span>
-          {percentChange != null && (
-            <span style={{ fontSize: 13, fontWeight: 700, color: pctTone }}>
-              {percentChange >= 0 ? "+" : ""}{percentChange.toFixed(2)}%
-            </span>
-          )}
-        </div>
-        <div style={{
-          fontSize: 11, color: COCKPIT_PALETTE.textDim, marginTop: 4,
-          fontFeatureSettings: "'tnum'",
-        }}>
-          {bid != null && ask != null
-            ? `bid $${bid.toFixed(2)}  ·  ask $${ask.toFixed(2)}`
-            : mid != null
-              ? `mid $${mid.toFixed(2)}`
-              : "no live quote"}
-        </div>
-      </div>
+      {/* Explicit per-stream timestamps + RECALCULATING note. The chip
+          tooltip carries the same info; this row makes it visible without
+          requiring a hover. */}
+      {showFreshness && (
+        <FreshnessDetail
+          quoteAgeMs={quoteAgeMs}
+          analyticsAgeMs={analyticsAgeMs}
+          isRecalculating={isRecalculating} />
+      )}
     </header>
+  );
+}
+
+function FreshnessDetail({ quoteAgeMs, analyticsAgeMs, isRecalculating }) {
+  const parts = [];
+  if (Number.isFinite(quoteAgeMs)) {
+    parts.push(`Quote updated ${humanizeAge(quoteAgeMs)}`);
+  }
+  if (Number.isFinite(analyticsAgeMs)) {
+    parts.push(`Analytics updated ${humanizeAge(analyticsAgeMs)}`);
+  }
+  if (parts.length === 0 && !isRecalculating) return null;
+  return (
+    <div style={{
+      fontSize: 10, color: COCKPIT_PALETTE.textFaint, lineHeight: 1.5,
+      fontFeatureSettings: "'tnum'",
+    }}>
+      {parts.length > 0 && (
+        <span>{parts.join("  ·  ")}</span>
+      )}
+      {isRecalculating && (
+        <div style={{
+          marginTop: 4,
+          color: COCKPIT_PALETTE.accentAmber,
+          fontWeight: 600, letterSpacing: "0.02em",
+        }}>
+          Quote updated; analytics recompute pending.
+        </div>
+      )}
+    </div>
   );
 }
 

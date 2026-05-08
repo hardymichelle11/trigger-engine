@@ -14,6 +14,15 @@
 //     "premium unavailable" across multiple fields.
 //   - No scoreBreakdown / weights / probability internals /
 //     Monte Carlo / IV percentiles raw / debug fields.
+//
+// Quote-only invariant (Phase 4.7.10):
+//   The `liveQuote` overlay updates ONLY:
+//     - currentPrice
+//     - percentChange / previousClose
+//   It MUST NOT modify rank, score, action, phase, or
+//   capital fit — those remain engine-authoritative
+//   (`row` from the analytics path) and refresh only on
+//   the analytics cadence, never on the quote cadence.
 // =====================================================
 
 import React from "react";
