@@ -39,6 +39,7 @@ import AlertsPanel from "./cockpit/AlertsPanel.jsx";
 import { fetchNews, fetchNewsForTickers } from "../../lib/newsFeed.js";
 import { buildNewsThesis } from "../../lib/newsIntelligence.js";
 import { buildCandidateIntelligenceSummary } from "../../lib/candidateIntelligence.js";
+import { buildEntryReadiness } from "../../lib/entryReadiness.js";
 
 /**
  * @param {object} props
@@ -135,6 +136,18 @@ export default function LethalBoardCockpit(props) {
         ? buildCandidateIntelligenceSummary(selectedRow, detailNews)
         : null,
     [selectedRow, detailNews],
+  );
+
+  // Entry readiness — the operator-safety gate. Distinct from candidate
+  // intelligence: that one *describes* the setup, this one decides
+  // whether the operator should act on it RIGHT NOW. Built from the
+  // selected row + the trade-context provenance flags.
+  const entryReadiness = React.useMemo(
+    () =>
+      selectedRow
+        ? buildEntryReadiness(selectedRow, selectedTradeContext)
+        : null,
+    [selectedRow, selectedTradeContext],
   );
 
   return (
@@ -288,6 +301,7 @@ export default function LethalBoardCockpit(props) {
             newsItems={detailNews.length > 0 ? detailNews : null}
             newsThesis={detailNewsThesis}
             candidateIntelligence={candidateIntelligence}
+            entryReadiness={entryReadiness}
             capitalCtx={props.capitalCtx}
             replay={!!props.liveMeta?.replay}
             replaySessionDate={

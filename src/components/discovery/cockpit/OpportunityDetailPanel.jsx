@@ -36,6 +36,7 @@ import {
 import TradeConstructionSection from "../TradeConstructionSection.jsx";
 import MarketIntelligencePanel from "./MarketIntelligencePanel.jsx";
 import CandidateIntelligenceSummary from "./CandidateIntelligenceSummary.jsx";
+import EntryReadinessCard from "./EntryReadinessCard.jsx";
 import { maskMoney } from "../../../lib/capital/capitalContext.js";
 import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
 
@@ -48,6 +49,7 @@ import { COCKPIT_PALETTE, COCKPIT_SCROLL_CLASS } from "./cockpitTheme.js";
  * @param {Array<object>|null} [props.newsItems]        enriched news (catalystType, newsConfidence, newsScoreAdjustment)
  * @param {{ text: string, tone: string, reliable: boolean }|null} [props.newsThesis]
  * @param {object|null} [props.candidateIntelligence]   buildCandidateIntelligenceSummary() output
+ * @param {object|null} [props.entryReadiness]          buildEntryReadiness() output
  * @param {object|null} [props.capitalCtx]              CapitalContext (private)
  * @param {boolean} [props.replay]                      Phase 4.7.6 — true when active scan is replay
  * @param {string} [props.replaySessionDate]            human-readable session date label
@@ -60,6 +62,7 @@ export default function OpportunityDetailPanel({
   newsItems = null,
   newsThesis = null,
   candidateIntelligence = null,
+  entryReadiness = null,
   capitalCtx = null,
   replay = false,
   replaySessionDate = null,
@@ -141,6 +144,7 @@ export default function OpportunityDetailPanel({
           {candidateIntelligence && (
             <CandidateIntelligenceSummary summary={candidateIntelligence} />
           )}
+          {entryReadiness && <EntryReadinessCard readiness={entryReadiness} />}
           <SectionB_TradeConstruction tradeContext={tradeContext} />
           <SectionCrossCheck row={row} tradeContext={tradeContext} />
           <SectionRangeBars row={row} tradeContext={tradeContext} />
