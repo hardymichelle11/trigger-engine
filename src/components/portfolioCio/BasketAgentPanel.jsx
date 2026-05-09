@@ -26,6 +26,8 @@ import {
 } from "../../lib/portfolioCio/basketUniverseManager.js";
 import { buildBasketLeadershipRead } from "../../lib/portfolioCio/basketLeadershipEngine.js";
 import { getBasketManagerInputs } from "../../lib/portfolioCio/basketManagerAssessmentResolver.js";
+import { buildBasketActionQueue } from "../../lib/portfolioCio/basketActionQueue.js";
+import BasketActionQueue from "./BasketActionQueue.jsx";
 import BasketMandateCard from "./BasketMandateCard.jsx";
 import BasketUniverseEditor from "./BasketUniverseEditor.jsx";
 import BasketLeadershipTable from "./BasketLeadershipTable.jsx";
@@ -104,6 +106,17 @@ export default function BasketAgentPanel({
       historyBySymbol: mergedHistory,
     });
   }, [profile, universe, mergedManagerAssessments, marketRegime, mergedHistory]);
+
+  const actionQueueItems = useMemo(() => {
+    if (!profile) return [];
+    return buildBasketActionQueue({
+      basketProfile: profile,
+      basketUniverse: universe,
+      leadershipRead,
+      managerAssessmentsBySymbol: mergedManagerAssessments,
+      historyBySymbol: mergedHistory,
+    });
+  }, [profile, universe, leadershipRead, mergedManagerAssessments, mergedHistory]);
 
   // ---- mutation handlers ----
   const handleSeedBaseline = useCallback((syms) => {
@@ -245,6 +258,17 @@ export default function BasketAgentPanel({
         onMoveToExcluded={handleMoveToExcluded}
         onRestoreToActive={handleRestoreToActive}
         onRemove={handleRemove} />
+
+      {/* Action queue — review-only, scoped to the selected basket */}
+      <BasketActionQueue
+        title={`Review queue · ${profile.basketName}`}
+        items={actionQueueItems}
+        onSendToTE={onSendToTE}
+        onSendToCV={onSendToCV}
+        onPromoteToScanner={onPromoteToScanner}
+        onMoveToWatchlist={handleMoveToWatchlist}
+        onMoveToExcluded={handleMoveToExcluded}
+        onRestoreToActive={handleRestoreToActive} />
     </section>
   );
 }
