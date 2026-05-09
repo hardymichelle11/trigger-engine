@@ -12,6 +12,7 @@ import UniverseSelector, {
   UNIVERSE_OPTIONS,
 } from "../scanner/UniverseSelector.jsx";
 import DynamicBasketManager from "../scanner/DynamicBasketManager.jsx";
+import AdHocSimulationHistory from "../scanner/AdHocSimulationHistory.jsx";
 
 const PALETTE = {
   bg: "#06090e", border: "#1e2530", borderSoft: "#21252a",
@@ -48,8 +49,13 @@ export default function UniverseWorkspace({
 }) {
   const [open, setOpen] = useState(!!defaultOpen);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [historyTick, setHistoryTick] = useState(0);
 
   const bumpRefresh = useCallback(() => setRefreshTick((n) => n + 1), []);
+  const bumpHistory = useCallback(() => setHistoryTick((n) => n + 1), []);
+
+  const handleAddToBasket = useCallback(() => { bumpRefresh(); bumpHistory(); }, [bumpRefresh, bumpHistory]);
+  const handlePromote     = useCallback(() => { bumpRefresh(); bumpHistory(); }, [bumpRefresh, bumpHistory]);
 
   return (
     <section style={{
@@ -86,8 +92,9 @@ export default function UniverseWorkspace({
           <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
             <AdHocTickerSearch
               onCataloged={onCataloged}
-              onAddToBasket={bumpRefresh}
-              onPromote={bumpRefresh}
+              onAddToBasket={handleAddToBasket}
+              onPromote={handlePromote}
+              onHistoryChange={bumpHistory}
               onSendToTE={onSendToTE}
               onSendToCV={onSendToCV}
             />
@@ -110,6 +117,15 @@ export default function UniverseWorkspace({
               />
             )}
           </div>
+        </div>
+      )}
+
+      {open && (
+        <div style={{ padding: "0 12px 12px 12px" }}>
+          <AdHocSimulationHistory
+            refreshTick={historyTick}
+            onSendToTE={onSendToTE}
+            onSendToCV={onSendToCV} />
         </div>
       )}
     </section>

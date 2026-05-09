@@ -39,6 +39,10 @@ import {
 } from "../../lib/universe/tickerUniverseTypes.js";
 import { getPolygonDailyBars } from "../../lib/marketData/polygonBarsProvider.js";
 import { getOptionsChain } from "../../lib/marketData/optionsChainProvider.js";
+import {
+  recordSimulation,
+  updatePromotion,
+} from "../../lib/universe/adHocSimulationHistoryStore.js";
 
 const PALETTE = {
   bg:        "#0d1117",
@@ -72,6 +76,7 @@ export default function AdHocTickerSearch({
   onSendToTE,
   onSendToCV,
   onPromote,
+  onHistoryChange,
   placeholder = "Ticker (any valid symbol)",
   title = "Ticker search",
   compact = false,
@@ -82,6 +87,10 @@ export default function AdHocTickerSearch({
   const [simResult, setSimResult] = useState(null);
   const [error, setError] = useState(null);
   const [note, setNote] = useState("");
+  // Track the history record id for the active simulation so the
+  // promotion buttons can patch the same row instead of writing fresh
+  // entries each click.
+  const [historyId, setHistoryId] = useState(null);
 
   const reset = () => {
     setStage("idle");
@@ -89,6 +98,7 @@ export default function AdHocTickerSearch({
     setSimResult(null);
     setError(null);
     setNote("");
+    setHistoryId(null);
   };
 
   const handleSubmit = useCallback(async (e) => {
@@ -129,6 +139,14 @@ export default function AdHocTickerSearch({
         },
       });
       setSimResult(result);
+      // Always record into history (independent of dynamic-store
+      // persistence) so the operator can review even limited / no-data
+      // simulations later.
+      try {
+        const rec = recordSimulation(result);
+        if (rec?.id) setHistoryId(rec.id);
+        if (typeof onHistoryChange === "function") onHistoryChange();
+      } catch { /* history is best-effort */ }
       setStage("result");
     } catch (err) {
       setError(err?.message || "Simulation failed.");
@@ -144,14 +162,22 @@ export default function AdHocTickerSearch({
       addedReason: "manual_add",
       notes: note || null,
     });
+    if (historyId) {
+      try { updatePromotion(historyId, { addedToBasket: true }); } catch { /* best-effort */ }
+      if (typeof onHistoryChange === "function") onHistoryChange();
+    }
     onAddToBasket && onAddToBasket(rec);
-  }, [resolvedRecord, note, onAddToBasket]);
+  }, [resolvedRecord, note, onAddToBasket, historyId, onHistoryChange]);
 
   const handlePromote = useCallback(() => {
     if (!resolvedRecord) return;
     setScannerEligible(resolvedRecord.symbol, true);
+    if (historyId) {
+      try { updatePromotion(historyId, { promotedToScanner: true, addedToBasket: true }); } catch { /* best-effort */ }
+      if (typeof onHistoryChange === "function") onHistoryChange();
+    }
     onPromote && onPromote(resolvedRecord.symbol);
-  }, [resolvedRecord, onPromote]);
+  }, [resolvedRecord, onPromote, historyId, onHistoryChange]);
 
   const handleAddNote = useCallback(() => {
     if (!resolvedRecord || !note.trim()) return;
@@ -161,6 +187,24 @@ export default function AdHocTickerSearch({
     });
     setNote("");
   }, [resolvedRecord, note]);
+
+  const handleSendToTE = useCallback(() => {
+    if (!simResult) return;
+    if (historyId) {
+      try { updatePromotion(historyId, { sentToTE: true }); } catch { /* best-effort */ }
+      if (typeof onHistoryChange === "function") onHistoryChange();
+    }
+    onSendToTE && onSendToTE(simResult.symbol);
+  }, [simResult, onSendToTE, historyId, onHistoryChange]);
+
+  const handleSendToCV = useCallback(() => {
+    if (!simResult) return;
+    if (historyId) {
+      try { updatePromotion(historyId, { sentToCV: true }); } catch { /* best-effort */ }
+      if (typeof onHistoryChange === "function") onHistoryChange();
+    }
+    onSendToCV && onSendToCV(simResult.symbol);
+  }, [simResult, onSendToCV, historyId, onHistoryChange]);
 
   return (
     <section style={{
@@ -229,8 +273,8 @@ export default function AdHocTickerSearch({
           setNote={setNote}
           onAddToBasket={handleAddToBasket}
           onPromote={handlePromote}
-          onSendToTE={() => onSendToTE && onSendToTE(simResult.symbol)}
-          onSendToCV={() => onSendToCV && onSendToCV(simResult.symbol)}
+          onSendToTE={handleSendToTE}
+          onSendToCV={handleSendToCV}
           onAddNote={handleAddNote}
           onReset={reset}
           compact={compact} />
