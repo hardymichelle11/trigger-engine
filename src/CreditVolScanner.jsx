@@ -814,13 +814,16 @@ function FreshnessBadge({ card }) {
 }
 
 // --------------------------------------------------
-// CREDIT VIEW SECTION — one paragraph + the structured fields
+// CREDIT VIEW SECTION — recommendation + trigger + confirmation +
+// invalidation + strike zone + premium floor + management note
 // --------------------------------------------------
-// The narrative concatenates conservativeConcern + accumulationInterpretation
-// + confirmation + invalidation into a single trader-readable line.
-// The chip below it surfaces the executionReadiness verdict, and the
-// "old model would have blocked" hint when the upgraded accumulation
-// model kept a setup the conservative model would have killed.
+// Renders the upgraded accumulation-aware Credit View. The recommendation
+// chip uses one of the 9 CREDIT_RECOMMENDATIONS labels. Beneath it sits a
+// concise trigger sentence ("premium expansion + support hold + 2pm
+// window"), then the structured Confirmation / Best Strike Zone /
+// Minimum Premium / Invalidation / Management Note rows. The single-
+// paragraph riskNarrative is preserved at the bottom for traders who
+// prefer the prose form.
 
 function CreditViewSection({ cv }) {
   if (!cv) return null;
@@ -833,34 +836,121 @@ function CreditViewSection({ cv }) {
     }}>
       <div style={{
         display: "flex", justifyContent: "space-between",
-        alignItems: "center", gap: 8, marginBottom: 6,
+        alignItems: "center", gap: 8, marginBottom: 8,
       }}>
-        <span style={{
-          fontSize: 9, letterSpacing: "0.12em",
-          color: SLATE,
-        }}>
+        <span style={{ fontSize: 9, letterSpacing: "0.12em", color: SLATE }}>
           CREDIT VIEW
         </span>
         <span style={{
-          fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
           color: tone.label,
         }}>
-          {cv.recommendationLabel}
+          {cv.recommendation?.label || cv.recommendationLabel}
         </span>
       </div>
+
+      {/* Trigger row — why this trade is being considered */}
+      {cv.triggers && cv.triggers.length > 0 && (
+        <CreditViewRow label="Trigger" value={cv.triggerSentence} />
+      )}
+
+      {/* Confirmation gates */}
+      {cv.confirmation?.conditions?.length > 0 && (
+        <CreditViewList
+          label="Confirmation"
+          intro={"Enter only if:"}
+          items={cv.confirmation.conditions.map((c) => c.sentence)}
+          tone="confirm"
+        />
+      )}
+
+      {/* Best strike zone + minimum premium (compact two-up row) */}
+      {(cv.bestStrikeZone?.label || cv.minimumPremium?.label) && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
+          {cv.bestStrikeZone?.label && (
+            <CreditViewRow label="Best Strike Zone" value={cv.bestStrikeZone.label} compact />
+          )}
+          {cv.minimumPremium?.label && (
+            <CreditViewRow label="Minimum Premium" value={cv.minimumPremium.label} compact />
+          )}
+        </div>
+      )}
+
+      {/* Invalidation gates */}
+      {cv.invalidation?.conditions?.length > 0 && (
+        <CreditViewList
+          label="Invalidation"
+          intro={"Avoid if:"}
+          items={cv.invalidation.conditions.map((c) => c.sentence)}
+          tone="avoid"
+        />
+      )}
+
+      {/* Management note */}
+      {cv.managementNote && (
+        <CreditViewRow label="Management Note" value={cv.managementNote} />
+      )}
+
+      {/* Concatenated paragraph — kept for traders who prefer prose */}
       <div style={{
-        fontSize: 12, color: "#e2e8f0", lineHeight: 1.55,
+        marginTop: 10, fontSize: 11, color: "#cbd5e1",
+        lineHeight: 1.55, fontStyle: "italic",
+        paddingTop: 8, borderTop: `1px solid ${tone.border}`,
       }}>
         {cv.riskNarrative}
       </div>
+
       {cv.oldModelWouldHaveBlocked && (
         <div style={{
-          marginTop: 6, fontSize: 10, color: CYAN,
-          fontStyle: "italic",
+          marginTop: 6, fontSize: 10, color: CYAN, fontStyle: "italic",
         }}>
           Conservative model would have blocked this; accumulation model retains it on the strength of the supporting factors above.
         </div>
       )}
+    </div>
+  );
+}
+
+function CreditViewRow({ label, value, compact = false }) {
+  return (
+    <div style={{ marginTop: compact ? 0 : 6 }}>
+      <div style={{
+        fontSize: 9, letterSpacing: "0.10em", color: SLATE, marginBottom: 2,
+      }}>
+        {label.toUpperCase()}
+      </div>
+      <div style={{ fontSize: 12, color: "#e2e8f0", lineHeight: 1.45 }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function CreditViewList({ label, intro, items, tone }) {
+  const bullet = tone === "avoid" ? RED : tone === "confirm" ? GREEN : SLATE;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{
+        fontSize: 9, letterSpacing: "0.10em", color: SLATE, marginBottom: 4,
+      }}>
+        {label.toUpperCase()}
+      </div>
+      {intro && (
+        <div style={{ fontSize: 11, color: "#cbd5e1", marginBottom: 4 }}>
+          {intro}
+        </div>
+      )}
+      <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+        {items.map((it, i) => (
+          <li key={i} style={{
+            display: "flex", alignItems: "baseline", gap: 6,
+            fontSize: 11, color: "#e2e8f0", lineHeight: 1.5, padding: "2px 0",
+          }}>
+            <span style={{ color: bullet }}>•</span>
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

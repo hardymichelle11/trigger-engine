@@ -148,10 +148,15 @@ export function buildUiCard(setup, market) {
   // (after-2pm, support, VIX, premium, spread, wheel) with one trader-
   // readable paragraph plus the structured fields. Pulls only from data
   // that already lives on the card; never from raw scores or weights.
+  //
+  // marketPhase / accumulationMode flips the model into the upgraded
+  // accumulation matrix: late session + elevated VIX + price holding
+  // support becomes a CANDIDATE rather than an automatic avoid.
   const creditView = buildCreditViewNarrative({
     symbol: setup.symbol,
     price: setup.price,
     ivPercentile: setup.ivPercentile,
+    premiumPercentile: setup.premiumPercentile,
     bid: setup.bid,
     ask: setup.ask,
     spreadQuality: scored.watchlist?.spreadQuality,
@@ -163,8 +168,15 @@ export function buildUiCard(setup, market) {
     fearSpike: market.fearSpike,
     creditStress: market.creditStress,
     nearestSupportPct: chartCtx?.nearestSupportPct ?? null,
+    insideDemandZone: chartCtx?.insideDemandZone ?? false,
+    trendBias: chartCtx?.swingStructure?.trendBias ?? null,
     minuteOfDay: setup.clockContext?.minuteOfDay ?? null,
     primaryStrike: ladder.primary,
+    secondaryStrike: ladder.secondary,
+    marketPhase: setup.marketPhase || market.marketPhase || null,
+    accumulationMode: setup.accumulationMode === true || market.accumulationMode === true,
+    priceTrend: setup.priceTrend || null,
+    willingToOwnShares: setup.willingToOwnShares,
   });
 
   return {
