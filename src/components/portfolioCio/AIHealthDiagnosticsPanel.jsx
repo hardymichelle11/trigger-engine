@@ -39,6 +39,14 @@ import { buildBasketLeadershipRead }
 import { getBasketManagerInputs }
   from "../../lib/portfolioCio/basketManagerAssessmentResolver.js";
 import { ACTION_TYPE } from "../../lib/portfolioCio/basketActionQueue.js";
+import {
+  getBasketMemory,
+  listIntelligenceItems,
+  archiveIntelligenceItem,
+  promoteToAgentMemory,
+  INTELLIGENCE_STATUS,
+} from "../../lib/portfolioCio/agentMemoryStore.js";
+import ThesisHealthPanel from "./ThesisHealthPanel.jsx";
 
 const PALETTE = {
   bg:        "#06090e",
@@ -104,6 +112,7 @@ export default function AIHealthDiagnosticsPanel({
   const profile = useMemo(() => getBasketAgent(AI_HEALTH_DIAGNOSTICS_BASKET_ID), []);
   const [tick, setTick] = useState(0);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
+  const [thesisHealthOpen, setThesisHealthOpen] = useState(false);
 
   const universe = useMemo(
     () => getBasketUniverse(AI_HEALTH_DIAGNOSTICS_BASKET_ID),
@@ -203,17 +212,39 @@ export default function AIHealthDiagnosticsPanel({
         display: "flex", flexDirection: "column", gap: 12,
       }}>
       {/* Sector thesis bar */}
-      <header>
-        <div style={{ fontSize: 9, letterSpacing: "0.14em", color: PALETTE.textDim, marginBottom: 4 }}>
-          AI HEALTH / DIAGNOSTICS
+      <header style={{
+        display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap",
+      }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 9, letterSpacing: "0.14em", color: PALETTE.textDim, marginBottom: 4 }}>
+            AI HEALTH / DIAGNOSTICS
+          </div>
+          <div style={{ fontSize: 11, color: PALETTE.text, lineHeight: 1.55 }}>
+            Who owns the intelligence layer of medicine?
+          </div>
+          <div style={{ fontSize: 10, color: PALETTE.textFaint, marginTop: 4, lineHeight: 1.5 }}>
+            {profile.mandate}
+          </div>
         </div>
-        <div style={{ fontSize: 11, color: PALETTE.text, lineHeight: 1.55 }}>
-          Who owns the intelligence layer of medicine?
-        </div>
-        <div style={{ fontSize: 10, color: PALETTE.textFaint, marginTop: 4, lineHeight: 1.5 }}>
-          {profile.mandate}
-        </div>
+        <button type="button"
+          onClick={() => setThesisHealthOpen((v) => !v)}
+          aria-pressed={thesisHealthOpen}
+          style={{
+            background: thesisHealthOpen ? `${PALETTE.purple}1a` : "transparent",
+            border: `1px solid ${thesisHealthOpen ? PALETTE.purple : PALETTE.border}`,
+            color: thesisHealthOpen ? PALETTE.purple : PALETTE.textDim,
+            borderRadius: 5, padding: "4px 10px",
+            fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+            cursor: "pointer", fontFamily: "inherit",
+          }}>
+          {thesisHealthOpen ? "▾ Thesis Health" : "▸ Thesis Health"}
+        </button>
       </header>
+
+      {/* Inline thesis health */}
+      {thesisHealthOpen && (
+        <ThesisHealthInline tick={tick} onTick={() => setTick((n) => n + 1)} />
+      )}
 
       {/* Empty-state seeder */}
       {isEmpty && (
@@ -319,6 +350,49 @@ export default function AIHealthDiagnosticsPanel({
 // ---------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------
+
+function ThesisHealthInline({ tick, onTick }) {
+  const approvedMemory = React.useMemo(
+    () => getBasketMemory(AI_HEALTH_DIAGNOSTICS_BASKET_ID),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tick],
+  );
+  const proposedIntelligence = React.useMemo(
+    () => listIntelligenceItems()
+      .filter((it) => it.basketId === AI_HEALTH_DIAGNOSTICS_BASKET_ID && it.status === INTELLIGENCE_STATUS.DRAFT),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tick],
+  );
+
+  const handleAccept = (proposed) => {
+    if (!proposed || !proposed.id) return;
+    promoteToAgentMemory(proposed.id);
+    onTick && onTick();
+  };
+  const handleReject = (proposed) => {
+    if (!proposed || !proposed.id) return;
+    archiveIntelligenceItem(proposed.id);
+    onTick && onTick();
+  };
+  const handleArchive = (id) => {
+    if (!id) return;
+    archiveIntelligenceItem(id);
+    onTick && onTick();
+  };
+  const handleEdit = () => { onTick && onTick(); };
+
+  return (
+    <ThesisHealthPanel
+      basketId={AI_HEALTH_DIAGNOSTICS_BASKET_ID}
+      agentId="aiHealthDiagnosticsAgent"
+      approvedMemory={approvedMemory}
+      proposedIntelligence={proposedIntelligence}
+      onAcceptUpdate={handleAccept}
+      onEditThesis={handleEdit}
+      onRejectUpdate={handleReject}
+      onArchiveEvidence={handleArchive} />
+  );
+}
 
 function TopCard({
   title, tone, evalRow, onSelect,

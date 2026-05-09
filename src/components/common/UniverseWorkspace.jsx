@@ -6,7 +6,7 @@
 // page can drop in the universe layer with a single import.
 // =====================================================
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import AdHocTickerSearch from "./AdHocTickerSearch.jsx";
 import UniverseSelector, {
   UNIVERSE_OPTIONS,
@@ -17,6 +17,14 @@ import BasketAgentPanel from "../portfolioCio/BasketAgentPanel.jsx";
 import CioReviewDashboard from "../portfolioCio/CioReviewDashboard.jsx";
 import AIHealthDiagnosticsPanel from "../portfolioCio/AIHealthDiagnosticsPanel.jsx";
 import MarketIntelligenceInbox from "../portfolioCio/MarketIntelligenceInbox.jsx";
+import ThesisHealthPanel from "../portfolioCio/ThesisHealthPanel.jsx";
+import {
+  getBasketMemory,
+  listIntelligenceItems,
+  archiveIntelligenceItem,
+  promoteToAgentMemory,
+  INTELLIGENCE_STATUS,
+} from "../../lib/portfolioCio/agentMemoryStore.js";
 
 const PALETTE = {
   bg: "#06090e", border: "#1e2530", borderSoft: "#21252a",
@@ -156,6 +164,8 @@ export default function UniverseWorkspace({
       )}
 
       {open && <MarketIntelligenceSection />}
+
+      {open && <ThesisHealthSection />}
     </section>
   );
 }
@@ -260,6 +270,87 @@ function AIHealthDiagnosticsSection({ onSendToTE, onSendToCV }) {
         <AIHealthDiagnosticsPanel
           onSendToTE={onSendToTE}
           onSendToCV={onSendToCV} />
+      )}
+    </div>
+  );
+}
+
+// Thesis Health — collapsible section below the Market Intelligence
+// Inbox. Default closed. Scoped to AI Health / Diagnostics for now
+// since that's the only basket with keyword maps wired up.
+function ThesisHealthSection() {
+  const BASKET_ID = "ai_health_diagnostics";
+  const AGENT_ID  = "aiHealthDiagnosticsAgent";
+
+  const [open, setOpen] = useState(false);
+  const [tick, setTick] = useState(0);
+
+  const approvedMemory = useMemo(
+    () => getBasketMemory(BASKET_ID),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tick],
+  );
+  const proposedIntelligence = useMemo(
+    () => listIntelligenceItems()
+      .filter((it) => it.basketId === BASKET_ID && it.status === INTELLIGENCE_STATUS.DRAFT),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tick],
+  );
+
+  const handleAccept = useCallback((proposed) => {
+    if (!proposed || !proposed.id) return;
+    promoteToAgentMemory(proposed.id);
+    setTick((n) => n + 1);
+  }, []);
+  const handleReject = useCallback((proposed) => {
+    if (!proposed || !proposed.id) return;
+    archiveIntelligenceItem(proposed.id);
+    setTick((n) => n + 1);
+  }, []);
+  const handleArchiveEvidence = useCallback((id) => {
+    if (!id) return;
+    archiveIntelligenceItem(id);
+    setTick((n) => n + 1);
+  }, []);
+  // Edit Thesis is a callback placeholder for now — surfaces a hint
+  // until the in-place editor lands. Keeping it as a no-op preserves
+  // the spec's "do not silently mutate approved memory" rule.
+  const handleEdit = useCallback(() => {
+    setTick((n) => n + 1);
+  }, []);
+
+  return (
+    <div style={{
+      borderTop: "1px solid #21252a",
+      padding: "0 12px 12px 12px",
+    }}>
+      <header
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        aria-expanded={open}
+        style={{
+          padding: "8px 0", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          fontSize: 10, letterSpacing: "0.14em", color: "#9ca3af",
+        }}>
+        <span>
+          <span style={{ color: "#14b8a6", marginRight: 8 }}>{open ? "▾" : "▸"}</span>
+          THESIS HEALTH
+        </span>
+        <span style={{ fontSize: 9, color: "#6b7280" }}>
+          {open ? "Click to collapse" : "Compare new intelligence against approved thesis memory"}
+        </span>
+      </header>
+      {open && (
+        <ThesisHealthPanel
+          basketId={BASKET_ID}
+          agentId={AGENT_ID}
+          approvedMemory={approvedMemory}
+          proposedIntelligence={proposedIntelligence}
+          onAcceptUpdate={handleAccept}
+          onEditThesis={handleEdit}
+          onRejectUpdate={handleReject}
+          onArchiveEvidence={handleArchiveEvidence} />
       )}
     </div>
   );

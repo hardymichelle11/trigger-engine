@@ -79,7 +79,8 @@
     "test:basket-action-queue": "node scripts/test-basket-action-queue.js",
     "test:cio-review-dashboard": "node scripts/test-cio-review-dashboard.js",
     "test:ai-health-diagnostics": "node scripts/test-ai-health-diagnostics-basket.js",
-    "test:market-intelligence-inbox": "node scripts/test-market-intelligence-inbox.js"
+    "test:market-intelligence-inbox": "node scripts/test-market-intelligence-inbox.js",
+    "test:thesis-health-panel": "node scripts/test-thesis-health-panel.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",
