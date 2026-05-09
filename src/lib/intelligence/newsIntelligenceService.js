@@ -108,6 +108,65 @@ export async function initializeMarketIntelligenceForSymbol(input = {}) {
   };
 }
 
+/**
+ * Adapter — turns the output of simulateAdHoc() into the input bag
+ * expected by initializeMarketIntelligenceForSymbol(). Lives here so
+ * the host UI doesn't have to re-implement the field mapping at every
+ * integration point.
+ *
+ * @param {object} simResult — output of simulateAdHoc()
+ * @param {object} [opts]
+ * @param {object|null} [opts.basketProfile]
+ * @param {object|null} [opts.macroContext]
+ * @param {object|null} [opts.portfolioContext]
+ * @returns {object|null}    null when simResult is missing/invalid
+ */
+export function buildIntelligenceInputsFromSim(simResult, opts = {}) {
+  if (!simResult || !simResult.symbol) return null;
+
+  // TE snapshot — derived from the simulation's Trigger Engine block.
+  const te = simResult.triggerEngine || null;
+  const teResult = te && te.ok ? (te.result || null) : null;
+  const teSnapshot = teResult ? {
+    available:     true,
+    price:         teResult.price ?? null,
+    previousClose: teResult.previousClose ?? null,
+    percentChange: teResult.percentChange ?? null,
+    trend:         teResult.structure?.trendBias ?? null,
+    support:       teResult.structure?.support ?? null,
+    resistance:    teResult.structure?.resistance ?? null,
+    atr:           teResult.structure?.atr ?? null,
+    dataQuality:   te.dataQuality ?? null,
+  } : null;
+
+  // CV snapshot — derived from the simulation's Credit View block.
+  const cv = simResult.creditView || null;
+  const cvResult = cv && cv.limited === false ? (cv.result || null) : null;
+  const cvSnapshot = cv ? {
+    available:           cv.limited === false,
+    label:               cv.label ?? null,
+    badge:               cv.badge ?? simResult.creditViewBadge ?? null,
+    recommendationLabel: cvResult?.recommendation?.label ?? null,
+    preferredStrike:     cv.candidate?.strike ?? null,
+    expiration:          cv.candidate?.expiration ?? null,
+    premiumMid:          cv.candidate?.mid ?? null,
+    premiumFloor:        cvResult?.minimumPremium?.value ?? null,
+    spreadGrade:         cv.candidate?.spreadGrade ?? null,
+    confirmationSentence: cvResult?.confirmation?.sentence ?? null,
+    invalidationSentence: cvResult?.invalidation?.sentence ?? null,
+  } : null;
+
+  return {
+    symbol: simResult.symbol,
+    basketProfile:    opts.basketProfile    || null,
+    teSnapshot,
+    cvSnapshot,
+    macroContext:     opts.macroContext     || null,
+    portfolioContext: opts.portfolioContext || null,
+    manualArticles: [],
+  };
+}
+
 function rulesUnavailable(symbol) {
   return {
     symbol,

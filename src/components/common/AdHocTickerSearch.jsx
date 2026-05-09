@@ -43,6 +43,11 @@ import {
   recordSimulation,
   updatePromotion,
 } from "../../lib/universe/adHocSimulationHistoryStore.js";
+import {
+  initializeMarketIntelligenceForSymbol,
+  buildIntelligenceInputsFromSim,
+} from "../../lib/intelligence/newsIntelligenceService.js";
+import MarketIntelligencePanel from "../intelligence/MarketIntelligencePanel.jsx";
 
 const PALETTE = {
   bg:        "#0d1117",
@@ -91,6 +96,12 @@ export default function AdHocTickerSearch({
   // promotion buttons can patch the same row instead of writing fresh
   // entries each click.
   const [historyId, setHistoryId] = useState(null);
+  // Market Intelligence layer — additive panel rendered below the
+  // TE/CV blocks. Loads after the simulation completes; failures are
+  // isolated so the simulation result stays usable.
+  const [intelligenceResult, setIntelligenceResult] = useState(null);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(false);
+  const [intelligenceError, setIntelligenceError] = useState(null);
 
   const reset = () => {
     setStage("idle");
@@ -99,6 +110,9 @@ export default function AdHocTickerSearch({
     setError(null);
     setNote("");
     setHistoryId(null);
+    setIntelligenceResult(null);
+    setIntelligenceLoading(false);
+    setIntelligenceError(null);
   };
 
   const handleSubmit = useCallback(async (e) => {
@@ -148,6 +162,28 @@ export default function AdHocTickerSearch({
         if (typeof onHistoryChange === "function") onHistoryChange();
       } catch { /* history is best-effort */ }
       setStage("result");
+
+      // Kick off the Market Intelligence load. Defaults to the rules-
+      // based fallback (useLLM=false) so the panel shows useful copy
+      // even without a Vertex provider configured. Failures are
+      // isolated — the TE/CV simulation result stays usable.
+      setIntelligenceLoading(true);
+      setIntelligenceError(null);
+      setIntelligenceResult(null);
+      const inputs = buildIntelligenceInputsFromSim(result);
+      if (inputs) {
+        initializeMarketIntelligenceForSymbol({ ...inputs, useLLM: false })
+          .then((intel) => {
+            setIntelligenceResult(intel);
+            setIntelligenceLoading(false);
+          })
+          .catch((err) => {
+            setIntelligenceError(err?.message || "Market intelligence failed.");
+            setIntelligenceLoading(false);
+          });
+      } else {
+        setIntelligenceLoading(false);
+      }
     } catch (err) {
       setError(err?.message || "Simulation failed.");
       setStage("prompt");
@@ -277,7 +313,10 @@ export default function AdHocTickerSearch({
           onSendToCV={handleSendToCV}
           onAddNote={handleAddNote}
           onReset={reset}
-          compact={compact} />
+          compact={compact}
+          intelligenceResult={intelligenceResult}
+          intelligenceLoading={intelligenceLoading}
+          intelligenceError={intelligenceError} />
       )}
     </section>
   );
@@ -333,6 +372,9 @@ function SimResultPanel({
   result, note, setNote,
   onAddToBasket, onPromote, onSendToTE, onSendToCV, onAddNote, onReset,
   compact,
+  intelligenceResult = null,
+  intelligenceLoading = false,
+  intelligenceError = null,
 }) {
   const te = result.triggerEngine;
   const cv = result.creditView;
@@ -436,6 +478,16 @@ function SimResultPanel({
         )}
       </Section>
 
+      {/* MARKET INTELLIGENCE — additive panel below CV. Loading /
+          error / fallback copy are all rendered without breaking the
+          TE/CV layout above. */}
+      <Section label="Market Intelligence">
+        <IntelligenceBlock
+          result={intelligenceResult}
+          loading={intelligenceLoading}
+          error={intelligenceError} />
+      </Section>
+
       {!compact && (
         <ActionBar
           note={note} setNote={setNote}
@@ -479,6 +531,38 @@ function ActionBar({ note, setNote, onAddToBasket, onPromote, onSendToTE, onSend
       </div>
     </div>
   );
+}
+
+// ----------------------------------------------------------------
+// INTELLIGENCE BLOCK — Market Intelligence panel + states
+// ----------------------------------------------------------------
+// Wraps the standalone <MarketIntelligencePanel /> with loading /
+// error / fallback states. Failures here never bubble into the TE/CV
+// simulation result above.
+
+function IntelligenceBlock({ result, loading, error }) {
+  if (loading) {
+    return (
+      <div style={{ fontSize: 11, color: PALETTE.cyan, fontStyle: "italic" }}>
+        Loading market intelligence…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div style={{ fontSize: 11, color: PALETTE.amber, lineHeight: 1.5 }}>
+        Market intelligence unavailable — using rules-based fallback.
+      </div>
+    );
+  }
+  if (!result) {
+    return (
+      <div style={{ fontSize: 11, color: PALETTE.textFaint, fontStyle: "italic" }}>
+        No market intelligence read available yet.
+      </div>
+    );
+  }
+  return <MarketIntelligencePanel result={result} />;
 }
 
 // ----------------------------------------------------------------

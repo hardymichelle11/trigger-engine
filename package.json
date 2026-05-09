@@ -68,7 +68,8 @@
     "test:ad-hoc-options": "node scripts/test-ad-hoc-options.js",
     "test:ad-hoc-history": "node scripts/test-ad-hoc-history.js",
     "test:portfolio-cio": "node scripts/test-portfolio-cio.js",
-    "test:market-intelligence": "node scripts/test-market-intelligence.js"
+    "test:market-intelligence": "node scripts/test-market-intelligence.js",
+    "test:market-intelligence-integration": "node scripts/test-market-intelligence-integration.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",
