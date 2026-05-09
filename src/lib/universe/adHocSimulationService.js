@@ -25,6 +25,12 @@
 import { fetchQuotes } from "../quoteFetch.js";
 import { buildCreditViewNarrative } from "../engine/creditViewNarrative.js";
 import {
+  classifyContractSpread,
+  spreadGradeFromClass,
+  pickCandidatePut,
+  pickSecondaryPut,
+} from "../marketData/optionsChainProvider.js";
+import {
   ANALYSIS_MODES,
   TICKER_SOURCE_TYPES,
   CATALOG_STATUS,
@@ -84,14 +90,17 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
     try { optionsChain = await providers.fetchOptionsChain(symbol); } catch { optionsChain = null; }
   }
 
-  // Empty arrays are truthy in JS, so explicitly require non-empty bars
-  // for dataAvailability to flip true. Same for the optionsChain check
-  // when it later supports empty-chain responses.
+  // Empty arrays / empty chains are truthy in JS. Resolve availability
+  // explicitly so the UI badges reflect the real state.
   const hasBars = Array.isArray(bars) && bars.length > 0;
+  const chainContracts = Array.isArray(optionsChain?.contracts)
+    ? optionsChain.contracts
+    : null;
+  const hasChain = Array.isArray(chainContracts) && chainContracts.length > 0;
   const dataAvailability = {
     polygonQuote: !!quote,
     polygonBars:  hasBars,
-    optionsChain: !!optionsChain,
+    optionsChain: hasChain,
     news:         false,
   };
 
@@ -132,7 +141,7 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
   // Safe-failure flag: when both quote and bars are unavailable AND no
   // options chain is present, the operator should see a single clear
   // banner rather than two separate "limited" sections.
-  const noMarketData = !quote && !hasBars && !optionsChain;
+  const noMarketData = !quote && !hasBars && !hasChain;
   const dataAvailabilityLabel = quote && hasBars
     ? "Quote + bars"
     : quote
@@ -141,9 +150,13 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
         ? "Bars only"
         : "No market data";
 
+  // Separate CV badge so the UI can show "Options available" /
+  // "Credit limited" independently of the TE data badge.
+  const creditViewBadge = hasChain ? "Options available" : "Credit limited";
+
   return {
     symbol,
-    analysisMode: optionsChain
+    analysisMode: hasChain
       ? ANALYSIS_MODES.AD_HOC_CREDIT_SIMULATION
       : ANALYSIS_MODES.AD_HOC_TE_SIMULATION,
     sourceType: universe.sourceType,
@@ -151,6 +164,7 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
     fetchedAt: Date.now(),
     dataAvailability,
     dataAvailabilityLabel,
+    creditViewBadge,
     noMarketData,
     triggerEngine,
     creditView,
@@ -331,39 +345,89 @@ function maxBy(arr, getter) {
 // ---------------------------------------------------------------------
 
 function buildAdHocCreditViewResult({ symbol, quote, bars, optionsChain, universe }) {
-  // No options data → limited mode, structural-only commentary.
-  if (!optionsChain) {
+  // No options chain at all (provider not supplied or returned nothing) →
+  // limited mode, structural-only commentary.
+  const contracts = Array.isArray(optionsChain?.contracts)
+    ? optionsChain.contracts
+    : null;
+  if (!optionsChain || contracts == null || contracts.length === 0) {
     return {
       ok: true,
       limited: true,
       reason: "Credit View limited: options chain data unavailable. Price structure can be reviewed, but premium recommendation requires option data.",
       label: "Ad Hoc Credit Simulation (limited)",
+      badge: "Credit limited",
       result: null,
+      candidate: null,
+      warnings: optionsChain?.warnings || [],
     };
   }
 
-  const closes = Array.isArray(bars) ? bars : [];
-  const support = closes.length > 0 ? Math.min(...closes.slice(-30)) : null;
+  // Derive support from bars (OHLC lows or close-only min over the
+  // recent window). Used to seed the candidate-strike picker so we
+  // prefer puts at or below support.
+  const closes = Array.isArray(bars)
+    ? bars
+        .map((b) => (typeof b === "number" ? b : numeric(b?.close)))
+        .filter(Number.isFinite)
+    : [];
+  const isOhlc = Array.isArray(bars) && bars.length > 0 && typeof bars[0] === "object";
+  const recent = isOhlc ? bars.slice(-30) : closes.slice(-30);
+  const support = isOhlc
+    ? minBy(recent, (b) => numeric(b.low) ?? numeric(b.close))
+    : (recent.length > 0 ? Math.min(...recent) : null);
   const supportPct = (quote?.price != null && support != null && quote.price > 0)
     ? Math.max(0, (quote.price - support) / quote.price)
+    : null;
+
+  const candidate = pickCandidatePut(contracts, {
+    underlyingPrice: quote?.price ?? null,
+    supportLevel: support,
+  });
+  if (!candidate) {
+    return {
+      ok: true,
+      limited: true,
+      reason: "Credit View limited: no put contracts in the target zone (≥7 DTE within 10% below price).",
+      label: "Ad Hoc Credit Simulation (limited)",
+      badge: "Credit limited",
+      result: null,
+      candidate: null,
+      warnings: optionsChain?.warnings || [],
+    };
+  }
+  const secondary = pickSecondaryPut(contracts, candidate);
+
+  // Spread classification — A+/B/C/F vocabulary the narrative builder
+  // already understands. Premium-availability proxy: when the chain
+  // returns IV, treat IV*100 as a coarse stand-in for IV percentile;
+  // the narrative builder's premiumRich/premiumOk thresholds are
+  // documented (≥70 / ≥50), so a 0.30 IV maps to "weak", 0.50 to "ok",
+  // 0.70 to "rich". We never expose this number raw — the builder
+  // converts it into trader-facing language.
+  const spreadClass = classifyContractSpread(candidate.bid, candidate.ask, candidate.mid);
+  const spreadGrade = spreadGradeFromClass(spreadClass);
+  const approxIvPct = candidate.impliedVolatility != null
+    ? Math.min(99, Math.max(0, Math.round(candidate.impliedVolatility * 100)))
     : null;
 
   const cv = buildCreditViewNarrative({
     symbol,
     price: quote?.price ?? null,
-    ivPercentile: optionsChain?.ivPercentile ?? null,
-    bid: optionsChain?.bid ?? null,
-    ask: optionsChain?.ask ?? null,
-    spreadQuality: optionsChain?.spreadQuality ?? "—",
+    ivPercentile: approxIvPct,
+    bid: candidate.bid,
+    ask: candidate.ask,
+    premiumMid: candidate.mid,
+    spreadQuality: spreadGrade,
     wheelSuit: universe?.catalogMeta?.wheelSuit ?? "—",
     signal: "WATCH",
     action: "WAIT",
     timingStage: "UNKNOWN",
-    vix: optionsChain?.vix ?? null,
+    vix: null,
     nearestSupportPct: supportPct,
-    minuteOfDay: optionsChain?.minuteOfDay ?? null,
-    primaryStrike: optionsChain?.primaryStrike ?? null,
-    secondaryStrike: optionsChain?.secondaryStrike ?? null,
+    minuteOfDay: null,
+    primaryStrike: candidate.strike,
+    secondaryStrike: secondary?.strike ?? null,
   });
 
   return {
@@ -371,6 +435,20 @@ function buildAdHocCreditViewResult({ symbol, quote, bars, optionsChain, univers
     limited: false,
     reason: null,
     label: "Ad Hoc Credit Simulation",
+    badge: "Options available",
+    candidate: {
+      symbol: candidate.symbol,
+      expiration: candidate.expiration,
+      strike: candidate.strike,
+      bid: candidate.bid,
+      ask: candidate.ask,
+      mid: candidate.mid,
+      spreadClass,
+      spreadGrade,
+      impliedVolatility: candidate.impliedVolatility,
+      delta: candidate.delta,
+    },
+    warnings: optionsChain?.warnings || [],
     result: cv,
   };
 }

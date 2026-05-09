@@ -38,6 +38,7 @@ import {
   normalizeSymbol,
 } from "../../lib/universe/tickerUniverseTypes.js";
 import { getPolygonDailyBars } from "../../lib/marketData/polygonBarsProvider.js";
+import { getOptionsChain } from "../../lib/marketData/optionsChainProvider.js";
 
 const PALETTE = {
   bg:        "#0d1117",
@@ -123,6 +124,8 @@ export default function AdHocTickerSearch({
         persist: false,
         providers: {
           fetchBars: (sym) => getPolygonDailyBars(sym, { lookbackDays: 90 }),
+          fetchOptionsChain: (sym) =>
+            getOptionsChain(sym, { expirationRangeDays: 45, optionType: "put" }),
         },
       });
       setSimResult(result);
@@ -296,14 +299,21 @@ function SimResultPanel({
                    : dataLabel === "Bars only"    ? PALETTE.cyan
                    :                                 PALETTE.red;
 
+  // Separate CV badge — "Options available" / "Credit limited" — so the
+  // operator can read the credit-side data status independently of the
+  // TE data badge.
+  const cvLabel = result.creditViewBadge
+    || (cv?.limited === false ? "Options available" : "Credit limited");
+  const cvBadgeColor = cvLabel === "Options available" ? PALETTE.green : PALETTE.amber;
+
   return (
     <div style={panelBox(PALETTE.accentTeal)}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: PALETTE.accentTeal }}>
             {result.symbol}
           </span>
-          <span title="Polygon data quality"
+          <span title="Polygon market-data quality"
             style={{
               fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
               color: badgeColor,
@@ -312,6 +322,16 @@ function SimResultPanel({
               borderRadius: 4, padding: "2px 6px",
             }}>
             {dataLabel}
+          </span>
+          <span title="Credit View options-data status"
+            style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+              color: cvBadgeColor,
+              background: `${cvBadgeColor}1a`,
+              border: `1px solid ${cvBadgeColor}55`,
+              borderRadius: 4, padding: "2px 6px",
+            }}>
+            {cvLabel}
           </span>
         </div>
         <div style={{ fontSize: 9, color: PALETTE.textDim, letterSpacing: "0.08em" }}>
@@ -364,18 +384,11 @@ function SimResultPanel({
 
       <Section label="Credit View">
         {cv.limited ? (
-          <div style={{ fontSize: 11, color: PALETTE.amber }}>
+          <div style={{ fontSize: 11, color: PALETTE.amber, lineHeight: 1.5 }}>
             {cv.reason}
           </div>
         ) : (
-          <>
-            <div style={{ fontSize: 11, color: PALETTE.textDim, marginBottom: 4 }}>
-              {cv.label}
-            </div>
-            <div style={{ fontSize: 12, color: PALETTE.text, lineHeight: 1.5 }}>
-              {cv.result?.riskNarrative || "—"}
-            </div>
-          </>
+          <CreditViewBlock cv={cv} />
         )}
       </Section>
 
@@ -422,6 +435,89 @@ function ActionBar({ note, setNote, onAddToBasket, onPromote, onSendToTE, onSend
       </div>
     </div>
   );
+}
+
+// ----------------------------------------------------------------
+// CREDIT VIEW BLOCK — recommendation + structured fields
+// ----------------------------------------------------------------
+// Renders the ad-hoc Credit Simulation when the chain provider returned
+// usable contracts. All copy comes from buildCreditViewNarrative() so
+// raw scores / weights never surface in the UI.
+
+function CreditViewBlock({ cv }) {
+  const r = cv?.result || null;
+  const candidate = cv?.candidate || null;
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: PALETTE.textDim, marginBottom: 6 }}>
+        {cv.label}
+      </div>
+
+      {r?.recommendation?.label && (
+        <div style={{
+          fontSize: 11, fontWeight: 700, letterSpacing: "0.05em",
+          color: PALETTE.accentTeal, marginBottom: 6,
+        }}>
+          {r.recommendation.label}
+        </div>
+      )}
+
+      {r?.triggerSentence && (
+        <KV label="Trigger" value={r.triggerSentence} />
+      )}
+
+      {r?.bestStrikeZone?.label && (
+        <KV label="Preferred strike zone" value={r.bestStrikeZone.label} row />
+      )}
+      {r?.minimumPremium?.label && (
+        <KV label="Premium floor" value={r.minimumPremium.label} row />
+      )}
+      {candidate?.expiration && (
+        <KV
+          label="Candidate"
+          row
+          value={`${candidate.expiration} · $${fmt(candidate.strike)} put · mid $${fmt(candidate.mid)} (${candidate.spreadClass || "—"})`} />
+      )}
+
+      {r?.confirmation?.sentence && (
+        <div style={{ marginTop: 8, fontSize: 11, color: PALETTE.text, lineHeight: 1.5 }}>
+          <strong style={{ color: PALETTE.green }}>Confirmation: </strong>
+          {r.confirmation.sentence}
+        </div>
+      )}
+      {r?.invalidation?.sentence && (
+        <div style={{ marginTop: 6, fontSize: 11, color: PALETTE.text, lineHeight: 1.5 }}>
+          <strong style={{ color: PALETTE.red }}>Invalidation: </strong>
+          {r.invalidation.sentence}
+        </div>
+      )}
+      {r?.managementNote && (
+        <div style={{ marginTop: 6, fontSize: 11, color: PALETTE.textDim, fontStyle: "italic", lineHeight: 1.5 }}>
+          {r.managementNote}
+        </div>
+      )}
+      {r?.riskNarrative && (
+        <div style={{
+          marginTop: 8, paddingTop: 8,
+          borderTop: `1px solid ${PALETTE.borderSoft}`,
+          fontSize: 11, color: PALETTE.textDim, lineHeight: 1.55,
+        }}>
+          {r.riskNarrative}
+        </div>
+      )}
+
+      {Array.isArray(cv.warnings) && cv.warnings.length > 0 && (
+        <div style={{ marginTop: 6, fontSize: 9, color: PALETTE.textFaint }}>
+          {cv.warnings.join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmt(v) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  return Number(v).toFixed(2);
 }
 
 // ----------------------------------------------------------------
