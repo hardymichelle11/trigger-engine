@@ -43,7 +43,11 @@ import { upsertDynamicTicker, getDynamicTicker } from "./dynamicUniverseStore.js
  * @param {(syms: string[]) => Promise<object>} [opts.providers.fetchQuotes]
  * @param {(s: string) => Promise<object|null>} [opts.providers.fetchBars]
  * @param {(s: string) => Promise<object|null>} [opts.providers.fetchOptionsChain]
- * @param {boolean} [opts.persist=true]          upsert into dynamic store
+ * @param {boolean} [opts.persist=false]         upsert into dynamic store.
+ *   Defaults to false so a one-shot simulation never writes to the
+ *   dynamic basket — explicit "Add to Basket" / "Promote to Scanner"
+ *   actions handle persistence. Pass true when callers (e.g. an
+ *   already-basketed symbol's re-sim) want lastSimulatedAt refreshed.
  * @param {string}  [opts.addedReason]
  */
 export async function simulateAdHoc(rawSymbol, opts = {}) {
@@ -53,7 +57,7 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
   }
 
   const providers = opts.providers || {};
-  const persist = opts.persist !== false;
+  const persist = opts.persist === true;
 
   // Existing universe record so we know whether this is genuinely
   // ad-hoc or just a re-simulation of a dynamic basket entry.
@@ -80,9 +84,13 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
     try { optionsChain = await providers.fetchOptionsChain(symbol); } catch { optionsChain = null; }
   }
 
+  // Empty arrays are truthy in JS, so explicitly require non-empty bars
+  // for dataAvailability to flip true. Same for the optionsChain check
+  // when it later supports empty-chain responses.
+  const hasBars = Array.isArray(bars) && bars.length > 0;
   const dataAvailability = {
     polygonQuote: !!quote,
-    polygonBars:  !!bars,
+    polygonBars:  hasBars,
     optionsChain: !!optionsChain,
     news:         false,
   };
@@ -121,6 +129,18 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
     } catch { /* persistence is best-effort */ }
   }
 
+  // Safe-failure flag: when both quote and bars are unavailable AND no
+  // options chain is present, the operator should see a single clear
+  // banner rather than two separate "limited" sections.
+  const noMarketData = !quote && !hasBars && !optionsChain;
+  const dataAvailabilityLabel = quote && hasBars
+    ? "Quote + bars"
+    : quote
+      ? "Quote only"
+      : hasBars
+        ? "Bars only"
+        : "No market data";
+
   return {
     symbol,
     analysisMode: optionsChain
@@ -130,6 +150,8 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
     catalogStatus: universe.catalogStatus,
     fetchedAt: Date.now(),
     dataAvailability,
+    dataAvailabilityLabel,
+    noMarketData,
     triggerEngine,
     creditView,
   };
@@ -140,24 +162,51 @@ export async function simulateAdHoc(rawSymbol, opts = {}) {
 // ---------------------------------------------------------------------
 
 function buildAdHocTriggerEngineResult({ symbol, quote, bars }) {
-  if (!quote && (!bars || !Array.isArray(bars) || bars.length === 0)) {
+  // The bars provider may return OHLC bar objects ({ ts, open, high, low,
+  // close, volume }) when daily aggregates are available, or a plain
+  // close-price array as a legacy fallback. We normalize both shapes to
+  // closes + (when available) full OHLC for a true-range ATR and
+  // low/high-based support/resistance.
+  const isOhlcBars = Array.isArray(bars) && bars.length > 0 && typeof bars[0] === "object";
+  const closes = Array.isArray(bars)
+    ? bars
+        .map((b) => (typeof b === "number" ? b : numeric(b?.close)))
+        .filter(Number.isFinite)
+    : [];
+
+  if (!quote && closes.length === 0) {
     return {
       ok: false,
       reason: "Polygon quote and bars unavailable — no structural data to score.",
       result: null,
       label: "Ad Hoc TE Simulation",
       limited: true,
+      barsAvailable: false,
     };
   }
 
-  const closes = Array.isArray(bars) ? bars.filter(Number.isFinite) : [];
   const price = numeric(quote?.price);
   const previousClose = numeric(quote?.previousClose);
   const percentChange = numeric(quote?.percentChange);
 
-  const atr = closes.length >= 14 ? estimateAtrFromCloses(closes) : null;
-  const support = closes.length > 0 ? Math.min(...closes.slice(-30)) : null;
-  const resistance = closes.length > 0 ? Math.max(...closes.slice(-30)) : null;
+  // ATR — true range when OHLC is available, close-to-close fallback
+  // when only close prices were provided.
+  const atr = closes.length >= 2
+    ? (isOhlcBars
+        ? estimateAtrFromOhlc(bars)
+        : estimateAtrFromCloses(closes))
+    : null;
+
+  // Support / resistance — prefer the rolling 30-bar low/high from OHLC
+  // when available, else fall back to the close-only min/max.
+  const window = isOhlcBars ? bars.slice(-30) : closes.slice(-30);
+  const support = isOhlcBars
+    ? minBy(window, (b) => numeric(b.low) ?? numeric(b.close))
+    : (window.length > 0 ? Math.min(...window) : null);
+  const resistance = isOhlcBars
+    ? maxBy(window, (b) => numeric(b.high) ?? numeric(b.close))
+    : (window.length > 0 ? Math.max(...window) : null);
+
   const trendBias = inferTrendBias(closes);
   const supportPct = (price != null && support != null && price > 0)
     ? Math.max(0, (price - support) / price)
@@ -166,10 +215,25 @@ function buildAdHocTriggerEngineResult({ symbol, quote, bars }) {
     ? Math.max(0, (resistance - price) / price)
     : null;
 
+  // Data quality label drives the UI badge ("Quote + bars" / "Quote only"
+  // / "No market data") so the operator always knows what produced the
+  // numbers below.
+  const dataQuality = (quote && closes.length > 0)
+    ? "quote_and_bars"
+    : (quote ? "quote_only" : "bars_only");
+  const dataQualityLabel = dataQuality === "quote_and_bars"
+    ? "Quote + bars"
+    : dataQuality === "quote_only"
+      ? "Quote only"
+      : "Bars only";
+
   return {
     ok: true,
     label: "Ad Hoc TE Simulation",
-    limited: bars == null,                 // no bars → only quote-level info
+    limited: closes.length === 0,
+    barsAvailable: closes.length > 0,
+    dataQuality,
+    dataQualityLabel,
     result: {
       symbol,
       price,
@@ -183,6 +247,7 @@ function buildAdHocTriggerEngineResult({ symbol, quote, bars }) {
         supportPct,
         resistancePct,
         windowSize: closes.length,
+        ohlcAvailable: isOhlcBars,
       },
       note: "No static catalog profile found. Analysis is based on available Polygon market structure.",
     },
@@ -197,6 +262,28 @@ function estimateAtrFromCloses(closes) {
   for (let i = 1; i < closes.length; i++) {
     const r = Math.abs(closes[i] - closes[i - 1]);
     if (Number.isFinite(r)) { sum += r; n++; }
+  }
+  return n === 0 ? null : sum / n;
+}
+
+// True-range ATR (Wilder-style simple average of the last N true ranges).
+// True range = max(high-low, |high-prevClose|, |low-prevClose|).
+function estimateAtrFromOhlc(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const window = bars.slice(-15);    // 14 ranges from 15 bars
+  let sum = 0;
+  let n = 0;
+  for (let i = 1; i < window.length; i++) {
+    const high = numeric(window[i].high);
+    const low  = numeric(window[i].low);
+    const prevClose = numeric(window[i - 1].close);
+    if (high == null || low == null || prevClose == null) continue;
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose),
+    );
+    if (Number.isFinite(tr)) { sum += tr; n++; }
   }
   return n === 0 ? null : sum / n;
 }
@@ -218,6 +305,25 @@ function avg(arr) {
   let s = 0;
   for (const v of arr) s += v;
   return s / arr.length;
+}
+
+function minBy(arr, getter) {
+  let best = null;
+  for (const item of arr) {
+    const v = getter(item);
+    if (!Number.isFinite(v)) continue;
+    if (best == null || v < best) best = v;
+  }
+  return best;
+}
+function maxBy(arr, getter) {
+  let best = null;
+  for (const item of arr) {
+    const v = getter(item);
+    if (!Number.isFinite(v)) continue;
+    if (best == null || v > best) best = v;
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------

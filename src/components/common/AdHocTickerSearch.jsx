@@ -37,6 +37,7 @@ import {
   CATALOG_STATUS,
   normalizeSymbol,
 } from "../../lib/universe/tickerUniverseTypes.js";
+import { getPolygonDailyBars } from "../../lib/marketData/polygonBarsProvider.js";
 
 const PALETTE = {
   bg:        "#0d1117",
@@ -113,7 +114,17 @@ export default function AdHocTickerSearch({
     setStage("running");
     setError(null);
     try {
-      const result = await simulateAdHoc(resolvedRecord.symbol, { persist: true });
+      // Quote-only path is always attempted; bars upgrade the
+      // structural snapshot when Polygon daily aggregates respond.
+      // persist:false — running a simulation never writes to the
+      // dynamic basket on its own. Explicit "Add to Basket" / "Promote
+      // to Scanner" actions handle persistence below.
+      const result = await simulateAdHoc(resolvedRecord.symbol, {
+        persist: false,
+        providers: {
+          fetchBars: (sym) => getPolygonDailyBars(sym, { lookbackDays: 90 }),
+        },
+      });
       setSimResult(result);
       setStage("result");
     } catch (err) {
@@ -279,17 +290,48 @@ function SimResultPanel({
   const te = result.triggerEngine;
   const cv = result.creditView;
   const da = result.dataAvailability;
+  const dataLabel = result.dataAvailabilityLabel || "—";
+  const badgeColor = dataLabel === "Quote + bars" ? PALETTE.green
+                   : dataLabel === "Quote only"   ? PALETTE.amber
+                   : dataLabel === "Bars only"    ? PALETTE.cyan
+                   :                                 PALETTE.red;
 
   return (
     <div style={panelBox(PALETTE.accentTeal)}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: PALETTE.accentTeal }}>
-          {result.symbol}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: PALETTE.accentTeal }}>
+            {result.symbol}
+          </span>
+          <span title="Polygon data quality"
+            style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+              color: badgeColor,
+              background: `${badgeColor}1a`,
+              border: `1px solid ${badgeColor}55`,
+              borderRadius: 4, padding: "2px 6px",
+            }}>
+            {dataLabel}
+          </span>
         </div>
         <div style={{ fontSize: 9, color: PALETTE.textDim, letterSpacing: "0.08em" }}>
           {result.analysisMode.replace(/_/g, " ").toUpperCase()}
         </div>
       </div>
+
+      {/* Safe-failure banner — when both quote and bars failed and no
+          options chain is present. Surfaces a single clear message
+          instead of two separate "limited" sections below. */}
+      {result.noMarketData && (
+        <div style={{
+          marginTop: 8, padding: 8,
+          background: `${PALETTE.red}10`,
+          border: `1px solid ${PALETTE.red}55`,
+          borderRadius: 6, fontSize: 11, color: PALETTE.red, lineHeight: 1.5,
+        }}>
+          Ad hoc TE simulation unavailable: Polygon quote/history data could not be loaded.
+        </div>
+      )}
 
       <div style={{ marginTop: 6, fontSize: 10, color: PALETTE.textFaint }}>
         Quote {boolDot(da.polygonQuote)}  ·  Bars {boolDot(da.polygonBars)}  ·

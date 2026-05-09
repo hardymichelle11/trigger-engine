@@ -63,7 +63,8 @@
     "test:credit-view-narrative": "node scripts/test-credit-view-narrative.js",
     "test:te-smoke": "node scripts/test-te-smoke.js",
     "test:ticker-universe": "node scripts/test-ticker-universe.js",
-    "test:scanner-universe-binding": "node scripts/test-scanner-universe-binding.js"
+    "test:scanner-universe-binding": "node scripts/test-scanner-universe-binding.js",
+    "test:ad-hoc-bars": "node scripts/test-ad-hoc-bars.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",
