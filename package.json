@@ -77,7 +77,8 @@
     "test:cio-scanner-binding": "node scripts/test-cio-scanner-binding.js",
     "test:basket-leadership-memory": "node scripts/test-basket-leadership-memory.js",
     "test:basket-action-queue": "node scripts/test-basket-action-queue.js",
-    "test:cio-review-dashboard": "node scripts/test-cio-review-dashboard.js"
+    "test:cio-review-dashboard": "node scripts/test-cio-review-dashboard.js",
+    "test:ai-health-diagnostics": "node scripts/test-ai-health-diagnostics-basket.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",

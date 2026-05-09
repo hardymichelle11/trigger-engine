@@ -232,6 +232,42 @@ export function seedBaselineLeaders(basketId, opts = {}) {
   return getBasketUniverse(basketId);
 }
 
+/**
+ * Tier-aware seeder. When the basket profile carries `tierActive`,
+ * `tierWatch`, and/or `tierExcluded` arrays (e.g. AI Health /
+ * Diagnostics), this seeds them into the appropriate universe lists
+ * in one pass. Symbols without tier markers fall back to the standard
+ * baseline-leaders behaviour. Caller-driven — never automatic.
+ */
+export function seedBasketTiers(basketId, opts = {}) {
+  const profile = getBasketAgent(basketId);
+  if (!profile) return null;
+  const source = opts.source || "registry_baseline";
+
+  const hasTierMarkers =
+    Array.isArray(profile.tierActive) ||
+    Array.isArray(profile.tierWatch) ||
+    Array.isArray(profile.tierExcluded);
+
+  if (!hasTierMarkers) {
+    return seedBaselineLeaders(basketId, opts);
+  }
+
+  for (const sym of profile.tierActive || []) {
+    upsertBasketSymbol(basketId, sym, {
+      addedReason: opts.activeReason || "tier_1_pure_play",
+      source,
+    });
+  }
+  for (const sym of profile.tierWatch || []) {
+    moveToWatchlist(basketId, sym, opts.watchReason || "tier_2_incumbent_fortress");
+  }
+  for (const sym of profile.tierExcluded || []) {
+    moveToExcluded(basketId, sym, opts.excludeReason || "tier_3_adjacency");
+  }
+  return getBasketUniverse(basketId);
+}
+
 // ---------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------

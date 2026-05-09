@@ -15,6 +15,7 @@ import DynamicBasketManager from "../scanner/DynamicBasketManager.jsx";
 import AdHocSimulationHistory from "../scanner/AdHocSimulationHistory.jsx";
 import BasketAgentPanel from "../portfolioCio/BasketAgentPanel.jsx";
 import CioReviewDashboard from "../portfolioCio/CioReviewDashboard.jsx";
+import AIHealthDiagnosticsPanel from "../portfolioCio/AIHealthDiagnosticsPanel.jsx";
 
 const PALETTE = {
   bg: "#06090e", border: "#1e2530", borderSoft: "#21252a",
@@ -146,6 +147,12 @@ export default function UniverseWorkspace({
           onSendToTE={onSendToTE}
           onSendToCV={onSendToCV} />
       )}
+
+      {open && (
+        <AIHealthDiagnosticsSection
+          onSendToTE={onSendToTE}
+          onSendToCV={onSendToCV} />
+      )}
     </section>
   );
 }
@@ -213,6 +220,41 @@ function CioReviewDashboardSection({ onSendToTE, onSendToCV }) {
       </header>
       {open && (
         <CioReviewDashboard
+          onSendToTE={onSendToTE}
+          onSendToCV={onSendToCV} />
+      )}
+    </div>
+  );
+}
+
+// AI Health / Diagnostics specialty panel — collapsible section below
+// the CIO review dashboard. Default closed.
+function AIHealthDiagnosticsSection({ onSendToTE, onSendToCV }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{
+      borderTop: "1px solid #21252a",
+      padding: "0 12px 12px 12px",
+    }}>
+      <header
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        aria-expanded={open}
+        style={{
+          padding: "8px 0", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          fontSize: 10, letterSpacing: "0.14em", color: "#9ca3af",
+        }}>
+        <span>
+          <span style={{ color: "#14b8a6", marginRight: 8 }}>{open ? "▾" : "▸"}</span>
+          AI HEALTH / DIAGNOSTICS
+        </span>
+        <span style={{ fontSize: 9, color: "#6b7280" }}>
+          {open ? "Click to collapse" : "Specialty basket — diagnostics, genomics, AI interpretation"}
+        </span>
+      </header>
+      {open && (
+        <AIHealthDiagnosticsPanel
           onSendToTE={onSendToTE}
           onSendToCV={onSendToCV} />
       )}

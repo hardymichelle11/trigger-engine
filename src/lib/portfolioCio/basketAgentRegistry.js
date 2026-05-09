@@ -118,14 +118,40 @@ export const BASKET_AGENTS = Object.freeze([
   {
     basketId: "ai_health_diagnostics",
     basketName: "AI Health / Diagnostics",
-    mandate: "AI-driven diagnostics, drug discovery, and precision-health platforms.",
-    baselineLeaders: ["TEM", "GH", "EXAS", "TMO", "IQV", "RXRX", "SDGR"],
-    discoveryKeywords: ["genomic", "diagnostics", "AI drug", "precision health", "biomarker"],
-    macroDrivers: ["healthcare adoption", "regulatory environment"],
-    positiveCatalysts: ["data readouts", "regulatory approvals", "platform deals"],
-    negativeCatalysts: ["trial failures", "regulatory pushback", "reimbursement risk"],
+    mandate:
+      "Companies that own or enable the intelligence layer of medicine: diagnostics, genomic testing, liquid biopsy, MRD monitoring, digital pathology, real-world clinical data, AI interpretation, trial matching, and pharma decision support.",
+    // baselineLeaders is the Tier 1 pure-play set (the bridge / OS,
+    // liquid biopsy, MRD, genomics names). Tier 2 incumbent fortresses
+    // and Tier 3 adjacencies are seeded into watchlist / excluded by
+    // tier-aware seeders — see basketUniverseManager.seedBasketTiers.
+    baselineLeaders: ["TEM", "GH", "NTRA", "PSNL", "MYGN", "DGX", "LH"],
+    tierActive:   ["TEM", "GH", "NTRA", "PSNL", "MYGN", "DGX", "LH"],
+    tierWatch:    ["RHHBY", "ABT", "TMO", "DHR", "ILMN", "A"],
+    tierExcluded: ["NVDA", "MSFT", "GOOGL", "AMZN", "PLTR", "VEEV", "IQV"],
+    discoveryKeywords: [
+      "genomic", "diagnostics", "liquid biopsy", "MRD",
+      "digital pathology", "AI drug", "precision health",
+      "biomarker", "real-world evidence", "trial matching",
+    ],
+    macroDrivers: [
+      "healthcare adoption",
+      "AI interpretation of medical data",
+      "reimbursement environment",
+      "FDA / regulatory clarity",
+    ],
+    positiveCatalysts: [
+      "data readouts", "regulatory approvals", "platform deals",
+      "pharma partnerships", "Medicare coverage wins",
+      "AI pathology validation", "hospital system expansion",
+    ],
+    negativeCatalysts: [
+      "trial failures", "regulatory pushback", "reimbursement risk",
+      "diagnostics volume slowdown", "cash burn worsening",
+      "ai hype without adoption",
+    ],
     preferredManagerRoute: BASKET_PREFERRED_ROUTES.SEND_TO_TE,
-    riskMandate: "Binary catalyst risk — size carefully.",
+    riskMandate:
+      "Binary catalyst risk — size carefully. Pure plays trade like AI software / biotech momentum; fortresses trade like defensive healthcare. Do not blend posture across tiers.",
     maxSuggestedExposure: MAX_EXPOSURE.CONSERVATIVE,
     rebalanceCadence: REBALANCE_CADENCE.MONTHLY,
   },
