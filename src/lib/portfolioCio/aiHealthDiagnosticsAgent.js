@@ -29,6 +29,7 @@ import {
   getAgentMemory,
   getBasketMemory,
 } from "./agentMemoryStore.js";
+import { buildMarketIntelligenceContext } from "./marketIntelligenceContextBuilder.js";
 
 const AGENT_ID = "aiHealthDiagnosticsAgent";
 
@@ -123,10 +124,24 @@ export function buildAIHealthDiagnosticsInsight(input = {}) {
       if (memory.thesisLens) {
         creditViewInsight = `${creditViewInsight} Operator thesis: ${memory.thesisLens}`;
       }
-      // Build the safe Credit View block — only populated when memory
-      // exists. Empty memory means no marketIntelligenceContext at all.
-      marketIntelligenceContext = composeMarketIntelligenceContext({
-        profile, evalRes, posture, memory,
+      // Build the safe Credit View block via the shared builder so
+      // the scanner top-cards and the detail panel render the same
+      // shape. Builder returns null when no memory matches the
+      // symbol — the UI hides the block in that case.
+      marketIntelligenceContext = buildMarketIntelligenceContext({
+        symbol: profile.symbol,
+        basketId: AI_HEALTH_DIAGNOSTICS_BASKET_ID,
+        agentId: AGENT_ID,
+        agentInsight: {
+          posture,
+          verdict: evalRes.verdict,
+          constructiveManagerCount: evalRes.constructiveManagerCount,
+          cautiousManagerCount: evalRes.cautiousManagerCount,
+          role: profile.role,
+          primaryRisk: profile.primaryRisk,
+          thesisSummary: profile.thesis,
+        },
+        approvedMemory: memory.items,
       });
     }
   }
@@ -275,54 +290,6 @@ function appendMemoryCatalysts(currentLabel, catalysts) {
   if (!Array.isArray(catalysts) || catalysts.length === 0) return currentLabel;
   const tail = catalysts.slice(0, 3).join(" · ");
   return `${currentLabel} Operator-tracked catalysts: ${tail}.`;
-}
-
-function composeMarketIntelligenceContext({ profile, evalRes, posture, memory }) {
-  if (!memory) return null;
-  // Thesis alignment derives from the engine — supportive when we
-  // have constructive reads, conflicting when cautious reads dominate,
-  // mixed otherwise. Never auto-promote to "supportive" purely from
-  // memory.
-  const thesisAlignment = thesisAlignmentFor(evalRes);
-  const primaryRisk = memory.risks[0] || profile.primaryRisk || null;
-  return {
-    basket: "AI Health / Diagnostics",
-    agentRead: memory.thesisLens || profile.thesis,
-    thesisAlignment,
-    primaryRisk,
-    competitors: memory.competitorMap.slice(0, 8),
-    catalysts: memory.catalysts.slice(0, 6),
-    tradeTranslation: composeTradeTranslation(posture, evalRes),
-  };
-}
-
-function thesisAlignmentFor(evalRes) {
-  if (evalRes.cautiousManagerCount >= 2)     return "conflicting";
-  if (evalRes.constructiveManagerCount >= 2) return "supportive";
-  if (evalRes.cautiousManagerCount >= 1 && evalRes.constructiveManagerCount >= 1) return "mixed";
-  if (evalRes.constructiveManagerCount >= 1) return "supportive";
-  return "unavailable";
-}
-
-function composeTradeTranslation(posture, evalRes) {
-  switch (posture) {
-    case POSTURE.PREMIUM_CANDIDATE:
-      return "Use premium only when support, IV, and assignment comfort align.";
-    case POSTURE.ACCUMULATE_WATCH:
-      return "Accumulate or watch — confirm continuing constructive reads before adding.";
-    case POSTURE.LONG_HOLD_ANCHOR:
-      return "Defensive sector exposure. Do not chase — wait for premium attractiveness.";
-    case POSTURE.WAIT_FOR_CONFIRMATION:
-      return "Wait for manager confirmation before sizing.";
-    case POSTURE.AVOID_FOR_NOW:
-      return "Defer trade activity until reads improve.";
-    case POSTURE.RISK_ELEVATED:
-      return "Do not size on conflicting reads — consider exclude or watchlist.";
-    case POSTURE.SECTOR_CONFIRMATION_SIGNAL:
-      return "Sector signal only — do not deploy basket capital here.";
-    default:
-      return "Monitor for additional manager evidence.";
-  }
 }
 
 // ---------------------------------------------------------------------

@@ -46,6 +46,8 @@ import {
   promoteToAgentMemory,
   INTELLIGENCE_STATUS,
 } from "../../lib/portfolioCio/agentMemoryStore.js";
+import { buildMarketIntelligenceContext }
+  from "../../lib/portfolioCio/marketIntelligenceContextBuilder.js";
 import ThesisHealthPanel from "./ThesisHealthPanel.jsx";
 
 const PALETTE = {
@@ -193,6 +195,30 @@ export default function AIHealthDiagnosticsPanel({
     });
   }, [selectedSymbol, mergedManagerAssessments, mergedHistory, leadershipClassBySymbol, newsAlignmentBySymbol]);
 
+  // Approved memory for the basket (used to build per-symbol MI
+  // context for the top-cards). The agent already pulls memory
+  // internally for the side-panel insight; this lookup feeds the
+  // scanner cards which receive a scanner evalRow shape, not an
+  // insight object.
+  const basketApprovedMemory = useMemo(
+    () => getBasketMemory(AI_HEALTH_DIAGNOSTICS_BASKET_ID),
+    [tick],
+  );
+  const miContextBySymbol = useMemo(() => {
+    const out = {};
+    for (const evalRow of ranked.evaluated || []) {
+      const ctx = buildMarketIntelligenceContext({
+        symbol: evalRow.symbol,
+        basketId: AI_HEALTH_DIAGNOSTICS_BASKET_ID,
+        agentId: "aiHealthDiagnosticsAgent",
+        agentInsight: evalRow,
+        approvedMemory: basketApprovedMemory,
+      });
+      if (ctx) out[evalRow.symbol] = ctx;
+    }
+    return out;
+  }, [ranked.evaluated, basketApprovedMemory]);
+
   const heatMap = buildHeatMap(universe, ranked.evaluated);
 
   if (!profile) {
@@ -274,6 +300,7 @@ export default function AIHealthDiagnosticsPanel({
             title="Best Premium Candidate"
             tone={PALETTE.green}
             evalRow={ranked.bestPremium}
+            marketIntelligenceContext={ranked.bestPremium ? miContextBySymbol[ranked.bestPremium.symbol] : null}
             onSelect={setSelectedSymbol}
             onSendToTE={onSendToTE}
             onSendToCV={onSendToCV}
@@ -283,6 +310,7 @@ export default function AIHealthDiagnosticsPanel({
             title="Best Long-Term Accumulation Candidate"
             tone={PALETTE.cyan}
             evalRow={ranked.bestAccumulation}
+            marketIntelligenceContext={ranked.bestAccumulation ? miContextBySymbol[ranked.bestAccumulation.symbol] : null}
             onSelect={setSelectedSymbol}
             onSendToTE={onSendToTE}
             onSendToCV={onSendToCV}
@@ -292,6 +320,7 @@ export default function AIHealthDiagnosticsPanel({
             title="Best Sector Confirmation Signal"
             tone={PALETTE.purple}
             evalRow={ranked.bestSectorConfirmation}
+            marketIntelligenceContext={ranked.bestSectorConfirmation ? miContextBySymbol[ranked.bestSectorConfirmation.symbol] : null}
             onSelect={setSelectedSymbol}
             onSendToTE={onSendToTE}
             onSendToCV={onSendToCV}
@@ -395,7 +424,7 @@ function ThesisHealthInline({ tick, onTick }) {
 }
 
 function TopCard({
-  title, tone, evalRow, onSelect,
+  title, tone, evalRow, marketIntelligenceContext, onSelect,
   onSendToTE, onSendToCV, onPromoteToScanner, onRunAdHocSimulation,
 }) {
   if (!evalRow) {
@@ -428,6 +457,9 @@ function TopCard({
       <div style={{ fontSize: 10, color: PALETTE.textDim, lineHeight: 1.5 }}>
         {evalRow.posture}
       </div>
+      {marketIntelligenceContext && (
+        <MarketIntelligenceCompact context={marketIntelligenceContext} />
+      )}
       <footer style={{
         display: "flex", gap: 4, flexWrap: "wrap",
         marginTop: 6, paddingTop: 6,
@@ -555,6 +587,13 @@ function DetailPanel({
       <Field label="Assignment comfort" value={insight.assignmentComfort} />
       <Field label="News alignment"   value={insight.newsLine} />
 
+      {/* Market Intelligence Context — only renders when approved
+          memory matches the symbol. Compact decision-context block;
+          no raw memory JSON, no scoring internals. */}
+      {insight.marketIntelligenceContext && (
+        <MarketIntelligenceBlock context={insight.marketIntelligenceContext} />
+      )}
+
       {/* Risks to verify */}
       {Array.isArray(insight.risksToVerify) && insight.risksToVerify.length > 0 && (
         <section>
@@ -604,6 +643,172 @@ function Field({ label, value, tone }) {
       </div>
     </div>
   );
+}
+
+// Compact decision-context block surfacing approved Market
+// Intelligence for the selected symbol. Renders only when the agent
+// has populated insight.marketIntelligenceContext (which itself only
+// happens when approved memory matches). No raw memory JSON; no
+// scoring internals; no thesis-health rollup (that lives in its own
+// panel).
+function MarketIntelligenceBlock({ context }) {
+  if (!context) return null;
+  const alignmentTone = (() => {
+    switch (context.thesisAlignment) {
+      case "supportive":  return PALETTE.green;
+      case "conflicting": return PALETTE.red;
+      case "mixed":       return PALETTE.amber;
+      default:            return PALETTE.textFaint;
+    }
+  })();
+  return (
+    <section aria-label="Market intelligence context"
+      style={{
+        background: `${PALETTE.purple}08`,
+        border: `1px solid ${PALETTE.purple}33`,
+        borderLeft: `2px solid ${PALETTE.purple}`,
+        borderRadius: 6, padding: "8px 10px",
+        display: "flex", flexDirection: "column", gap: 4,
+      }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+        <span style={{
+          fontSize: 9, letterSpacing: "0.10em", color: PALETTE.purple, fontWeight: 700,
+        }}>
+          MARKET INTELLIGENCE CONTEXT
+        </span>
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+          color: alignmentTone,
+          background: `${alignmentTone}1a`, border: `1px solid ${alignmentTone}55`,
+          borderRadius: 4, padding: "2px 6px",
+        }}>
+          {labelForAlignment(context.thesisAlignment)}
+        </span>
+      </div>
+
+      {context.basket && (
+        <div style={{ fontSize: 10, color: PALETTE.textFaint }}>
+          Basket: <strong style={{ color: PALETTE.text }}>{context.basket}</strong>
+        </div>
+      )}
+      {context.agentRead && (
+        <div style={{ fontSize: 11, color: PALETTE.text, lineHeight: 1.55 }}>
+          {context.agentRead}
+        </div>
+      )}
+      {Array.isArray(context.supportingSignals) && context.supportingSignals.length > 0 && (
+        <SignalLine label="Supporting signals" tone={PALETTE.green} items={context.supportingSignals} />
+      )}
+      {Array.isArray(context.challengingSignals) && context.challengingSignals.length > 0 && (
+        <SignalLine label="Challenging signals" tone={PALETTE.red} items={context.challengingSignals} />
+      )}
+      {context.primaryRisk && (
+        <div style={{ fontSize: 10, color: PALETTE.textDim, lineHeight: 1.5 }}>
+          <strong style={{ color: PALETTE.textDim }}>Primary risk:</strong> {context.primaryRisk}
+        </div>
+      )}
+      {context.tradeTranslation && (
+        <div style={{ fontSize: 11, color: PALETTE.cyan, fontStyle: "italic", lineHeight: 1.55 }}>
+          → {context.tradeTranslation}
+        </div>
+      )}
+      {context.lastUpdated && (
+        <div style={{ fontSize: 9, color: PALETTE.textFaint }}>
+          Last updated: {formatMIDate(context.lastUpdated)}
+        </div>
+      )}
+      <div style={{ fontSize: 9, color: PALETTE.textFaint, fontStyle: "italic", marginTop: 2 }}>
+        Context only — does not override engine verdict.
+      </div>
+    </section>
+  );
+}
+
+// Single-line variant for the scanner top-cards (compact). Shows
+// agentRead truncated + alignment chip + a short "Context only"
+// note. Renders nothing when context is null.
+function MarketIntelligenceCompact({ context }) {
+  if (!context) return null;
+  const alignmentTone = (() => {
+    switch (context.thesisAlignment) {
+      case "supportive":  return PALETTE.green;
+      case "conflicting": return PALETTE.red;
+      case "mixed":       return PALETTE.amber;
+      default:            return PALETTE.textFaint;
+    }
+  })();
+  return (
+    <div style={{
+      marginTop: 4, padding: "4px 6px",
+      background: `${PALETTE.purple}08`,
+      border: `1px solid ${PALETTE.purple}33`,
+      borderLeft: `2px solid ${PALETTE.purple}`,
+      borderRadius: 4,
+      display: "flex", flexDirection: "column", gap: 2,
+    }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+        <span style={{
+          fontSize: 8, letterSpacing: "0.10em", color: PALETTE.purple, fontWeight: 700,
+        }}>
+          MI
+        </span>
+        <span style={{
+          fontSize: 8, fontWeight: 700, letterSpacing: "0.06em",
+          color: alignmentTone,
+          background: `${alignmentTone}1a`, border: `1px solid ${alignmentTone}55`,
+          borderRadius: 3, padding: "1px 5px",
+        }}>
+          {labelForAlignment(context.thesisAlignment)}
+        </span>
+      </div>
+      {context.agentRead && (
+        <div style={{ fontSize: 10, color: PALETTE.text, lineHeight: 1.45 }}>
+          {truncateText(context.agentRead, 130)}
+        </div>
+      )}
+      <div style={{ fontSize: 9, color: PALETTE.textFaint, fontStyle: "italic" }}>
+        Context only — does not override engine verdict.
+      </div>
+    </div>
+  );
+}
+
+function SignalLine({ label, tone, items }) {
+  return (
+    <div style={{ fontSize: 10, color: PALETTE.textDim, lineHeight: 1.5 }}>
+      <strong style={{ color: tone, marginRight: 4 }}>{label}:</strong>
+      {items.slice(0, 4).map((s, i) => (
+        <span key={`${s}-${i}`} style={{ color: PALETTE.text }}>
+          {i > 0 ? " · " : ""}{s}
+        </span>
+      ))}
+      {items.length > 4 && (
+        <span style={{ color: PALETTE.textFaint }}>
+          {" · "}+{items.length - 4} more
+        </span>
+      )}
+    </div>
+  );
+}
+
+function labelForAlignment(alignment) {
+  switch (alignment) {
+    case "supportive":   return "Supportive";
+    case "conflicting":  return "Conflicting";
+    case "mixed":        return "Mixed";
+    default:             return "Unavailable";
+  }
+}
+
+function truncateText(s, max) {
+  if (typeof s !== "string") return "";
+  if (s.length <= max) return s;
+  return s.slice(0, Math.max(0, max - 1)) + "…";
+}
+
+function formatMIDate(ts) {
+  if (typeof ts !== "number" || ts <= 0) return "—";
+  return new Date(ts).toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------
