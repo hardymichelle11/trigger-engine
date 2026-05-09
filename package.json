@@ -74,7 +74,8 @@
     "test:cio-preview": "node scripts/test-cio-preview.js",
     "test:basket-agents": "node scripts/test-basket-agents.js",
     "test:basket-agent-panel": "node scripts/test-basket-agent-panel.js",
-    "test:cio-scanner-binding": "node scripts/test-cio-scanner-binding.js"
+    "test:cio-scanner-binding": "node scripts/test-cio-scanner-binding.js",
+    "test:basket-leadership-memory": "node scripts/test-basket-leadership-memory.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",

@@ -25,6 +25,7 @@ import {
   seedBaselineLeaders,
 } from "../../lib/portfolioCio/basketUniverseManager.js";
 import { buildBasketLeadershipRead } from "../../lib/portfolioCio/basketLeadershipEngine.js";
+import { getBasketManagerInputs } from "../../lib/portfolioCio/basketManagerAssessmentResolver.js";
 import BasketMandateCard from "./BasketMandateCard.jsx";
 import BasketUniverseEditor from "./BasketUniverseEditor.jsx";
 import BasketLeadershipTable from "./BasketLeadershipTable.jsx";
@@ -70,16 +71,39 @@ export default function BasketAgentPanel({
 
   const profile = useMemo(() => getBasketAgent(basketId), [basketId]);
   const universe = useMemo(() => getBasketUniverse(basketId), [basketId, tick]);
+
+  // Pull manager-assessment memory for active + watchlist symbols. The
+  // prop bag (managerAssessmentsBySymbol / historyBySymbol) takes
+  // priority — operators or future hosts can override per-symbol —
+  // and memory fills the gaps. Excluded names are deliberately left
+  // out of the lookup; the engine filters them anyway.
+  const memoryInputs = useMemo(() => {
+    const symbols = [
+      ...((universe?.activeUniverse || []).map((r) => r.symbol)),
+      ...((universe?.watchlist || []).map((r) => r.symbol)),
+    ].filter(Boolean);
+    return getBasketManagerInputs(symbols);
+  }, [universe, tick]);
+
+  const mergedManagerAssessments = useMemo(
+    () => ({ ...memoryInputs.managerAssessmentsBySymbol, ...(managerAssessmentsBySymbol || {}) }),
+    [memoryInputs, managerAssessmentsBySymbol],
+  );
+  const mergedHistory = useMemo(
+    () => ({ ...memoryInputs.historyBySymbol, ...(historyBySymbol || {}) }),
+    [memoryInputs, historyBySymbol],
+  );
+
   const leadershipRead = useMemo(() => {
     if (!profile) return null;
     return buildBasketLeadershipRead({
       basketProfile: profile,
       basketUniverse: universe,
-      managerAssessmentsBySymbol,
+      managerAssessmentsBySymbol: mergedManagerAssessments,
       marketRegime,
-      historyBySymbol,
+      historyBySymbol: mergedHistory,
     });
-  }, [profile, universe, managerAssessmentsBySymbol, marketRegime, historyBySymbol]);
+  }, [profile, universe, mergedManagerAssessments, marketRegime, mergedHistory]);
 
   // ---- mutation handlers ----
   const handleSeedBaseline = useCallback((syms) => {
@@ -209,11 +233,11 @@ export default function BasketAgentPanel({
         onSendToCV={onSendToCV}
         onPromoteToScanner={onPromoteToScanner} />
 
-      {/* Leadership table */}
+      {/* Leadership table — merged-bag is what the engine saw above */}
       <BasketLeadershipTable
         read={leadershipRead}
         universe={universe}
-        managerAssessmentsBySymbol={managerAssessmentsBySymbol}
+        managerAssessmentsBySymbol={mergedManagerAssessments}
         onSendToTE={onSendToTE}
         onSendToCV={onSendToCV}
         onPromoteToScanner={onPromoteToScanner}

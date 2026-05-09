@@ -25,7 +25,7 @@
 //     static catalog stays untouched.
 // =====================================================
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { resolveTickerUniverse } from "../../lib/universe/resolveTickerUniverse.js";
 import { simulateAdHoc } from "../../lib/universe/adHocSimulationService.js";
 import {
@@ -51,6 +51,7 @@ import MarketIntelligencePanel from "../intelligence/MarketIntelligencePanel.jsx
 import { buildAdHocCioTapeInputs } from "../../lib/portfolioCio/adapters/adHocCioTapeInputs.js";
 import { buildManagerAssessmentTape } from "../../lib/portfolioCio/managerAssessmentTape.js";
 import ManagerAssessmentTape from "../portfolioCio/ManagerAssessmentTape.jsx";
+import { recordManagerAssessmentSnapshot } from "../../lib/portfolioCio/managerAssessmentMemoryStore.js";
 
 const PALETTE = {
   bg:        "#0d1117",
@@ -587,6 +588,7 @@ function IntelligenceBlock({ result, loading, error }) {
 
 function CioPreviewBlock({ simResult, intelligenceResult }) {
   const [open, setOpen] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
 
   // Build the tape lazily — pure work, but no need to spend cycles
   // when the section is collapsed.
@@ -604,6 +606,22 @@ function CioPreviewBlock({ simResult, intelligenceResult }) {
       history: composed.history,
     });
   }, [open, simResult, intelligenceResult]);
+
+  // Auto-save the sanitized tape to manager memory once the operator
+  // has actually viewed it. The store strips raw scores / weights /
+  // coefficients defensively even though the tape is already
+  // sanitized upstream. No-op when no usable assessment exists.
+  useEffect(() => {
+    if (!tape || !simResult || !simResult.symbol) return;
+    try {
+      const rec = recordManagerAssessmentSnapshot({
+        symbol: simResult.symbol,
+        tapeResult: tape,
+        source: "ad_hoc_simulation",
+      });
+      if (rec && rec.updatedAt) setSavedAt(rec.updatedAt);
+    } catch { /* memory write is best-effort */ }
+  }, [tape, simResult]);
 
   return (
     <div>
@@ -625,6 +643,13 @@ function CioPreviewBlock({ simResult, intelligenceResult }) {
       {open && tape && (
         <div style={{ marginTop: 10 }}>
           <ManagerAssessmentTape tape={tape} />
+          {savedAt && (
+            <div style={{
+              marginTop: 6, fontSize: 10, color: PALETTE.cyan, fontStyle: "italic",
+            }}>
+              Manager read saved for basket leadership review.
+            </div>
+          )}
         </div>
       )}
     </div>
