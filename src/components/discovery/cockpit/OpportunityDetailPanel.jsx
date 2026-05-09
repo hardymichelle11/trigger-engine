@@ -87,6 +87,13 @@ export default function OpportunityDetailPanel({
   onToggleCandidate = () => {},
   onSetAlert = () => {},
   onClearAlert = () => {},
+  // Phase 4.8: universe actions — Send to TE / Send to CV /
+  // Add to Dynamic Basket / Promote to Scanner. Optional; rendered
+  // only when at least one is supplied.
+  onSendToTE = null,
+  onSendToCV = null,
+  onAddToBasket = null,
+  onPromoteToScanner = null,
 }) {
   if (!row) {
     return (
@@ -181,6 +188,18 @@ export default function OpportunityDetailPanel({
         </div>
       </div>
 
+      {/* Universe actions — Send to TE/CV, Add to Basket, Promote to
+          Scanner. Rendered above the standard action bar so the
+          existing Watch/Candidate/Simulate/Alert layout is unchanged. */}
+      {(onSendToTE || onSendToCV || onAddToBasket || onPromoteToScanner) && (
+        <UniverseActionRow
+          symbol={row.symbol}
+          onSendToTE={onSendToTE}
+          onSendToCV={onSendToCV}
+          onAddToBasket={onAddToBasket}
+          onPromoteToScanner={onPromoteToScanner} />
+      )}
+
       {/* Bottom action bar — Watch / Candidate / Simulate / Alert */}
       <DetailActionBar
         row={row}
@@ -197,6 +216,66 @@ export default function OpportunityDetailPanel({
         onSetAlert={(target, direction) => onSetAlert(row.symbol, target, direction)}
         onClearAlert={() => onClearAlert(row.symbol)} />
     </aside>
+  );
+}
+
+// --------------------------------------------------
+// UNIVERSE ACTION ROW — Send to TE/CV + basket actions
+// --------------------------------------------------
+
+function UniverseActionRow({ symbol, onSendToTE, onSendToCV, onAddToBasket, onPromoteToScanner }) {
+  return (
+    <div role="group" aria-label="Universe actions"
+         style={{
+           flex: "none",
+           borderTop: `1px solid ${COCKPIT_PALETTE.borderSoft}`,
+           background: COCKPIT_PALETTE.consoleBg,
+           padding: "8px 12px",
+           display: "flex", gap: 6, flexWrap: "wrap",
+         }}>
+      <span style={{
+        fontSize: 9, letterSpacing: "0.12em",
+        color: COCKPIT_PALETTE.textFaint, alignSelf: "center", marginRight: 4,
+      }}>
+        UNIVERSE
+      </span>
+      {onSendToTE && (
+        <UniverseBtn label="Send to TE"
+          onClick={() => onSendToTE(symbol)}
+          color={COCKPIT_PALETTE.accentCyan} />
+      )}
+      {onSendToCV && (
+        <UniverseBtn label="Send to CV"
+          onClick={() => onSendToCV(symbol)}
+          color={COCKPIT_PALETTE.accentCyan} />
+      )}
+      {onAddToBasket && (
+        <UniverseBtn label="Add to Basket"
+          onClick={() => onAddToBasket(symbol)}
+          color={COCKPIT_PALETTE.accentTeal} />
+      )}
+      {onPromoteToScanner && (
+        <UniverseBtn label="Promote to Scanner"
+          onClick={() => onPromoteToScanner(symbol)}
+          color={COCKPIT_PALETTE.accentGreen} />
+      )}
+    </div>
+  );
+}
+
+function UniverseBtn({ label, onClick, color }) {
+  return (
+    <button type="button" onClick={onClick}
+      style={{
+        background: `${color}1a`,
+        border: `1px solid ${color}88`,
+        color,
+        borderRadius: 6, padding: "4px 8px",
+        fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+        cursor: "pointer",
+      }}>
+      {label}
+    </button>
   );
 }
 

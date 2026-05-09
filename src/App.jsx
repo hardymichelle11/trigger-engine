@@ -20,6 +20,10 @@ import {
 
 import { buildPolygonUrl, isUsingProxy } from "./lib/polygonProxy.js";
 import { getPolygonKey } from "./lib/apiKeyManager.js";
+import UniverseWorkspace from "./components/common/UniverseWorkspace.jsx";
+import { resolveScanSymbols } from "./components/scanner/UniverseSelector.jsx";
+import { listScannerEligible, listBySource } from "./lib/universe/dynamicUniverseStore.js";
+import { TICKER_SOURCE_TYPES } from "./lib/universe/tickerUniverseTypes.js";
 const USE_MOCK = false;
 
 const TICK_MS = 1400;
@@ -709,6 +713,14 @@ export default function App({ onOpenBuilder, onOpenCreditVol, onOpenLethal, engi
   const [engineOutput, setEngineOutput] = useState(null);
   const [selectedSetup, setSelectedSetup] = useState(null);
   const [teSearchQuery, setTeSearchQuery] = useState("");
+
+  // Universe workspace state — additive layer that doesn't disturb the
+  // existing static-catalog scan path. selected: which universes the
+  // operator wants the scanner to honour (visible UI hint for now;
+  // resolveScanSymbols is exported so a future scan-binding step can
+  // plug it in without further changes here).
+  const [universeSelection, setUniverseSelection] = useState(["core_catalog"]);
+  const [manualTickerList, setManualTickerList] = useState("");
   const [alerts, setAlerts] = useState([]);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -864,6 +876,20 @@ export default function App({ onOpenBuilder, onOpenCreditVol, onOpenLethal, engi
           {lastRefresh && <span>{lastRefresh.toLocaleTimeString()}</span>}
         </div>
       </div>
+
+      {/* UNIVERSE WORKSPACE — collapsible. Hosts the ad-hoc ticker
+          search, scan-universe selector, and dynamic-basket manager.
+          Additive layer: existing catalog scan path is unchanged. */}
+      <UniverseWorkspace
+        title="Trigger Engine — universe workspace"
+        defaultOpen={false}
+        selected={universeSelection}
+        onSelectionChange={setUniverseSelection}
+        manualList={manualTickerList}
+        onManualListChange={setManualTickerList}
+        onSendToCV={onOpenCreditVol}
+        onSendToTE={() => { /* already on TE */ }}
+      />
 
       {/* 3-COLUMN DASHBOARD */}
       <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "180px 1fr 320px", height: "calc(100vh - 44px)" }}>

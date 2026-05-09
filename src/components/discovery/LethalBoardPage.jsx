@@ -192,7 +192,7 @@ async function runLiveScan(accountState) {
 // MAIN
 // --------------------------------------------------
 
-export default function LethalBoardPage({ onBack }) {
+export default function LethalBoardPage({ onBack, onSendToTE, onSendToCV }) {
   const [scanResult, setScanResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -603,6 +603,8 @@ export default function LethalBoardPage({ onBack }) {
         onToggleHideBalances={toggleHideBalances}
         onSaveCapital={saveContext}
         cockpitActions={cockpitActions}
+        onSendToTE={onSendToTE}
+        onSendToCV={onSendToCV}
       />
       <CapitalSettingsModal
         open={capitalModalOpen}

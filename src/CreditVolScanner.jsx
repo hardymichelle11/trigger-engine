@@ -31,6 +31,7 @@ import { evaluateCardTiming } from "./lib/timing/premiumTimingEngine.js";
 import { getAllSetups } from "./lib/setupRegistry.js";
 import { recordCalibrationSnapshot, markAlertsFired, getCalibrationStats } from "./lib/calibration/calibrationTracker.js";
 import KnowledgeBotPanel from "./lib/knowledgeBot/KnowledgeBotPanel.jsx";
+import UniverseWorkspace from "./components/common/UniverseWorkspace.jsx";
 
 // --------------------------------------------------
 // COLORS (matching App.jsx theme)
@@ -1741,6 +1742,17 @@ export default function CreditVolScanner({ onBack }) {
           <span style={{ color: SLATE }}>${CONFIG.income.weeklyTarget}/wk</span>
         </div>
       </div>
+
+      {/* UNIVERSE WORKSPACE — additive ad-hoc layer. Search any ticker
+          (catalog or not), run an ad-hoc Credit View simulation, manage
+          the dynamic basket. Existing static-catalog scan path is
+          unchanged. */}
+      <UniverseWorkspace
+        title="Credit View — universe workspace"
+        defaultOpen={false}
+        onSendToTE={onBack}
+        onSendToCV={() => { /* already on CV */ }}
+      />
 
       {/* MOBILE CONTROLS */}
       <div className="cv-mobile-controls" style={{ display: "none", flexWrap: "wrap", gap: 6, padding: "8px 12px", borderBottom: "1px solid #1e2530" }}>

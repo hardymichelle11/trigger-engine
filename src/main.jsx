@@ -190,7 +190,12 @@ function Root() {
   }
 
   if (page === "lethal-board") {
-    return <LethalBoardPage onBack={() => setPage("scanner")} />;
+    return (
+      <LethalBoardPage
+        onBack={() => setPage("scanner")}
+        onSendToTE={() => setPage("scanner")}
+        onSendToCV={() => setPage("credit-vol")} />
+    );
   }
 
   return (

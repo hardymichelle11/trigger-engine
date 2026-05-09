@@ -37,6 +37,11 @@ import OpportunityDetailPanel from "./cockpit/OpportunityDetailPanel.jsx";
 import MarketIntelligencePanel from "./cockpit/MarketIntelligencePanel.jsx";
 import AlertsPanel from "./cockpit/AlertsPanel.jsx";
 import { fetchNews, fetchNewsForTickers } from "../../lib/newsFeed.js";
+import {
+  upsertDynamicTicker,
+  setScannerEligible,
+} from "../../lib/universe/dynamicUniverseStore.js";
+import { TICKER_SOURCE_TYPES } from "../../lib/universe/tickerUniverseTypes.js";
 import RefreshStatusBar from "./cockpit/RefreshStatusBar.jsx";
 import { buildNewsThesis } from "../../lib/newsIntelligence.js";
 import { buildCandidateIntelligenceSummary } from "../../lib/candidateIntelligence.js";
@@ -348,7 +353,24 @@ export default function LethalBoardCockpit(props) {
             onToggleWatch={props.cockpitActions?.toggleWatch}
             onToggleCandidate={props.cockpitActions?.toggleCandidate}
             onSetAlert={props.cockpitActions?.setAlert}
-            onClearAlert={props.cockpitActions?.clearAlert} />
+            onClearAlert={props.cockpitActions?.clearAlert}
+            onSendToTE={props.onSendToTE}
+            onSendToCV={props.onSendToCV}
+            onAddToBasket={(symbol) => {
+              upsertDynamicTicker({
+                symbol,
+                sourceType: TICKER_SOURCE_TYPES.LETHAL_BOARD_PROSPECT,
+                addedReason: "lethal_board",
+              });
+            }}
+            onPromoteToScanner={(symbol) => {
+              upsertDynamicTicker({
+                symbol,
+                sourceType: TICKER_SOURCE_TYPES.LETHAL_BOARD_PROSPECT,
+                addedReason: "lethal_board",
+              });
+              setScannerEligible(symbol, true);
+            }} />
         </section>
       </main>
     </div>
