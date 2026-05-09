@@ -17,6 +17,14 @@ import {
   TICKER_SOURCE_TYPES,
   normalizeSymbol,
 } from "../../lib/universe/tickerUniverseTypes.js";
+import {
+  listBasketAgents,
+  getBasketAgent,
+} from "../../lib/portfolioCio/basketAgentRegistry.js";
+import {
+  getBasketUniverse,
+  listBasketUniverses,
+} from "../../lib/portfolioCio/basketUniverseManager.js";
 
 const PALETTE = {
   bg:        "#0d1117",
@@ -35,6 +43,8 @@ export const UNIVERSE_OPTIONS = Object.freeze({
   DYNAMIC_BASKET:     { code: "dynamic_basket",     label: "Dynamic Basket",          sourceType: TICKER_SOURCE_TYPES.DYNAMIC_BASKET },
   LETHAL_BOARD:       { code: "lethal_board",       label: "Lethal Board Prospects",  sourceType: TICKER_SOURCE_TYPES.LETHAL_BOARD_PROSPECT },
   MANUAL_TICKER_LIST: { code: "manual_ticker_list", label: "Manual Ticker List",      sourceType: null },
+  CIO_BASKET:         { code: "cio_basket",         label: "CIO Basket",              sourceType: TICKER_SOURCE_TYPES.CIO_BASKET_ACTIVE_UNIVERSE },
+  ALL_CIO_BASKETS:    { code: "all_cio_baskets",    label: "All CIO Baskets",         sourceType: TICKER_SOURCE_TYPES.CIO_BASKET_ACTIVE_UNIVERSE },
   COMBINED:           { code: "combined",           label: "Combined Universe",       sourceType: null },
 });
 
@@ -44,12 +54,16 @@ export const UNIVERSE_OPTIONS = Object.freeze({
  * @param {(codes: string[]) => void} props.onChange
  * @param {string} [props.manualList]                     comma-separated symbols
  * @param {(value: string) => void} [props.onManualListChange]
+ * @param {string|null} [props.selectedCioBasketId]       basket id when selected = ["cio_basket"]
+ * @param {(basketId: string) => void} [props.onCioBasketChange]
  */
 export default function UniverseSelector({
   selected = ["core_catalog"],
   onChange,
   manualList = "",
   onManualListChange,
+  selectedCioBasketId = null,
+  onCioBasketChange,
 }) {
   const toggle = useCallback((code) => {
     if (!onChange) return;
@@ -112,6 +126,41 @@ export default function UniverseSelector({
           </div>
         </div>
       )}
+
+      {/* CIO Basket sub-selector — visible when "CIO Basket" is on. The
+          selector lists all 12 mandates so the operator can choose which
+          basket's active universe to scan. The All CIO Baskets option
+          is a separate mode and does NOT show this sub-selector. */}
+      {selected.includes("cio_basket") && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 9, letterSpacing: "0.12em", color: PALETTE.textFaint, marginBottom: 4 }}>
+            CIO BASKET
+          </div>
+          <select
+            value={selectedCioBasketId || ""}
+            onChange={(e) => onCioBasketChange && onCioBasketChange(e.target.value || null)}
+            style={{
+              width: "100%",
+              background: "#0a0d12", color: PALETTE.text,
+              border: `1px solid ${PALETTE.border}`, borderRadius: 6,
+              padding: "6px 8px", fontSize: 12, fontFamily: "inherit",
+            }}>
+            <option value="">— Select basket —</option>
+            {listBasketAgents().map((b) => (
+              <option key={b.basketId} value={b.basketId}>{b.basketName}</option>
+            ))}
+          </select>
+          <div style={{ marginTop: 4, fontSize: 9, color: PALETTE.textFaint, lineHeight: 1.5 }}>
+            Scans active names only. Baseline leaders, watchlist, and excluded names are not scanned unless moved to Active.
+          </div>
+        </div>
+      )}
+
+      {selected.includes("all_cio_baskets") && (
+        <div style={{ marginTop: 10, fontSize: 9, color: PALETTE.textFaint, lineHeight: 1.5 }}>
+          Scans active universes across all CIO basket agents (deduped). Baseline leaders, watchlist, and excluded names are excluded.
+        </div>
+      )}
     </section>
   );
 }
@@ -144,6 +193,11 @@ export function parseManualTickerList(raw) {
  * @param {string[]} [args.coreCatalogSymbols]
  * @param {string[]} [args.dynamicBasketSymbols]
  * @param {string[]} [args.lethalBoardSymbols]
+ * @param {string[]} [args.cioBasketSymbols]             active universe of the
+ *                                                       single selected basket
+ * @param {string[]} [args.allCioBasketSymbols]          union of active
+ *                                                       universes across all
+ *                                                       CIO basket agents
  * @returns {string[]}
  */
 export function resolveScanSymbols({
@@ -152,6 +206,8 @@ export function resolveScanSymbols({
   coreCatalogSymbols = [],
   dynamicBasketSymbols = [],
   lethalBoardSymbols = [],
+  cioBasketSymbols = [],
+  allCioBasketSymbols = [],
 }) {
   const includeAll = selected.includes("combined");
   const seen = new Set();
@@ -161,8 +217,74 @@ export function resolveScanSymbols({
   if (includeAll || selected.includes("dynamic_basket")) push(dynamicBasketSymbols);
   if (includeAll || selected.includes("lethal_board")) push(lethalBoardSymbols);
   if (includeAll || selected.includes("manual_ticker_list")) push(parseManualTickerList(manualList));
+  if (includeAll || selected.includes("cio_basket")) push(cioBasketSymbols);
+  if (includeAll || selected.includes("all_cio_baskets")) push(allCioBasketSymbols);
 
   return Array.from(seen);
+}
+
+/**
+ * Read the active universe of a single CIO basket. Active members only —
+ * baseline leaders, watchlist, and excluded names are NEVER returned.
+ *
+ * @param {string} basketId
+ * @returns {string[]}
+ */
+export function resolveCioBasketSymbols(basketId) {
+  if (typeof basketId !== "string" || !basketId) return [];
+  const universe = getBasketUniverse(basketId);
+  if (!universe || !Array.isArray(universe.activeUniverse)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const rec of universe.activeUniverse) {
+    const sym = normalizeSymbol(rec?.symbol);
+    if (sym && !seen.has(sym)) { seen.add(sym); out.push(sym); }
+  }
+  return out;
+}
+
+/**
+ * Union the active universes across all CIO basket agents, deduped.
+ * Active members only — same exclusion rules as resolveCioBasketSymbols.
+ *
+ * @returns {string[]}
+ */
+export function resolveAllCioBasketSymbols() {
+  const all = listBasketUniverses();
+  const seen = new Set();
+  const out = [];
+  for (const universe of Object.values(all || {})) {
+    if (!universe || !Array.isArray(universe.activeUniverse)) continue;
+    for (const rec of universe.activeUniverse) {
+      const sym = normalizeSymbol(rec?.symbol);
+      if (sym && !seen.has(sym)) { seen.add(sym); out.push(sym); }
+    }
+  }
+  return out;
+}
+
+/**
+ * Build per-symbol records for a CIO basket — useful for callers that
+ * want sourceType / basketId provenance alongside the symbol itself.
+ *
+ * @param {string} basketId
+ * @returns {Array<{
+ *   symbol: string, sourceType: string, scannerEligible: boolean,
+ *   catalogStatus: string, basketId: string, basketName: string,
+ * }>}
+ */
+export function buildCioBasketRecords(basketId) {
+  const profile = getBasketAgent(basketId);
+  if (!profile) return [];
+  const symbols = resolveCioBasketSymbols(basketId);
+  return symbols.map((sym) => ({
+    symbol: sym,
+    sourceType: TICKER_SOURCE_TYPES.CIO_BASKET_ACTIVE_UNIVERSE,
+    scannerEligible: true,
+    catalogStatus: "promoted",     // explicit operator promotion to active
+    basketId: profile.basketId,
+    basketName: profile.basketName,
+  }));
 }
 
 // ----------------------------------------------------------------

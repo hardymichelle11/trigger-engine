@@ -22,10 +22,11 @@
 // =====================================================================
 
 export const TICKER_SOURCE_TYPES = Object.freeze({
-  STATIC_CATALOG:        "static_catalog",
-  DYNAMIC_BASKET:        "dynamic_basket",
-  AD_HOC_SIMULATION:     "ad_hoc_simulation",
-  LETHAL_BOARD_PROSPECT: "lethal_board_prospect",
+  STATIC_CATALOG:            "static_catalog",
+  DYNAMIC_BASKET:            "dynamic_basket",
+  AD_HOC_SIMULATION:         "ad_hoc_simulation",
+  LETHAL_BOARD_PROSPECT:     "lethal_board_prospect",
+  CIO_BASKET_ACTIVE_UNIVERSE:"cio_basket_active_universe",
 });
 
 export const CATALOG_STATUS = Object.freeze({
@@ -48,10 +49,11 @@ export const ANALYSIS_MODES = Object.freeze({
 // for the canonical record but keeps the others on the `appearances`
 // list so the UI can show full provenance.
 export const SOURCE_PRIORITY = Object.freeze({
-  [TICKER_SOURCE_TYPES.STATIC_CATALOG]:        4,
-  [TICKER_SOURCE_TYPES.DYNAMIC_BASKET]:        3,
-  [TICKER_SOURCE_TYPES.LETHAL_BOARD_PROSPECT]: 2,
-  [TICKER_SOURCE_TYPES.AD_HOC_SIMULATION]:     1,
+  [TICKER_SOURCE_TYPES.STATIC_CATALOG]:             4,
+  [TICKER_SOURCE_TYPES.DYNAMIC_BASKET]:             3,
+  [TICKER_SOURCE_TYPES.CIO_BASKET_ACTIVE_UNIVERSE]: 3,  // co-equal with DYNAMIC_BASKET
+  [TICKER_SOURCE_TYPES.LETHAL_BOARD_PROSPECT]:      2,
+  [TICKER_SOURCE_TYPES.AD_HOC_SIMULATION]:          1,
 });
 
 // Symbol normalization — used by every store/resolver so "  aapl  " and

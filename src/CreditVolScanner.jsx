@@ -27,7 +27,12 @@ import {
   filterTrapNames,
 } from "./optionsWatchlist.js";
 import { runDiscoveryScan, getDiscoveryPreview, getAllDiscoverySymbols } from "./lib/discoveryScanner.js";
-import { resolveScanSymbols } from "./components/scanner/UniverseSelector.jsx";
+import {
+  resolveScanSymbols,
+  resolveCioBasketSymbols,
+  resolveAllCioBasketSymbols,
+} from "./components/scanner/UniverseSelector.jsx";
+import { getBasketAgent } from "./lib/portfolioCio/basketAgentRegistry.js";
 import {
   listScannerEligible,
   listBySource,
@@ -1555,6 +1560,10 @@ export default function CreditVolScanner({ onBack }) {
   // the static catalog in that case.
   const [universeSelection, setUniverseSelection] = useState(["core_catalog"]);
   const [manualTickerList, setManualTickerList] = useState("");
+  // CIO basket sub-selection — non-null only when "cio_basket" is one of
+  // the chosen universes. When the operator picks "all_cio_baskets" we
+  // ignore this id and union every basket's active universe instead.
+  const [selectedCioBasketId, setSelectedCioBasketId] = useState(null);
   const [emptyUniverseBanner, setEmptyUniverseBanner] = useState(null);
   const [wsState, setWsState] = useState(WS_STATE.DISCONNECTED);
   const [feedHealth, setFeedHealth] = useState(null);
@@ -1662,6 +1671,11 @@ export default function CreditVolScanner({ onBack }) {
     try {
       const marketInputs = scannerState?.market?.indicators || { hyg: 80, kre: 70, lqd: 105, vix: 20, vixPrev: 20, atrExpansionMultiple: 1 };
 
+      const cioBasketSymbols = selectedCioBasketId
+        ? resolveCioBasketSymbols(selectedCioBasketId)
+        : [];
+      const allCioBasketSymbols = resolveAllCioBasketSymbols();
+
       const resolvedSymbols = resolveScanSymbols({
         selected: (universeSelection && universeSelection.length > 0)
           ? universeSelection
@@ -1671,9 +1685,11 @@ export default function CreditVolScanner({ onBack }) {
         dynamicBasketSymbols: listScannerEligible().map((r) => r.symbol),
         lethalBoardSymbols:
           listBySource(TICKER_SOURCE_TYPES.LETHAL_BOARD_PROSPECT).map((r) => r.symbol),
+        cioBasketSymbols,
+        allCioBasketSymbols,
       });
 
-      const universeMode = describeUniverseMode(universeSelection);
+      const universeMode = describeUniverseMode(universeSelection, selectedCioBasketId);
 
       if (resolvedSymbols.length === 0) {
         setDiscoveryState({
@@ -1683,7 +1699,14 @@ export default function CreditVolScanner({ onBack }) {
           scannedSymbols: [],
           universeMode,
         });
-        setEmptyUniverseBanner(`No scanner-eligible symbols found for ${universeMode}.`);
+        // CIO basket modes get the banner copy spelled out per spec.
+        let banner = `No scanner-eligible symbols found for ${universeMode}.`;
+        if (universeSelection.includes("cio_basket") && !universeSelection.includes("combined")) {
+          banner = "No active scanner symbols found for this CIO basket.";
+        } else if (universeSelection.includes("all_cio_baskets") && !universeSelection.includes("combined")) {
+          banner = "No active scanner symbols found across CIO basket agents.";
+        }
+        setEmptyUniverseBanner(banner);
         setDiscoveryLoading(false);
         return;
       }
@@ -1698,11 +1721,11 @@ export default function CreditVolScanner({ onBack }) {
       console.warn("Discovery scan failed:", err.message);
     }
     setDiscoveryLoading(false);
-  }, [scannerState, universeSelection, manualTickerList]);
+  }, [scannerState, universeSelection, manualTickerList, selectedCioBasketId]);
 
   // Trader-facing label for the chosen universe — mirrors the chip
   // labels in the UniverseWorkspace.
-  function describeUniverseMode(selected = []) {
+  function describeUniverseMode(selected = [], cioBasketId = null) {
     if (!selected || selected.length === 0) return "Core Catalog";
     if (selected.includes("combined")) return "Combined Universe";
     const labels = {
@@ -1710,6 +1733,10 @@ export default function CreditVolScanner({ onBack }) {
       dynamic_basket: "Dynamic Basket",
       lethal_board: "Lethal Board Prospects",
       manual_ticker_list: "Manual Ticker List",
+      cio_basket: cioBasketId
+        ? `CIO Basket: ${getBasketAgent(cioBasketId)?.basketName || cioBasketId}`
+        : "CIO Basket",
+      all_cio_baskets: "All CIO Baskets",
     };
     if (selected.length === 1) return labels[selected[0]] || "Core Catalog";
     return selected.map((c) => labels[c] || c).join(" + ");
@@ -1820,6 +1847,8 @@ export default function CreditVolScanner({ onBack }) {
         onSelectionChange={setUniverseSelection}
         manualList={manualTickerList}
         onManualListChange={setManualTickerList}
+        selectedCioBasketId={selectedCioBasketId}
+        onCioBasketChange={setSelectedCioBasketId}
         onSendToTE={onBack}
         onSendToCV={() => { /* already on CV */ }}
       />

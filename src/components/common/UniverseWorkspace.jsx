@@ -42,6 +42,8 @@ export default function UniverseWorkspace({
   onSelectionChange,
   manualList,
   onManualListChange,
+  selectedCioBasketId = null,
+  onCioBasketChange,
   onSendToTE,
   onSendToCV,
   onCataloged,
@@ -105,6 +107,8 @@ export default function UniverseWorkspace({
                 onChange={onSelectionChange}
                 manualList={manualList || ""}
                 onManualListChange={onManualListChange}
+                selectedCioBasketId={selectedCioBasketId}
+                onCioBasketChange={onCioBasketChange}
               />
             )}
           </div>
