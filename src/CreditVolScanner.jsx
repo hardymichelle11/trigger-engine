@@ -813,6 +813,73 @@ function FreshnessBadge({ card }) {
   );
 }
 
+// --------------------------------------------------
+// CREDIT VIEW SECTION — one paragraph + the structured fields
+// --------------------------------------------------
+// The narrative concatenates conservativeConcern + accumulationInterpretation
+// + confirmation + invalidation into a single trader-readable line.
+// The chip below it surfaces the executionReadiness verdict, and the
+// "old model would have blocked" hint when the upgraded accumulation
+// model kept a setup the conservative model would have killed.
+
+function CreditViewSection({ cv }) {
+  if (!cv) return null;
+  const tone = readinessTone(cv.executionReadiness);
+  return (
+    <div style={{
+      marginTop: 8, marginBottom: 8,
+      background: tone.bg, border: `1px solid ${tone.border}`,
+      borderRadius: 8, padding: 12,
+    }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between",
+        alignItems: "center", gap: 8, marginBottom: 6,
+      }}>
+        <span style={{
+          fontSize: 9, letterSpacing: "0.12em",
+          color: SLATE,
+        }}>
+          CREDIT VIEW
+        </span>
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
+          color: tone.label,
+        }}>
+          {cv.recommendationLabel}
+        </span>
+      </div>
+      <div style={{
+        fontSize: 12, color: "#e2e8f0", lineHeight: 1.55,
+      }}>
+        {cv.riskNarrative}
+      </div>
+      {cv.oldModelWouldHaveBlocked && (
+        <div style={{
+          marginTop: 6, fontSize: 10, color: CYAN,
+          fontStyle: "italic",
+        }}>
+          Conservative model would have blocked this; accumulation model retains it on the strength of the supporting factors above.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function readinessTone(readiness) {
+  switch (readiness) {
+    case "ready_if_confirmed":
+      return { bg: GREEN + "10", border: GREEN + "55", label: GREEN };
+    case "wait_for_confirmation":
+      return { bg: AMBER + "10", border: AMBER + "55", label: AMBER };
+    case "avoid_invalidated":
+    case "avoid_poor_liquidity":
+    case "avoid_premium_collapse":
+      return { bg: RED + "10", border: RED + "55", label: RED };
+    default:
+      return { bg: "#111827", border: "#1e2530", label: SLATE };
+  }
+}
+
 function DetailPanel({ card }) {
   if (!card) return null;
 
@@ -994,7 +1061,10 @@ function DetailPanel({ card }) {
               Best window: {timing.premiumContext.symbolBestWindow?.label || "—"}
               {timing.clockContext?.timeET && <span> &middot; Now: {timing.clockContext.timeET} ET</span>}
             </div>
-            {timing.rationale.length > 0 && (
+            {/* Per-bullet timing rationale was rolled into the Credit View
+                narrative above. Render the bullet list here only as a
+                fallback when the consolidated narrative is unavailable. */}
+            {!card.creditView && timing.rationale.length > 0 && (
               <div style={{ fontSize: 9, color: SLATE, lineHeight: 1.5 }}>
                 {timing.rationale.map((r, i) => <div key={i}>• {r}</div>)}
               </div>
@@ -1069,7 +1139,15 @@ function DetailPanel({ card }) {
         {rec.sentiment}
       </div>
 
-      {/* Narrative */}
+      {/* Credit View — single trader-readable narrative + structured fields.
+          Replaces the disconnected risk-condition rows (after-2pm /
+          near-support / VIX-elevated / spread / wheel) with one paragraph
+          that concatenates the conservative concern, the accumulation
+          interpretation, the entry confirmation gates, and the
+          invalidation gates. */}
+      {card.creditView && <CreditViewSection cv={card.creditView} />}
+
+      {/* Engine narrative (kept for traceability — high-level summary line) */}
       <div style={{ marginTop: 8, fontSize: 11, color: "#d1d5db", lineHeight: 1.5, background: "#111827", padding: 10, borderRadius: 6, border: "1px solid #1e2530" }}>
         {card.narrative}
       </div>

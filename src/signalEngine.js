@@ -25,6 +25,7 @@ import { scoreSetup, interpretSentiment, chooseAction } from "./lib/engine/setup
 import { selectPutLadder } from "./lib/engine/strikeSelection.js";
 import { estimateProbability } from "./lib/engine/probabilityLayer.js";
 import { buildLiveState } from "./lib/engine/liveStateEngine.js";
+import { buildCreditViewNarrative } from "./lib/engine/creditViewNarrative.js";
 
 // --------------------------------------------------
 // SECTION 12: TRADE RECOMMENDATION OUTPUT
@@ -143,6 +144,29 @@ export function buildUiCard(setup, market) {
   const strategyMap = { MOMENTUM: "Breakout / follow trend", RANGE: "Sell puts at support / mean reversion", INCOME: "Covered calls / dividend — avoid active selling", HYBRID: "Buy dip + sell premium", FOLLOWER: "Lag entry after leader confirms" };
   const strategy = marketType ? (strategyMap[marketType] || null) : null;
 
+  // Credit-view narrative — replaces the disconnected risk-condition rows
+  // (after-2pm, support, VIX, premium, spread, wheel) with one trader-
+  // readable paragraph plus the structured fields. Pulls only from data
+  // that already lives on the card; never from raw scores or weights.
+  const creditView = buildCreditViewNarrative({
+    symbol: setup.symbol,
+    price: setup.price,
+    ivPercentile: setup.ivPercentile,
+    bid: setup.bid,
+    ask: setup.ask,
+    spreadQuality: scored.watchlist?.spreadQuality,
+    wheelSuit: scored.watchlist?.wheelSuit,
+    signal: finalSignal,
+    action: actionResult.action,
+    timingStage: scored.timing.stage,
+    vix: market.vix,
+    fearSpike: market.fearSpike,
+    creditStress: market.creditStress,
+    nearestSupportPct: chartCtx?.nearestSupportPct ?? null,
+    minuteOfDay: setup.clockContext?.minuteOfDay ?? null,
+    primaryStrike: ladder.primary,
+  });
+
   return {
     id: `${setup.symbol}_${Date.now()}`,
     symbol: setup.symbol,
@@ -189,6 +213,7 @@ export function buildUiCard(setup, market) {
     diagnostics: scored.diagnostics,
     scoreTrace: combinedTrace,
     narrative,
+    creditView,
     // Regime context for calibration tracking (V2 fields)
     regimeContext: market.engineVersion === 2 ? {
       regime: market.mode,
