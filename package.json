@@ -71,7 +71,8 @@
     "test:market-intelligence": "node scripts/test-market-intelligence.js",
     "test:market-intelligence-integration": "node scripts/test-market-intelligence-integration.js",
     "test:cio-mi-adapter": "node scripts/test-cio-mi-adapter.js",
-    "test:cio-preview": "node scripts/test-cio-preview.js"
+    "test:cio-preview": "node scripts/test-cio-preview.js",
+    "test:basket-agents": "node scripts/test-basket-agents.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",
