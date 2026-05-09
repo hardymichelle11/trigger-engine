@@ -48,6 +48,9 @@ import {
   buildIntelligenceInputsFromSim,
 } from "../../lib/intelligence/newsIntelligenceService.js";
 import MarketIntelligencePanel from "../intelligence/MarketIntelligencePanel.jsx";
+import { buildAdHocCioTapeInputs } from "../../lib/portfolioCio/adapters/adHocCioTapeInputs.js";
+import { buildManagerAssessmentTape } from "../../lib/portfolioCio/managerAssessmentTape.js";
+import ManagerAssessmentTape from "../portfolioCio/ManagerAssessmentTape.jsx";
 
 const PALETTE = {
   bg:        "#0d1117",
@@ -488,6 +491,15 @@ function SimResultPanel({
           error={intelligenceError} />
       </Section>
 
+      {/* CIO AUDIT PREVIEW — collapsible. Surfaces how the CIO would
+          read the available managers for this ticker. Missing managers
+          render as "Insufficient evidence" via the tape's fallback. */}
+      <Section label="CIO Audit Preview">
+        <CioPreviewBlock
+          simResult={result}
+          intelligenceResult={intelligenceResult} />
+      </Section>
+
       {!compact && (
         <ActionBar
           note={note} setNote={setNote}
@@ -563,6 +575,60 @@ function IntelligenceBlock({ result, loading, error }) {
     );
   }
   return <MarketIntelligencePanel result={result} />;
+}
+
+// ----------------------------------------------------------------
+// CIO PREVIEW BLOCK — collapsible Manager Assessment Tape
+// ----------------------------------------------------------------
+// Composes the three ad-hoc adapters (MI / TE / CV) into the input
+// bag and renders the existing <ManagerAssessmentTape />. All other
+// required-agent slots are intentionally left empty so the tape's
+// own fallback shows them as "Insufficient evidence" cards.
+
+function CioPreviewBlock({ simResult, intelligenceResult }) {
+  const [open, setOpen] = useState(false);
+
+  // Build the tape lazily — pure work, but no need to spend cycles
+  // when the section is collapsed.
+  const tape = React.useMemo(() => {
+    if (!open) return null;
+    if (!simResult) return null;
+    const composed = buildAdHocCioTapeInputs({
+      symbol: simResult.symbol,
+      simResult,
+      intelligenceResult,
+    });
+    return buildManagerAssessmentTape({
+      symbol: composed.symbol,
+      inputs: composed.inputs,
+      history: composed.history,
+    });
+  }, [open, simResult, intelligenceResult]);
+
+  return (
+    <div>
+      <button type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{
+          background: "transparent", border: `1px solid ${PALETTE.border}`,
+          color: PALETTE.accentTeal, borderRadius: 6,
+          padding: "6px 10px", fontSize: 11, fontWeight: 700,
+          letterSpacing: "0.04em", cursor: "pointer", fontFamily: "inherit",
+          width: "100%", textAlign: "left",
+        }}>
+        {open ? "▾" : "▸"} {open ? "Hide" : "Show"} CIO Audit Preview
+      </button>
+      <div style={{ marginTop: 4, fontSize: 10, color: PALETTE.textFaint, lineHeight: 1.5 }}>
+        Shows how the CIO would read the available managers. Missing managers are shown as insufficient evidence.
+      </div>
+      {open && tape && (
+        <div style={{ marginTop: 10 }}>
+          <ManagerAssessmentTape tape={tape} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ----------------------------------------------------------------
