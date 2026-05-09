@@ -26,7 +26,13 @@ import {
   filterWheelCandidates,
   filterTrapNames,
 } from "./optionsWatchlist.js";
-import { runDiscoveryScan, getDiscoveryPreview } from "./lib/discoveryScanner.js";
+import { runDiscoveryScan, getDiscoveryPreview, getAllDiscoverySymbols } from "./lib/discoveryScanner.js";
+import { resolveScanSymbols } from "./components/scanner/UniverseSelector.jsx";
+import {
+  listScannerEligible,
+  listBySource,
+} from "./lib/universe/dynamicUniverseStore.js";
+import { TICKER_SOURCE_TYPES } from "./lib/universe/tickerUniverseTypes.js";
 import { evaluateCardTiming } from "./lib/timing/premiumTimingEngine.js";
 import { getAllSetups } from "./lib/setupRegistry.js";
 import { recordCalibrationSnapshot, markAlertsFired, getCalibrationStats } from "./lib/calibration/calibrationTracker.js";
@@ -1541,6 +1547,15 @@ export default function CreditVolScanner({ onBack }) {
   const [discoveryMode, setDiscoveryMode] = useState(false);
   const [discoveryState, setDiscoveryState] = useState(null);
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
+
+  // Scanner universe binding. Default to Core Catalog so existing
+  // behavior is preserved when the operator hasn't touched the
+  // workspace selector. emptyUniverseBanner is set when a non-core
+  // selection resolves to zero symbols — we never auto-fall-back to
+  // the static catalog in that case.
+  const [universeSelection, setUniverseSelection] = useState(["core_catalog"]);
+  const [manualTickerList, setManualTickerList] = useState("");
+  const [emptyUniverseBanner, setEmptyUniverseBanner] = useState(null);
   const [wsState, setWsState] = useState(WS_STATE.DISCONNECTED);
   const [feedHealth, setFeedHealth] = useState(null);
   const autoRef = useRef(null);
@@ -1635,19 +1650,70 @@ export default function CreditVolScanner({ onBack }) {
     setRefreshing(false);
   }, [selectedCard, alertsEnabled]);
 
-  // Discovery scan — runs broader watchlist through same engine
+  // Discovery scan — honours the operator's universe selection. The
+  // resolver merges Core Catalog / Dynamic Basket / LB Prospects /
+  // Manual Ticker List per the chips chosen in the UniverseWorkspace.
+  // An empty resolved list short-circuits with a visible banner instead
+  // of silently falling back to the full static catalog.
   const runDiscovery = useCallback(async () => {
     if (!getPolygonKey()) return;
     setDiscoveryLoading(true);
+    setEmptyUniverseBanner(null);
     try {
       const marketInputs = scannerState?.market?.indicators || { hyg: 80, kre: 70, lqd: 105, vix: 20, vixPrev: 20, atrExpansionMultiple: 1 };
-      const result = await runDiscoveryScan(marketInputs, getPolygonKey(), { maxSymbols: 20 });
+
+      const resolvedSymbols = resolveScanSymbols({
+        selected: (universeSelection && universeSelection.length > 0)
+          ? universeSelection
+          : ["core_catalog"],
+        manualList: manualTickerList,
+        coreCatalogSymbols: getAllDiscoverySymbols(),
+        dynamicBasketSymbols: listScannerEligible().map((r) => r.symbol),
+        lethalBoardSymbols:
+          listBySource(TICKER_SOURCE_TYPES.LETHAL_BOARD_PROSPECT).map((r) => r.symbol),
+      });
+
+      const universeMode = describeUniverseMode(universeSelection);
+
+      if (resolvedSymbols.length === 0) {
+        setDiscoveryState({
+          cards: [],
+          summary: { totalSetups: 0, go: 0, watch: 0, noTrade: 0 },
+          candidates: 0,
+          scannedSymbols: [],
+          universeMode,
+        });
+        setEmptyUniverseBanner(`No scanner-eligible symbols found for ${universeMode}.`);
+        setDiscoveryLoading(false);
+        return;
+      }
+
+      const result = await runDiscoveryScan(marketInputs, getPolygonKey(), {
+        maxSymbols: 20,
+        symbols: resolvedSymbols,
+        universeMode,
+      });
       setDiscoveryState(result);
     } catch (err) {
       console.warn("Discovery scan failed:", err.message);
     }
     setDiscoveryLoading(false);
-  }, [scannerState]);
+  }, [scannerState, universeSelection, manualTickerList]);
+
+  // Trader-facing label for the chosen universe — mirrors the chip
+  // labels in the UniverseWorkspace.
+  function describeUniverseMode(selected = []) {
+    if (!selected || selected.length === 0) return "Core Catalog";
+    if (selected.includes("combined")) return "Combined Universe";
+    const labels = {
+      core_catalog: "Core Catalog",
+      dynamic_basket: "Dynamic Basket",
+      lethal_board: "Lethal Board Prospects",
+      manual_ticker_list: "Manual Ticker List",
+    };
+    if (selected.length === 1) return labels[selected[0]] || "Core Catalog";
+    return selected.map((c) => labels[c] || c).join(" + ");
+  }
 
   useEffect(() => { refresh(); }, []);
 
@@ -1750,6 +1816,10 @@ export default function CreditVolScanner({ onBack }) {
       <UniverseWorkspace
         title="Credit View — universe workspace"
         defaultOpen={false}
+        selected={universeSelection}
+        onSelectionChange={setUniverseSelection}
+        manualList={manualTickerList}
+        onManualListChange={setManualTickerList}
         onSendToTE={onBack}
         onSendToCV={() => { /* already on CV */ }}
       />
@@ -1902,6 +1972,38 @@ export default function CreditVolScanner({ onBack }) {
           {cards.length === 0 && !refreshing && (
             <div style={{ textAlign: "center", padding: "32px 0", color: "#1e2530", fontSize: 11 }}>
               Click Scan Now to begin
+            </div>
+          )}
+
+          {/* Empty-universe banner — shown when the operator picked a
+              non-core universe that resolved to zero symbols. We never
+              silently fall back to the static catalog. */}
+          {discoveryMode && emptyUniverseBanner && (
+            <div style={{
+              marginTop: 12, padding: 10,
+              background: "#0d1117",
+              border: `1px solid ${AMBER}55`,
+              borderRadius: 6,
+              color: AMBER, fontSize: 11, lineHeight: 1.5,
+            }}>
+              {emptyUniverseBanner}
+            </div>
+          )}
+
+          {/* "Scanning: [Mode] — X symbols" — visible note so the
+              operator always knows which universe produced the results. */}
+          {discoveryMode && discoveryState && discoveryState.scannedSymbols && (
+            <div style={{
+              marginTop: 8, padding: "6px 8px",
+              background: "#0d1117",
+              border: "1px solid #1e2530",
+              borderRadius: 6,
+              fontSize: 10, color: SLATE,
+              fontFamily: "monospace",
+            }}>
+              Scanning: <span style={{ color: CYAN, fontWeight: 700 }}>
+                {discoveryState.universeMode || "Core Catalog"}
+              </span> — {discoveryState.scannedSymbols.length} symbol{discoveryState.scannedSymbols.length === 1 ? "" : "s"}
             </div>
           )}
 

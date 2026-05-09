@@ -165,19 +165,51 @@ function _generateStrikes(price) {
  * @param {object} [options]
  * @param {object} [options.filters] — candidate filter overrides
  * @param {number} [options.maxSymbols] — max symbols to scan (default 25)
+ * @param {string[]} [options.symbols]  — explicit symbol override. When
+ *                                        supplied, the scan uses these
+ *                                        symbols instead of the default
+ *                                        discovery candidate selection.
+ *                                        An empty array yields a safe
+ *                                        no-scan result (callers should
+ *                                        gate on this).
+ * @param {string} [options.universeMode] — opaque label echoed back on
+ *                                          the result (e.g. "manual",
+ *                                          "dynamic_basket", "combined")
+ *                                          so the UI can show the chosen
+ *                                          universe alongside the count.
  * @returns {Promise<object>} scanner state with ranked cards
  */
 export async function runDiscoveryScan(marketInputs, apiKey, options = {}) {
-  const { filters = {}, maxSymbols = 25 } = options;
+  const {
+    filters = {},
+    maxSymbols = 25,
+    symbols: explicitSymbols = null,
+    universeMode = null,
+  } = options;
 
-  // 1. Get candidates
-  const candidates = getDiscoveryCandidates(filters).slice(0, maxSymbols);
-
-  if (candidates.length === 0) {
-    return { cards: [], summary: { totalSetups: 0, go: 0, watch: 0, noTrade: 0 }, candidates: 0 };
+  // Resolve the symbol list. An explicit override wins; the empty array
+  // is honoured (no fallback to the default candidates) so a caller that
+  // resolved an empty universe doesn't accidentally scan everything.
+  let symbols;
+  let candidatesCount;
+  if (Array.isArray(explicitSymbols)) {
+    symbols = explicitSymbols.slice(0, maxSymbols);
+    candidatesCount = explicitSymbols.length;
+  } else {
+    const candidates = getDiscoveryCandidates(filters).slice(0, maxSymbols);
+    symbols = candidates.map(c => c.symbol);
+    candidatesCount = candidates.length;
   }
 
-  const symbols = candidates.map(c => c.symbol);
+  if (symbols.length === 0) {
+    return {
+      cards: [],
+      summary: { totalSetups: 0, go: 0, watch: 0, noTrade: 0 },
+      candidates: 0,
+      scannedSymbols: [],
+      universeMode,
+    };
+  }
 
   // 2. Fetch snapshots
   const snapshots = await fetchDiscoverySnapshots(symbols, apiKey);
@@ -201,8 +233,9 @@ export async function runDiscoveryScan(marketInputs, apiKey, options = {}) {
 
   return {
     ...state,
-    candidates: candidates.length,
+    candidates: candidatesCount,
     scannedSymbols: symbols,
+    universeMode,
   };
 }
 
