@@ -13,6 +13,7 @@ import UniverseSelector, {
 } from "../scanner/UniverseSelector.jsx";
 import DynamicBasketManager from "../scanner/DynamicBasketManager.jsx";
 import AdHocSimulationHistory from "../scanner/AdHocSimulationHistory.jsx";
+import BasketAgentPanel from "../portfolioCio/BasketAgentPanel.jsx";
 
 const PALETTE = {
   bg: "#06090e", border: "#1e2530", borderSoft: "#21252a",
@@ -128,7 +129,48 @@ export default function UniverseWorkspace({
             onSendToCV={onSendToCV} />
         </div>
       )}
+
+      {open && (
+        <BasketAgentSection
+          onSendToTE={onSendToTE}
+          onSendToCV={onSendToCV} />
+      )}
     </section>
+  );
+}
+
+// CIO basket agents — collapsible-within-the-workspace section. Default
+// closed; rendered only when the workspace itself is open.
+function BasketAgentSection({ onSendToTE, onSendToCV }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{
+      borderTop: "1px solid #21252a",
+      padding: "0 12px 12px 12px",
+    }}>
+      <header
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        aria-expanded={open}
+        style={{
+          padding: "8px 0", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          fontSize: 10, letterSpacing: "0.14em", color: "#9ca3af",
+        }}>
+        <span>
+          <span style={{ color: "#14b8a6", marginRight: 8 }}>{open ? "▾" : "▸"}</span>
+          CIO BASKET AGENTS
+        </span>
+        <span style={{ fontSize: 9, color: "#6b7280" }}>
+          {open ? "Click to collapse" : "Manage living basket mandates"}
+        </span>
+      </header>
+      {open && (
+        <BasketAgentPanel
+          onSendToTE={onSendToTE}
+          onSendToCV={onSendToCV} />
+      )}
+    </div>
   );
 }
 
