@@ -16,6 +16,7 @@
 import {
   getAIHealthDiagnosticsProfile,
   CATEGORY_LABELS,
+  AI_HEALTH_DIAGNOSTICS_BASKET_ID,
 } from "./aiHealthDiagnosticsProfiles.js";
 import {
   evaluateAIHealthDiagnosticsCandidate,
@@ -24,6 +25,12 @@ import {
 } from "./aiHealthDiagnosticsScanner.js";
 import { ACTION_TYPE } from "./basketActionQueue.js";
 import { STANCE } from "./managerAssessmentTypes.js";
+import {
+  getAgentMemory,
+  getBasketMemory,
+} from "./agentMemoryStore.js";
+
+const AGENT_ID = "aiHealthDiagnosticsAgent";
 
 // Posture maps directly to the verdict but uses the spec's named
 // posture vocabulary so the panel headers can group cards consistently.
@@ -55,6 +62,7 @@ const POSTURE_LABELS = Object.freeze({
  * @param {object} [input.leadershipClass]
  * @param {string} [input.newsAlignment]    "supports_thesis" / "conflicts_with_thesis" / "mixed" / "neutral" / "unavailable"
  * @param {object} [input.priceData]        optional decoration; we accept but never trust
+ * @param {boolean} [input.skipMemory]      when true, do not merge agent memory (used in tests)
  * @returns {object|null} operator-facing insight, or null when symbol is not in the basket
  */
 export function buildAIHealthDiagnosticsInsight(input = {}) {
@@ -70,22 +78,59 @@ export function buildAIHealthDiagnosticsInsight(input = {}) {
   });
   if (!evalRes) return null;
 
+  // Engine-driven posture / verdict / allowedActions are computed
+  // FIRST. Memory only enriches after these are settled — it never
+  // mutates them.
   const posture = postureFromVerdict(evalRes.verdict, evalRes.cautiousManagerCount, input.managerAssessment);
   const allowed = allowedActionsFor(posture);
 
   const newsAlignment = evalRes.newsAlignment;
   const newsLine = composeNewsLine(newsAlignment);
 
-  const creditViewInsight = composeCreditViewInsight({
+  let creditViewInsight = composeCreditViewInsight({
     profile, evalRes, newsAlignment,
   });
 
   const suggestedAction = composeSuggestedAction(posture, profile);
   const keyLevels = composeKeyLevels(profile, evalRes);
   const assignmentComfort = composeAssignmentComfort(profile, evalRes);
-  const risksToVerify = composeRisksToVerify(profile, evalRes, input.managerAssessment);
+  let risksToVerify = composeRisksToVerify(profile, evalRes, input.managerAssessment);
 
-  const catalystLabel = composeCatalystLabel(profile, evalRes);
+  let catalystLabel = composeCatalystLabel(profile, evalRes);
+
+  // ----- Layer in approved agent memory (enrich only) -----------
+  let marketIntelligenceContext = null;
+  let thesisLens = null;
+  let competitorMap = null;
+  if (!input.skipMemory) {
+    const memory = collectAgentMemory(profile.symbol);
+    if (memory) {
+      // Operator-authored thesis lens — surfaced as a separate field
+      // alongside the engine-derived thesis. The engine thesis stays
+      // intact in `thesisSummary`.
+      thesisLens = memory.thesisLens;
+      competitorMap = memory.competitorMap;
+      // Layer memory catalysts and risks. Do not deduplicate into the
+      // engine's lists; UI surfaces them under "Operator memory" so
+      // origin is clear. We expose a flat union for convenience while
+      // keeping the originals available.
+      if (memory.risks.length > 0) {
+        risksToVerify = unionStringList(risksToVerify, memory.risks);
+      }
+      if (memory.catalysts.length > 0) {
+        catalystLabel = appendMemoryCatalysts(catalystLabel, memory.catalysts);
+      }
+      if (memory.thesisLens) {
+        creditViewInsight = `${creditViewInsight} Operator thesis: ${memory.thesisLens}`;
+      }
+      // Build the safe Credit View block — only populated when memory
+      // exists. Empty memory means no marketIntelligenceContext at all.
+      marketIntelligenceContext = composeMarketIntelligenceContext({
+        profile, evalRes, posture, memory,
+      });
+    }
+  }
+  // --------------------------------------------------------------
 
   return {
     symbol: profile.symbol,
@@ -111,7 +156,173 @@ export function buildAIHealthDiagnosticsInsight(input = {}) {
     assignmentComfort,
     risksToVerify,
     allowedActions: allowed,
+    // Memory-derived fields (null when no approved memory matches)
+    thesisLens,
+    competitorMap,
+    marketIntelligenceContext,
   };
+}
+
+// ---------------------------------------------------------------------
+// Memory helpers — read-only; enrich only
+// ---------------------------------------------------------------------
+
+/**
+ * Collect approved agent memory relevant to the symbol. Pulls items
+ * assigned to AGENT_ID and items attached to the AI Health basket.
+ * Filters down to memories whose primary or related symbols include
+ * the candidate, plus basket-wide thesis items (no symbol scope).
+ * Returns null when nothing is on file.
+ */
+function collectAgentMemory(symbol) {
+  const agentItems  = safeGetMemory(() => getAgentMemory(AGENT_ID));
+  const basketItems = safeGetMemory(() => getBasketMemory(AI_HEALTH_DIAGNOSTICS_BASKET_ID));
+
+  const seen = new Set();
+  const items = [];
+  for (const it of [...agentItems, ...basketItems]) {
+    if (!it || !it.id) continue;
+    if (seen.has(it.id)) continue;
+    seen.add(it.id);
+    if (matchesSymbol(it, symbol)) items.push(it);
+  }
+  if (items.length === 0) return null;
+
+  // Pick the most-recently-promoted thesis claim as the lens.
+  const thesisLens = pickLatestThesisClaim(items);
+  // Aggregate competitor map from private companies + non-primary tickers.
+  const competitorMap = aggregateCompetitorMap(items);
+  const risks     = aggregateField(items, "risks");
+  const catalysts = aggregateField(items, "catalysts");
+
+  return {
+    items,
+    thesisLens,
+    competitorMap,
+    risks,
+    catalysts,
+  };
+}
+
+function safeGetMemory(fn) {
+  try { return fn() || []; } catch { return []; }
+}
+
+function matchesSymbol(item, symbol) {
+  if (!item || !item.entities) return true;
+  const primaries = Array.isArray(item.entities.primarySymbols) ? item.entities.primarySymbols : [];
+  const related   = Array.isArray(item.entities.relatedSymbols) ? item.entities.relatedSymbols : [];
+  if (primaries.length === 0 && related.length === 0) return true;   // basket-wide
+  return primaries.includes(symbol) || related.includes(symbol);
+}
+
+function pickLatestThesisClaim(items) {
+  // Items are returned newest-first by the store. Find the first item
+  // whose thesis carries a coreClaim string.
+  for (const it of items) {
+    const claim = it && it.thesis && it.thesis.coreClaim;
+    if (typeof claim === "string" && claim.trim()) return claim.trim();
+  }
+  return null;
+}
+
+function aggregateCompetitorMap(items) {
+  const map = [];
+  const seen = new Set();
+  for (const it of items) {
+    const privates = Array.isArray(it?.entities?.privateCompanies) ? it.entities.privateCompanies : [];
+    const related  = Array.isArray(it?.entities?.relatedSymbols) ? it.entities.relatedSymbols : [];
+    for (const c of [...privates, ...related]) {
+      if (typeof c !== "string" || !c.trim()) continue;
+      const key = c.trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      map.push(key);
+    }
+  }
+  return map.slice(0, 16);
+}
+
+function aggregateField(items, field) {
+  const out = [];
+  const seen = new Set();
+  for (const it of items) {
+    const arr = Array.isArray(it?.[field]) ? it[field] : [];
+    for (const v of arr) {
+      if (typeof v !== "string" || !v.trim()) continue;
+      const key = v.trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out.slice(0, 24);
+}
+
+function unionStringList(base, addition) {
+  const out = Array.isArray(base) ? base.slice() : [];
+  const seen = new Set(out);
+  for (const v of addition || []) {
+    if (typeof v !== "string" || !v.trim()) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
+function appendMemoryCatalysts(currentLabel, catalysts) {
+  if (!Array.isArray(catalysts) || catalysts.length === 0) return currentLabel;
+  const tail = catalysts.slice(0, 3).join(" · ");
+  return `${currentLabel} Operator-tracked catalysts: ${tail}.`;
+}
+
+function composeMarketIntelligenceContext({ profile, evalRes, posture, memory }) {
+  if (!memory) return null;
+  // Thesis alignment derives from the engine — supportive when we
+  // have constructive reads, conflicting when cautious reads dominate,
+  // mixed otherwise. Never auto-promote to "supportive" purely from
+  // memory.
+  const thesisAlignment = thesisAlignmentFor(evalRes);
+  const primaryRisk = memory.risks[0] || profile.primaryRisk || null;
+  return {
+    basket: "AI Health / Diagnostics",
+    agentRead: memory.thesisLens || profile.thesis,
+    thesisAlignment,
+    primaryRisk,
+    competitors: memory.competitorMap.slice(0, 8),
+    catalysts: memory.catalysts.slice(0, 6),
+    tradeTranslation: composeTradeTranslation(posture, evalRes),
+  };
+}
+
+function thesisAlignmentFor(evalRes) {
+  if (evalRes.cautiousManagerCount >= 2)     return "conflicting";
+  if (evalRes.constructiveManagerCount >= 2) return "supportive";
+  if (evalRes.cautiousManagerCount >= 1 && evalRes.constructiveManagerCount >= 1) return "mixed";
+  if (evalRes.constructiveManagerCount >= 1) return "supportive";
+  return "unavailable";
+}
+
+function composeTradeTranslation(posture, evalRes) {
+  switch (posture) {
+    case POSTURE.PREMIUM_CANDIDATE:
+      return "Use premium only when support, IV, and assignment comfort align.";
+    case POSTURE.ACCUMULATE_WATCH:
+      return "Accumulate or watch — confirm continuing constructive reads before adding.";
+    case POSTURE.LONG_HOLD_ANCHOR:
+      return "Defensive sector exposure. Do not chase — wait for premium attractiveness.";
+    case POSTURE.WAIT_FOR_CONFIRMATION:
+      return "Wait for manager confirmation before sizing.";
+    case POSTURE.AVOID_FOR_NOW:
+      return "Defer trade activity until reads improve.";
+    case POSTURE.RISK_ELEVATED:
+      return "Do not size on conflicting reads — consider exclude or watchlist.";
+    case POSTURE.SECTOR_CONFIRMATION_SIGNAL:
+      return "Sector signal only — do not deploy basket capital here.";
+    default:
+      return "Monitor for additional manager evidence.";
+  }
 }
 
 // ---------------------------------------------------------------------
