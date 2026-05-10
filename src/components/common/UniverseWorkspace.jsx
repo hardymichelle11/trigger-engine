@@ -21,17 +21,15 @@ import MarketRegimeStrip from "../workspace/MarketRegimeStrip.jsx";
 import TopOpportunityCard from "../workspace/TopOpportunityCard.jsx";
 import ActiveTickerCard from "../workspace/ActiveTickerCard.jsx";
 import TickerDetailDrawer from "../workspace/TickerDetailDrawer.jsx";
+import SettingsAdminPage from "../workspace/SettingsAdminPage.jsx";
 
-// Legacy admin panels — kept fully accessible under Settings / Admin.
-import AdHocTickerSearch from "./AdHocTickerSearch.jsx";
-import UniverseSelector, { UNIVERSE_OPTIONS } from "../scanner/UniverseSelector.jsx";
-import DynamicBasketManager from "../scanner/DynamicBasketManager.jsx";
-import AdHocSimulationHistory from "../scanner/AdHocSimulationHistory.jsx";
-import BasketAgentPanel from "../portfolioCio/BasketAgentPanel.jsx";
-import CioReviewDashboard from "../portfolioCio/CioReviewDashboard.jsx";
+// Theme placeholder still references the basket name + mandate from
+// the registry — kept as a top-level import.
 import AIHealthDiagnosticsPanel from "../portfolioCio/AIHealthDiagnosticsPanel.jsx";
-import MarketIntelligenceInbox from "../portfolioCio/MarketIntelligenceInbox.jsx";
-import ThesisHealthPanel from "../portfolioCio/ThesisHealthPanel.jsx";
+
+// UNIVERSE_OPTIONS is re-exported below for callers that historically
+// pulled it from this module.
+import { UNIVERSE_OPTIONS } from "../scanner/UniverseSelector.jsx";
 
 // Engines / stores used by the operator chrome
 import { buildAIHealthDiagnosticsInsight } from "../../lib/portfolioCio/aiHealthDiagnosticsAgent.js";
@@ -52,8 +50,6 @@ import { getBasketManagerInputs }
 import {
   getBasketMemory,
   listIntelligenceItems,
-  archiveIntelligenceItem,
-  promoteToAgentMemory,
   INTELLIGENCE_STATUS,
 } from "../../lib/portfolioCio/agentMemoryStore.js";
 import {
@@ -61,7 +57,6 @@ import {
   listActiveResearchTickers,
   removeActiveResearchTicker,
   markTickerReviewed,
-  getTickerReviewedAt,
 } from "../../lib/workspace/tickerSearchWorkflow.js";
 import { describeWhatChanged }
   from "../../lib/ui/whatChangedBuilder.js";
@@ -119,8 +114,12 @@ export default function UniverseWorkspace({
   // Test / consumer override for the persisted collapse pref. When
   // omitted the workspace reads the localStorage pref on mount.
   defaultCollapsed,
+  // Test / consumer override for the initial sidebar section.
+  defaultSection,
 } = {}) {
-  const [section, setSection] = useState(SECTION_ID.DASHBOARD);
+  const [section, setSection] = useState(
+    typeof defaultSection === "string" ? defaultSection : SECTION_ID.DASHBOARD,
+  );
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [tick, setTick] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -203,105 +202,112 @@ export default function UniverseWorkspace({
     [activeTickers, tick],
   );
 
-  // Layout reshapes between modes:
-  //   - Expanded:  3-col grid (220px sidebar | main | optional drawer)
-  //   - Collapsed: top nav strip above a 2-col grid (main | drawer)
-  // Splitting into a flex-column outer wrapper lets the dashboard
-  // reclaim the full width when the nav is collapsed instead of
-  // leaving a vertical rail consuming the left edge.
+  // Layout reshapes per mode + section:
+  //   - Settings/Admin: sidebar/topNav + a single SettingsAdminPage
+  //     that flows to its own content height. NO dashboard chrome
+  //     (search bar, market regime, top opportunities, drawer).
+  //   - Research (Dashboard / theme / Watchlist): sidebar/topNav +
+  //     dashboard main + optional ticker detail drawer.
+  // The outer container has no fixed height — content drives the
+  // workspace height so admin pages don't leave a dead gap below.
+  const isAdmin = section === SECTION_ID.SETTINGS_ADMIN;
+  const showDrawer = !isAdmin && !!drawerPayload;
+
+  const gridTemplateColumns = sidebarCollapsed
+    ? (showDrawer ? "minmax(0, 1fr) minmax(320px, 420px)" : "minmax(0, 1fr)")
+    : (showDrawer ? "220px minmax(0, 1fr) minmax(320px, 420px)" : "220px minmax(0, 1fr)");
+
   return (
     <div style={{
       background: PALETTE.bg,
       borderTop: `1px solid ${PALETTE.borderSoft}`,
       borderBottom: `1px solid ${PALETTE.borderSoft}`,
       display: "flex", flexDirection: "column",
-      minHeight: 600,
     }}>
       {sidebarCollapsed && (
         <WorkspaceTopNav selected={section} onSelect={setSection}
           onToggleCollapsed={handleToggleSidebar} />
       )}
       <div style={{
-        flex: 1,
         display: "grid",
-        gridTemplateColumns: sidebarCollapsed
-          ? (drawerPayload ? "minmax(0, 1fr) minmax(320px, 420px)" : "minmax(0, 1fr)")
-          : (drawerPayload ? "220px minmax(0, 1fr) minmax(320px, 420px)" : "220px minmax(0, 1fr)"),
+        gridTemplateColumns,
       }}>
-      {!sidebarCollapsed && (
-        <UniverseSidebar selected={section} onSelect={setSection}
-          onToggleCollapsed={handleToggleSidebar} />
-      )}
-
-      <main aria-label="Workspace main"
-        style={{
-          padding: 12, display: "flex", flexDirection: "column", gap: 12,
-          minWidth: 0,
-        }}>
-        <SearchBar onSubmit={handleSearch} />
-
-        {/* Each section renders its own content */}
-        {section === SECTION_ID.DASHBOARD && (
-          <DashboardSection
-            topOpportunities={topOpportunities}
-            activeCards={activeTickerCards}
-            selectedSymbol={selectedSymbol}
-            onSelectSymbol={handleSelectSymbol}
-            onRemoveTicker={handleRemoveTicker} />
+        {!sidebarCollapsed && (
+          <UniverseSidebar selected={section} onSelect={setSection}
+            onToggleCollapsed={handleToggleSidebar} />
         )}
 
-        {section === SECTION_ID.AI_HEALTH && (
-          <AIHealthSection
-            onSendToTE={onSendToTE}
-            onSendToCV={onSendToCV} />
+        {isAdmin ? (
+          <main aria-label="Workspace main"
+            style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+            <SettingsAdminPage
+              onSendToTE={onSendToTE}
+              onSendToCV={onSendToCV}
+              selected={selected}
+              onSelectionChange={onSelectionChange}
+              manualList={manualList}
+              onManualListChange={onManualListChange}
+              selectedCioBasketId={selectedCioBasketId}
+              onCioBasketChange={onCioBasketChange}
+              onCataloged={onCataloged}
+              includeSelector={includeSelector}
+              includeManager={includeManager} />
+          </main>
+        ) : (
+          <main aria-label="Workspace main"
+            style={{
+              padding: 12, display: "flex", flexDirection: "column", gap: 12,
+              minWidth: 0,
+            }}>
+            <SearchBar onSubmit={handleSearch} />
+
+            {section === SECTION_ID.DASHBOARD && (
+              <DashboardSection
+                topOpportunities={topOpportunities}
+                activeCards={activeTickerCards}
+                selectedSymbol={selectedSymbol}
+                onSelectSymbol={handleSelectSymbol}
+                onRemoveTicker={handleRemoveTicker} />
+            )}
+
+            {section === SECTION_ID.AI_HEALTH && (
+              <AIHealthSection
+                onSendToTE={onSendToTE}
+                onSendToCV={onSendToCV} />
+            )}
+
+            {section === SECTION_ID.WATCHLIST && (
+              <WatchlistSection
+                activeCards={activeTickerCards}
+                selectedSymbol={selectedSymbol}
+                onSelectSymbol={handleSelectSymbol}
+                onRemoveTicker={handleRemoveTicker} />
+            )}
+
+            {(section === SECTION_ID.AI_INFRA ||
+              section === SECTION_ID.ROBOTICS ||
+              section === SECTION_ID.SAAS_HARVEST) && (
+              <ThemePlaceholderSection sectionId={section} />
+            )}
+
+            {(section === SECTION_ID.DIVIDEND_INCOME ||
+              section === SECTION_ID.ALERTS ||
+              section === SECTION_ID.PORTFOLIO) && (
+              <ComingSoonSection sectionId={section} />
+            )}
+          </main>
         )}
 
-        {section === SECTION_ID.WATCHLIST && (
-          <WatchlistSection
-            activeCards={activeTickerCards}
-            selectedSymbol={selectedSymbol}
-            onSelectSymbol={handleSelectSymbol}
-            onRemoveTicker={handleRemoveTicker} />
+        {showDrawer && (
+          <TickerDetailDrawer
+            {...drawerPayload}
+            onClose={handleCloseDrawer}
+            onAddIntelligence={handleAddIntelligence}
+            onSetAlert={handleSetAlert}
+            onMarkReviewed={handleMarkReviewed}
+            onMoveToWatchlist={handleMoveToWatchlist}
+            onOpenAdminDetails={handleOpenAdminDetails} />
         )}
-
-        {(section === SECTION_ID.AI_INFRA ||
-          section === SECTION_ID.ROBOTICS ||
-          section === SECTION_ID.SAAS_HARVEST) && (
-          <ThemePlaceholderSection sectionId={section} />
-        )}
-
-        {(section === SECTION_ID.DIVIDEND_INCOME ||
-          section === SECTION_ID.ALERTS ||
-          section === SECTION_ID.PORTFOLIO) && (
-          <ComingSoonSection sectionId={section} />
-        )}
-
-        {section === SECTION_ID.SETTINGS_ADMIN && (
-          <SettingsAdminSection
-            onSendToTE={onSendToTE}
-            onSendToCV={onSendToCV}
-            selected={selected}
-            onSelectionChange={onSelectionChange}
-            manualList={manualList}
-            onManualListChange={onManualListChange}
-            selectedCioBasketId={selectedCioBasketId}
-            onCioBasketChange={onCioBasketChange}
-            onCataloged={onCataloged}
-            includeSelector={includeSelector}
-            includeManager={includeManager} />
-        )}
-      </main>
-
-      {drawerPayload && (
-        <TickerDetailDrawer
-          {...drawerPayload}
-          onClose={handleCloseDrawer}
-          onAddIntelligence={handleAddIntelligence}
-          onSetAlert={handleSetAlert}
-          onMarkReviewed={handleMarkReviewed}
-          onMoveToWatchlist={handleMoveToWatchlist}
-          onOpenAdminDetails={handleOpenAdminDetails} />
-      )}
       </div>
     </div>
   );
@@ -438,136 +444,6 @@ function ComingSoonSection({ sectionId }) {
         Coming soon — surface in design.
       </div>
     </section>
-  );
-}
-
-// Settings / Admin: every legacy panel preserved here so no
-// functionality is lost. Each panel is collapsible. Default closed.
-function SettingsAdminSection(props) {
-  return (
-    <section aria-label="Settings / Admin">
-      <div style={titleRow()}>SETTINGS / ADMIN</div>
-      <div style={{
-        background: PALETTE.panelBg,
-        border: `1px solid ${PALETTE.borderSoft}`,
-        borderRadius: 8, padding: "8px 10px",
-        fontSize: 10, color: PALETTE.textFaint, lineHeight: 1.5,
-        marginBottom: 10,
-      }}>
-        Advanced controls and backend panels. Most operators will not need to use these — Dashboard and Watchlist cover normal research flow.
-      </div>
-
-      <CollapsiblePanel title="Ticker search · catalog · history">
-        <AdHocTickerSearch
-          onCataloged={props.onCataloged}
-          onSendToTE={props.onSendToTE}
-          onSendToCV={props.onSendToCV} />
-        {props.includeSelector && (
-          <UniverseSelector
-            selected={props.selected || ["core_catalog"]}
-            onChange={props.onSelectionChange}
-            manualList={props.manualList || ""}
-            onManualListChange={props.onManualListChange}
-            selectedCioBasketId={props.selectedCioBasketId}
-            onCioBasketChange={props.onCioBasketChange} />
-        )}
-        {props.includeManager && (
-          <DynamicBasketManager
-            onSendToTE={props.onSendToTE}
-            onSendToCV={props.onSendToCV} />
-        )}
-        <AdHocSimulationHistory
-          onSendToTE={props.onSendToTE}
-          onSendToCV={props.onSendToCV} />
-      </CollapsiblePanel>
-
-      <CollapsiblePanel title="CIO basket agents (raw)">
-        <BasketAgentPanel
-          onSendToTE={props.onSendToTE}
-          onSendToCV={props.onSendToCV} />
-      </CollapsiblePanel>
-
-      <CollapsiblePanel title="CIO review dashboard (raw)">
-        <CioReviewDashboard
-          onSendToTE={props.onSendToTE}
-          onSendToCV={props.onSendToCV} />
-      </CollapsiblePanel>
-
-      <CollapsiblePanel title="AI Health / Diagnostics specialty panel (raw)">
-        <AIHealthDiagnosticsPanel
-          onSendToTE={props.onSendToTE}
-          onSendToCV={props.onSendToCV} />
-      </CollapsiblePanel>
-
-      <CollapsiblePanel title="Market Intelligence Inbox (raw)">
-        <MarketIntelligenceInbox />
-      </CollapsiblePanel>
-
-      <CollapsiblePanel title="Thesis Health (raw)">
-        <ThesisHealthAdminWrapper />
-      </CollapsiblePanel>
-    </section>
-  );
-}
-
-function CollapsiblePanel({ title, children }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <header
-        onClick={() => setOpen((v) => !v)}
-        role="button"
-        aria-expanded={open}
-        style={{
-          padding: "8px 0", cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          fontSize: 10, letterSpacing: "0.14em", color: PALETTE.textDim,
-          borderTop: `1px solid ${PALETTE.borderSoft}`,
-        }}>
-        <span>
-          <span style={{ color: PALETTE.accentTeal, marginRight: 8 }}>{open ? "▾" : "▸"}</span>
-          {(title || "").toUpperCase()}
-        </span>
-        <span style={{ fontSize: 9, color: PALETTE.textFaint }}>
-          {open ? "Click to collapse" : "Click to expand"}
-        </span>
-      </header>
-      {open && (
-        <div style={{ paddingTop: 8, display: "flex", flexDirection: "column", gap: 10 }}>
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ThesisHealthAdminWrapper() {
-  const BASKET_ID = "ai_health_diagnostics";
-  const AGENT_ID  = "aiHealthDiagnosticsAgent";
-  const [tick, setTick] = useState(0);
-  const approvedMemory = useMemo(
-    () => getBasketMemory(BASKET_ID),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tick],
-  );
-  const proposedIntelligence = useMemo(
-    () => listIntelligenceItems()
-      .filter((it) => it.basketId === BASKET_ID && it.status === INTELLIGENCE_STATUS.DRAFT),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tick],
-  );
-  const accept = useCallback((p) => { if (p?.id) { promoteToAgentMemory(p.id); setTick((n) => n + 1); } }, []);
-  const reject = useCallback((p) => { if (p?.id) { archiveIntelligenceItem(p.id); setTick((n) => n + 1); } }, []);
-  const archive = useCallback((id) => { if (id) { archiveIntelligenceItem(id); setTick((n) => n + 1); } }, []);
-  return (
-    <ThesisHealthPanel
-      basketId={BASKET_ID}
-      agentId={AGENT_ID}
-      approvedMemory={approvedMemory}
-      proposedIntelligence={proposedIntelligence}
-      onAcceptUpdate={accept}
-      onRejectUpdate={reject}
-      onArchiveEvidence={archive} />
   );
 }
 

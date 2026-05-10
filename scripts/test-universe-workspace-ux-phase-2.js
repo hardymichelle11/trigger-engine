@@ -456,6 +456,80 @@ assert("[16] expanded-mode inner grid carries the 220px sidebar column",
   wsExpanded.ok && /grid-template-columns:[^"]*220px[^"]*minmax/i.test(wsExpanded.html));
 
 // ============================================================
+group("[17] Settings/Admin and Dashboard are separate render paths");
+// ============================================================
+
+reset();
+
+// Admin-mode render
+const wsAdmin = renderSafe(UniverseWorkspace, {
+  defaultSection: "settings_admin",
+});
+assert("[17] admin workspace renders without throwing",
+  wsAdmin.ok, wsAdmin.err?.message);
+const adminHtml = wsAdmin.html || "";
+
+// Admin page surfaces the SettingsAdminPage section + Research
+// Automation accordion.
+assert("[17] admin renders 'Settings / Admin' aria-label",
+  /aria-label="Settings . Admin"/.test(adminHtml));
+assert("[17] admin renders 'SETTINGS / ADMIN' header text",
+  /SETTINGS . ADMIN/.test(adminHtml));
+assert("[17] admin renders the new 'RESEARCH AUTOMATION' accordion",
+  /RESEARCH AUTOMATION/.test(adminHtml));
+assert("[17] Research Automation accordion shows hint copy when collapsed",
+  /Scheduled research configurator/i.test(adminHtml));
+// All legacy accordions still present (their headers are flattened
+// upper-case strings).
+for (const heading of [
+  "TICKER SEARCH . CATALOG . HISTORY",
+  "CIO BASKET AGENTS .RAW.",
+  "CIO REVIEW DASHBOARD .RAW.",
+  "AI HEALTH . DIAGNOSTICS SPECIALTY PANEL .RAW.",
+  "MARKET INTELLIGENCE INBOX .RAW.",
+  "THESIS HEALTH .RAW.",
+]) {
+  assert(`[17] admin lists '${heading.replace(/\\\./g, "·")}' accordion`,
+    new RegExp(heading).test(adminHtml));
+}
+
+// Admin must NOT render dashboard chrome.
+assert("[17] admin has NO dashboard 'TOP OPPORTUNITIES' header",
+  !/TOP OPPORTUNITIES/.test(adminHtml));
+assert("[17] admin has NO 'ACTIVE RESEARCH' header",
+  !/ACTIVE RESEARCH/.test(adminHtml));
+assert("[17] admin has NO Market regime strip aria-label",
+  !/aria-label="Market regime strip"/.test(adminHtml));
+assert("[17] admin has NO 'Ticker search' search bar aria-label",
+  !/role="search"\s+aria-label="Ticker search"/i.test(adminHtml));
+
+// Dashboard-mode render (default section)
+const wsDashboard = renderSafe(UniverseWorkspace, {});
+assert("[17] dashboard workspace renders without throwing",
+  wsDashboard.ok, wsDashboard.err?.message);
+const dashHtml = wsDashboard.html || "";
+assert("[17] dashboard renders Market regime strip",
+  /aria-label="Market regime strip"/.test(dashHtml));
+assert("[17] dashboard renders 'TOP OPPORTUNITIES' header",
+  /TOP OPPORTUNITIES/.test(dashHtml));
+assert("[17] dashboard renders 'ACTIVE RESEARCH' header",
+  /ACTIVE RESEARCH/.test(dashHtml));
+assert("[17] dashboard exposes the ticker search bar",
+  /role="search"\s+aria-label="Ticker search"/i.test(dashHtml));
+// Dashboard must NOT render the admin SettingsAdminPage accordions.
+assert("[17] dashboard has NO 'SETTINGS / ADMIN' header text",
+  !/>SETTINGS . ADMIN</.test(dashHtml));
+assert("[17] dashboard has NO 'RESEARCH AUTOMATION' accordion",
+  !/RESEARCH AUTOMATION/.test(dashHtml));
+
+// Sanity: no fixed minHeight forcing an empty gap on either page.
+// The outer container should not pin a 600px minimum any more.
+assert("[17] admin outer has no min-height:600 token",
+  !/min-height:\s*600/i.test(adminHtml));
+assert("[17] dashboard outer has no min-height:600 token",
+  !/min-height:\s*600/i.test(dashHtml));
+
+// ============================================================
 console.log(`\n  ${passed} passed, ${failed} failed`);
 resetActiveResearchBackend();
 resetMemoryBackend();
