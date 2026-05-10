@@ -361,21 +361,21 @@ assert("[15] listDemoIntelligenceSymbols includes AMD",
   listDemoIntelligenceSymbols().includes("AMD"));
 
 // ============================================================
-group("[16] sidebar can collapse + expand");
+group("[16] navigation collapses to a TOP bar, not a left rail");
 // ============================================================
 
-const { default: UniverseSidebar, SIDEBAR_SECTIONS, SECTION_ID } =
+const { default: UniverseSidebar, WorkspaceTopNav, SIDEBAR_SECTIONS, SECTION_ID } =
   await import("../src/components/workspace/UniverseSidebar.jsx");
 
+// --- Expanded mode: vertical sidebar -------------------------
 const sidebarExpanded = renderSafe(UniverseSidebar, {
   selected: SECTION_ID.DASHBOARD,
   onSelect: () => {},
-  collapsed: false,
   onToggleCollapsed: () => {},
 });
 assert("[16] expanded sidebar renders WORKSPACE header",
   sidebarExpanded.ok && /WORKSPACE/.test(sidebarExpanded.html));
-assert("[16] expanded sidebar renders section labels",
+assert("[16] expanded sidebar renders full section labels",
   sidebarExpanded.ok &&
   /Dashboard/.test(sidebarExpanded.html) &&
   /Settings . Admin/.test(sidebarExpanded.html));
@@ -383,33 +383,77 @@ assert("[16] expanded sidebar shows section hints",
   sidebarExpanded.ok && /Overview . top opportunities/.test(sidebarExpanded.html));
 assert("[16] expanded sidebar carries 'Collapse sidebar' aria-label",
   sidebarExpanded.ok && /aria-label="Collapse sidebar"/.test(sidebarExpanded.html));
+assert("[16] expanded sidebar uses minWidth: 220",
+  sidebarExpanded.ok && /min-width:\s*220/i.test(sidebarExpanded.html));
 
-const sidebarCollapsed = renderSafe(UniverseSidebar, {
+// --- Collapsed mode: horizontal top nav ----------------------
+const topNav = renderSafe(WorkspaceTopNav, {
   selected: SECTION_ID.DASHBOARD,
   onSelect: () => {},
-  collapsed: true,
   onToggleCollapsed: () => {},
 });
-assert("[16] collapsed sidebar renders without throwing",
-  sidebarCollapsed.ok, sidebarCollapsed.err?.message);
-assert("[16] collapsed sidebar HIDES the WORKSPACE header text",
-  sidebarCollapsed.ok && !/>WORKSPACE</.test(sidebarCollapsed.html));
-assert("[16] collapsed sidebar HIDES the visible hint span (kept only in title tooltip)",
-  sidebarCollapsed.ok && !/>Overview . top opportunities</.test(sidebarCollapsed.html));
-assert("[16] collapsed sidebar carries 'Expand sidebar' aria-label",
-  sidebarCollapsed.ok && /aria-label="Expand sidebar"/.test(sidebarCollapsed.html));
-// Section data still rendered (each button keeps its aria-label so
-// keyboard / screen-reader users still see the section identity, and
-// the SIDEBAR_SECTIONS export is unchanged).
-assert("[16] collapsed sidebar still has 10 section buttons (aria-label preserved)",
-  sidebarCollapsed.ok &&
-  SIDEBAR_SECTIONS.every((s) => new RegExp(`aria-label="${s.label}"`).test(sidebarCollapsed.html)));
-// Compact abbreviations surface so the operator can identify sections
-// at a glance.
-for (const abbrev of ["DB", "HX", "WL", "ST"]) {
-  assert(`[16] collapsed sidebar shows '${abbrev}' abbreviation`,
-    sidebarCollapsed.ok && new RegExp(`>${abbrev}<`).test(sidebarCollapsed.html));
+assert("[16] WorkspaceTopNav renders without throwing",
+  topNav.ok, topNav.err?.message);
+assert("[16] top nav carries 'Expand sidebar' aria-label",
+  topNav.ok && /aria-label="Expand sidebar"/.test(topNav.html));
+assert("[16] top nav has the 'Universe top navigation' aria-label",
+  topNav.ok && /aria-label="Universe top navigation"/.test(topNav.html));
+assert("[16] top nav HIDES section hint spans (only in title tooltip)",
+  topNav.ok && !/>Overview . top opportunities</.test(topNav.html));
+// Each button keeps its full aria-label for screen readers.
+assert("[16] top nav preserves all 10 section aria-labels",
+  topNav.ok &&
+  SIDEBAR_SECTIONS.every((s) => new RegExp(`aria-label="${s.label}"`).test(topNav.html)));
+// All 10 abbreviations render horizontally.
+for (const abbrev of ["DB", "AI", "HX", "RB", "SW", "DI", "WL", "AL", "PF", "ST"]) {
+  assert(`[16] top nav shows '${abbrev}' abbreviation`,
+    topNav.ok && new RegExp(`>${abbrev}<`).test(topNav.html));
 }
+// The active section keeps its teal highlight (aria-pressed=true).
+const topNavWithActive = renderSafe(WorkspaceTopNav, {
+  selected: SECTION_ID.AI_HEALTH,
+  onSelect: () => {},
+  onToggleCollapsed: () => {},
+});
+const aiHealthButton = (topNavWithActive.html || "").match(
+  /<button[^>]*aria-label="AI Health . Diagnostics"[^>]*>/i,
+);
+assert("[16] AI Health button found in top nav",
+  topNavWithActive.ok && !!aiHealthButton);
+assert("[16] AI Health button is marked aria-pressed=true",
+  aiHealthButton && /aria-pressed="true"/.test(aiHealthButton[0]));
+
+// --- UniverseWorkspace: top nav replaces the left rail -------
+reset();
+const wsCollapsed = renderSafe(UniverseWorkspace, {
+  defaultCollapsed: true,
+});
+assert("[16] workspace renders the top nav when collapsed",
+  wsCollapsed.ok &&
+  /aria-label="Universe top navigation"/.test(wsCollapsed.html));
+assert("[16] workspace does NOT render the vertical 'Universe sidebar' when collapsed",
+  wsCollapsed.ok &&
+  !/aria-label="Universe sidebar"/.test(wsCollapsed.html));
+assert("[16] workspace dashboard content still renders below the top nav",
+  wsCollapsed.ok &&
+  /TOP OPPORTUNITIES/.test(wsCollapsed.html) &&
+  /ACTIVE RESEARCH/.test(wsCollapsed.html));
+// Verify the inner grid template no longer carries a 220px column —
+// the dashboard reclaims the full width.
+assert("[16] collapsed-mode inner grid uses no 220px sidebar column",
+  wsCollapsed.ok && !/grid-template-columns:[^"]*220px[^"]*minmax/i.test(wsCollapsed.html));
+
+const wsExpanded = renderSafe(UniverseWorkspace, {
+  defaultCollapsed: false,
+});
+assert("[16] workspace renders the vertical sidebar when expanded",
+  wsExpanded.ok &&
+  /aria-label="Universe sidebar"/.test(wsExpanded.html));
+assert("[16] workspace does NOT render the top nav when expanded",
+  wsExpanded.ok &&
+  !/aria-label="Universe top navigation"/.test(wsExpanded.html));
+assert("[16] expanded-mode inner grid carries the 220px sidebar column",
+  wsExpanded.ok && /grid-template-columns:[^"]*220px[^"]*minmax/i.test(wsExpanded.html));
 
 // ============================================================
 console.log(`\n  ${passed} passed, ${failed} failed`);

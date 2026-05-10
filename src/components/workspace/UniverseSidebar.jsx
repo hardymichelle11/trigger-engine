@@ -1,19 +1,16 @@
 // =====================================================
-// UNIVERSE SIDEBAR
+// UNIVERSE SIDEBAR + WORKSPACE TOP NAV
 // =====================================================
-// Persistent left navigation for the operator workspace. Each
-// section maps to a top-level view in the redesigned
-// UniverseWorkspace. Theme sections that don't have data wired up
-// yet still appear so the navigation reflects the planned shape;
-// the corresponding views render a "Coming soon" placeholder.
+// Two complementary navigation surfaces sharing one section list:
 //
-// Plain-language mapping the operator sees here:
-//   Dynamic Basket          → Active Research
-//   CIO Basket              → Manager Review
-//   Lethal Board Prospects  → New Opportunities
-//   Agent Memory            → Approved Intelligence
-//   Thesis Health Evaluator → Thesis Check
-//   Market Intelligence Inbox → Intelligence Feed
+//   - UniverseSidebar      (default export): the persistent left
+//     sidebar shown when the operator wants the full labeled nav.
+//   - WorkspaceTopNav      (named export):  a horizontal compact bar
+//     rendered ABOVE the main workspace when the operator collapses
+//     the nav. Lets the dashboard reclaim the full screen width.
+//
+// Both share SIDEBAR_SECTIONS / SECTION_ID / SECTION_ABBREV so the
+// section identity (id, label, hint, abbreviation) is single-source.
 // =====================================================
 
 import React from "react";
@@ -60,10 +57,9 @@ export const SIDEBAR_SECTIONS = Object.freeze([
   { id: SECTION_ID.SETTINGS_ADMIN,  label: "Settings / Admin",       hint: "Advanced controls · backend panels" },
 ]);
 
-// Two-letter abbreviations used as compact icons when the sidebar is
-// collapsed. Operator can hover for the full label via the title
-// attribute on each button.
-const SECTION_ABBREV = Object.freeze({
+// 2-letter abbreviations used as compact pills in the top nav. Hover
+// surfaces the full label + hint via title-attribute tooltip.
+export const SECTION_ABBREV = Object.freeze({
   [SECTION_ID.DASHBOARD]:        "DB",
   [SECTION_ID.AI_INFRA]:         "AI",
   [SECTION_ID.AI_HEALTH]:        "HX",
@@ -76,17 +72,19 @@ const SECTION_ABBREV = Object.freeze({
   [SECTION_ID.SETTINGS_ADMIN]:   "ST",
 });
 
+// =====================================================================
+// UniverseSidebar — vertical 220px navigation (expanded mode)
+// =====================================================================
+
 /**
  * @param {object} props
  * @param {string} props.selected
  * @param {(id: string) => void} props.onSelect
- * @param {Record<string, number>} [props.badgeCounts]   optional counts per section
- * @param {boolean} [props.collapsed]                    rail-only mode
- * @param {() => void} [props.onToggleCollapsed]
+ * @param {Record<string, number>} [props.badgeCounts]   optional per-section count
+ * @param {() => void} [props.onToggleCollapsed]         when set, renders ◀ toggle
  */
 export default function UniverseSidebar({
-  selected, onSelect, badgeCounts = {},
-  collapsed = false, onToggleCollapsed,
+  selected, onSelect, badgeCounts = {}, onToggleCollapsed,
 }) {
   return (
     <nav aria-label="Universe sidebar"
@@ -95,41 +93,28 @@ export default function UniverseSidebar({
         borderRight: `1px solid ${PALETTE.border}`,
         padding: "12px 8px",
         display: "flex", flexDirection: "column", gap: 2,
-        minWidth: collapsed ? 48 : 220,
-        width: collapsed ? 48 : undefined,
+        minWidth: 220,
       }}>
       {/* Toggle row */}
       <div style={{
         display: "flex",
-        justifyContent: collapsed ? "center" : "space-between",
+        justifyContent: "space-between",
         alignItems: "center",
         marginBottom: 8,
-        paddingLeft: collapsed ? 0 : 8,
+        paddingLeft: 8,
       }}>
-        {!collapsed && (
-          <span style={{
-            fontSize: 9, letterSpacing: "0.16em", color: PALETTE.textFaint,
-          }}>
-            WORKSPACE
-          </span>
-        )}
+        <span style={{
+          fontSize: 9, letterSpacing: "0.16em", color: PALETTE.textFaint,
+        }}>
+          WORKSPACE
+        </span>
         {onToggleCollapsed && (
           <button type="button"
             onClick={onToggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-pressed={collapsed}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            style={{
-              background: "transparent",
-              border: `1px solid ${PALETTE.borderSoft}`,
-              color: PALETTE.textDim,
-              borderRadius: 4,
-              padding: "2px 6px",
-              fontSize: 10, fontWeight: 700,
-              cursor: "pointer", fontFamily: "inherit",
-              minWidth: 24, textAlign: "center",
-            }}>
-            {collapsed ? "▶" : "◀"}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            style={toggleBtnStyle()}>
+            ◀
           </button>
         )}
       </div>
@@ -142,51 +127,131 @@ export default function UniverseSidebar({
             onClick={() => onSelect && onSelect(sec.id)}
             aria-pressed={active}
             aria-label={sec.label}
-            title={collapsed ? `${sec.label} — ${sec.hint}` : undefined}
             style={{
-              display: "flex",
-              justifyContent: collapsed ? "center" : "space-between",
-              alignItems: "center",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
               gap: 6,
               background: active ? `${PALETTE.accentTeal}1a` : "transparent",
               border: `1px solid ${active ? `${PALETTE.accentTeal}66` : "transparent"}`,
               borderLeft: `3px solid ${active ? PALETTE.accentTeal : "transparent"}`,
               color: active ? PALETTE.accentTeal : PALETTE.textDim,
-              borderRadius: 6,
-              padding: collapsed ? "7px 4px" : "7px 10px",
+              borderRadius: 6, padding: "7px 10px",
               fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
               cursor: "pointer", fontFamily: "inherit", textAlign: "left",
             }}>
-            {collapsed ? (
-              <span style={{
-                fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-              }}>
-                {SECTION_ABBREV[sec.id] || sec.label.slice(0, 2).toUpperCase()}
+            <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <span>{sec.label}</span>
+              <span style={{ fontSize: 9, color: PALETTE.textFaint, fontWeight: 400 }}>
+                {sec.hint}
               </span>
-            ) : (
-              <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <span>{sec.label}</span>
-                <span style={{ fontSize: 9, color: PALETTE.textFaint, fontWeight: 400 }}>
-                  {sec.hint}
-                </span>
-              </span>
-            )}
+            </span>
             {count != null && count > 0 && (
-              <span style={{
-                fontSize: 9, fontWeight: 700,
-                color: PALETTE.amber,
-                background: `${PALETTE.amber}1a`,
-                border: `1px solid ${PALETTE.amber}55`,
-                borderRadius: 999,
-                padding: collapsed ? "1px 4px" : "1px 6px",
-                minWidth: collapsed ? 14 : 18, textAlign: "center",
-              }}>
-                {count}
-              </span>
+              <span style={badgeStyle()}>{count}</span>
             )}
           </button>
         );
       })}
     </nav>
   );
+}
+
+// =====================================================================
+// WorkspaceTopNav — horizontal compact tab bar (collapsed mode)
+// =====================================================================
+
+/**
+ * Sits above the main workspace + drawer when the operator collapses
+ * the navigation. Frees up the entire vertical column on the left so
+ * the dashboard / drawer reclaim the screen.
+ *
+ * @param {object} props
+ * @param {string} props.selected
+ * @param {(id: string) => void} props.onSelect
+ * @param {Record<string, number>} [props.badgeCounts]
+ * @param {() => void} [props.onToggleCollapsed]   when set, renders ▶ toggle
+ */
+export function WorkspaceTopNav({
+  selected, onSelect, badgeCounts = {}, onToggleCollapsed,
+}) {
+  return (
+    <nav aria-label="Universe top navigation"
+      style={{
+        background: PALETTE.bg,
+        borderBottom: `1px solid ${PALETTE.border}`,
+        padding: "6px 12px",
+        display: "flex", flexWrap: "wrap",
+        alignItems: "center", gap: 6,
+      }}>
+      {onToggleCollapsed && (
+        <button type="button"
+          onClick={onToggleCollapsed}
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
+          style={toggleBtnStyle()}>
+          ▶
+        </button>
+      )}
+      <span style={{
+        fontSize: 9, letterSpacing: "0.16em", color: PALETTE.textFaint,
+        marginRight: 4,
+      }}>
+        WORKSPACE
+      </span>
+      {SIDEBAR_SECTIONS.map((sec) => {
+        const active = sec.id === selected;
+        const count = typeof badgeCounts[sec.id] === "number" ? badgeCounts[sec.id] : null;
+        const abbrev = SECTION_ABBREV[sec.id] || sec.label.slice(0, 2).toUpperCase();
+        return (
+          <button key={sec.id} type="button"
+            onClick={() => onSelect && onSelect(sec.id)}
+            aria-pressed={active}
+            aria-label={sec.label}
+            title={`${sec.label} — ${sec.hint}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              background: active ? `${PALETTE.accentTeal}1a` : "transparent",
+              border: `1px solid ${active ? `${PALETTE.accentTeal}66` : PALETTE.borderSoft}`,
+              color: active ? PALETTE.accentTeal : PALETTE.textDim,
+              borderRadius: 5, padding: "4px 8px",
+              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+              cursor: "pointer", fontFamily: "inherit",
+            }}>
+            <span>{abbrev}</span>
+            {count != null && count > 0 && (
+              <span style={badgeStyle({ compact: true })}>{count}</span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Shared style helpers
+// ---------------------------------------------------------------------
+
+function toggleBtnStyle() {
+  return {
+    background: "transparent",
+    border: `1px solid ${PALETTE.borderSoft}`,
+    color: PALETTE.textDim,
+    borderRadius: 4,
+    padding: "2px 6px",
+    fontSize: 10, fontWeight: 700,
+    cursor: "pointer", fontFamily: "inherit",
+    minWidth: 24, textAlign: "center",
+  };
+}
+
+function badgeStyle({ compact = false } = {}) {
+  return {
+    fontSize: 9, fontWeight: 700,
+    color: PALETTE.amber,
+    background: `${PALETTE.amber}1a`,
+    border: `1px solid ${PALETTE.amber}55`,
+    borderRadius: 999,
+    padding: compact ? "1px 4px" : "1px 6px",
+    minWidth: compact ? 14 : 18,
+    textAlign: "center",
+  };
 }

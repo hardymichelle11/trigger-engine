@@ -13,7 +13,10 @@
 import React, { useCallback, useMemo, useState } from "react";
 
 // Workspace chrome
-import UniverseSidebar, { SECTION_ID } from "../workspace/UniverseSidebar.jsx";
+import UniverseSidebar, {
+  SECTION_ID,
+  WorkspaceTopNav,
+} from "../workspace/UniverseSidebar.jsx";
 import MarketRegimeStrip from "../workspace/MarketRegimeStrip.jsx";
 import TopOpportunityCard from "../workspace/TopOpportunityCard.jsx";
 import ActiveTickerCard from "../workspace/ActiveTickerCard.jsx";
@@ -113,11 +116,18 @@ export default function UniverseWorkspace({
   onCataloged,
   includeSelector = true,
   includeManager = true,
+  // Test / consumer override for the persisted collapse pref. When
+  // omitted the workspace reads the localStorage pref on mount.
+  defaultCollapsed,
 } = {}) {
   const [section, setSection] = useState(SECTION_ID.DASHBOARD);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [tick, setTick] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readSidebarCollapsedPref());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => typeof defaultCollapsed === "boolean"
+      ? defaultCollapsed
+      : readSidebarCollapsedPref(),
+  );
 
   const handleToggleSidebar = useCallback(() => {
     setSidebarCollapsed((v) => {
@@ -193,22 +203,35 @@ export default function UniverseWorkspace({
     [activeTickers, tick],
   );
 
-  const sidebarCol = sidebarCollapsed ? "48px" : "220px";
-
+  // Layout reshapes between modes:
+  //   - Expanded:  3-col grid (220px sidebar | main | optional drawer)
+  //   - Collapsed: top nav strip above a 2-col grid (main | drawer)
+  // Splitting into a flex-column outer wrapper lets the dashboard
+  // reclaim the full width when the nav is collapsed instead of
+  // leaving a vertical rail consuming the left edge.
   return (
     <div style={{
       background: PALETTE.bg,
       borderTop: `1px solid ${PALETTE.borderSoft}`,
       borderBottom: `1px solid ${PALETTE.borderSoft}`,
-      display: "grid",
-      gridTemplateColumns: drawerPayload
-        ? `${sidebarCol} minmax(0, 1fr) minmax(320px, 420px)`
-        : `${sidebarCol} minmax(0, 1fr)`,
+      display: "flex", flexDirection: "column",
       minHeight: 600,
     }}>
-      <UniverseSidebar selected={section} onSelect={setSection}
-        collapsed={sidebarCollapsed}
-        onToggleCollapsed={handleToggleSidebar} />
+      {sidebarCollapsed && (
+        <WorkspaceTopNav selected={section} onSelect={setSection}
+          onToggleCollapsed={handleToggleSidebar} />
+      )}
+      <div style={{
+        flex: 1,
+        display: "grid",
+        gridTemplateColumns: sidebarCollapsed
+          ? (drawerPayload ? "minmax(0, 1fr) minmax(320px, 420px)" : "minmax(0, 1fr)")
+          : (drawerPayload ? "220px minmax(0, 1fr) minmax(320px, 420px)" : "220px minmax(0, 1fr)"),
+      }}>
+      {!sidebarCollapsed && (
+        <UniverseSidebar selected={section} onSelect={setSection}
+          onToggleCollapsed={handleToggleSidebar} />
+      )}
 
       <main aria-label="Workspace main"
         style={{
@@ -279,6 +302,7 @@ export default function UniverseWorkspace({
           onMoveToWatchlist={handleMoveToWatchlist}
           onOpenAdminDetails={handleOpenAdminDetails} />
       )}
+      </div>
     </div>
   );
 }
