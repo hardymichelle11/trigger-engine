@@ -34,6 +34,7 @@ import {
   SOURCE_LABELS,
   OUTPUT_LABELS,
 } from "../../lib/portfolioCio/researchAutomationContract.js";
+import { runResearchCheck } from "../../lib/portfolioCio/researchRunner.js";
 
 const PALETTE = {
   bg:        "#06090e",
@@ -109,10 +110,12 @@ const SAFETY_NOTE =
  * @param {object} props
  * @param {string} [props.defaultBasketId]
  * @param {string} [props.defaultAgentId]
+ * @param {(result: object) => void} [props.onResearchRun]   bumped when a manual research check completes
  */
 export default function AgentResearchSettings({
   defaultBasketId = "ai_health_diagnostics",
   defaultAgentId  = "aiHealthDiagnosticsAgent",
+  onResearchRun,
 }) {
   const [basketId, setBasketId] = useState(defaultBasketId);
   const [agentId,  setAgentId]  = useState(defaultAgentId);
@@ -203,6 +206,29 @@ export default function AgentResearchSettings({
     setSavedPlan(buildResearchAutomationPlan(stored));
     setInfo({ tone: "amber", text: "Research automation disabled for this basket and agent." });
   }, [settings, basketId, agentId]);
+
+  const onRun = useCallback(() => {
+    // Auto-save the current edit state so the run always reflects
+    // what the operator sees — no risk of running stale settings.
+    const stored = saveAgentResearchSettings({
+      ...settings,
+      basketId,
+      agentId,
+      enabled: settings.enabled !== false,
+    });
+    const target = stored || settings;
+    const result = runResearchCheck(target);
+    setSettings(target);
+    setSavedPlan(buildResearchAutomationPlan(target));
+    if (!result.ok) {
+      setInfo({ tone: "error", text: result.summary || "Research check failed." });
+      return;
+    }
+    setInfo({ tone: "success", text: result.summary });
+    if (typeof onResearchRun === "function") {
+      onResearchRun(result);
+    }
+  }, [settings, basketId, agentId, onResearchRun]);
 
   return (
     <section aria-label="Research Automation"
@@ -306,6 +332,11 @@ export default function AgentResearchSettings({
       }}>
         <button type="button" onClick={onSave} style={btn(PALETTE.accentTeal)}>
           Save settings
+        </button>
+        <button type="button" onClick={onRun}
+          aria-label="Run research check"
+          style={btn(PALETTE.purple)}>
+          Run research check
         </button>
         <button type="button" onClick={onReset} style={btn(PALETTE.cyan)}>
           Reset defaults

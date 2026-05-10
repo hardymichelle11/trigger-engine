@@ -217,6 +217,8 @@ export function saveIntelligenceDraft(input = {}) {
     scannerTags: Array.isArray(sanitized.scannerTags) ? sanitized.scannerTags.slice() : [],
     approvedByUser: !!sanitized.approvedByUser,
     expiresAt: typeof sanitized.expiresAt === "number" ? sanitized.expiresAt : null,
+    researchSource: typeof sanitized.researchSource === "string" ? sanitized.researchSource : null,
+    researchGeneratedAt: typeof sanitized.researchGeneratedAt === "number" ? sanitized.researchGeneratedAt : null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -312,6 +314,14 @@ function sanitizeIntelligenceInput(input) {
   if (typeof input.status === "string")        out.status = input.status;
   if (typeof input.rawTextExcerpt === "string") out.rawTextExcerpt = input.rawTextExcerpt.slice(0, 600);
   if (Array.isArray(input.useAs))              out.useAs = input.useAs.filter(Boolean).slice(0, 12);
+  // Optional research-runner attribution. Operator-safe ids (no
+  // scoring tokens, no internals) — surfaced by the queue UI.
+  if (typeof input.researchSource === "string" && input.researchSource.length <= 64) {
+    out.researchSource = input.researchSource;
+  }
+  if (typeof input.researchGeneratedAt === "number" && input.researchGeneratedAt > 0) {
+    out.researchGeneratedAt = input.researchGeneratedAt;
+  }
   if (typeof input.expiresAt === "number")     out.expiresAt = input.expiresAt;
   if (typeof input.approvedByUser === "boolean") out.approvedByUser = input.approvedByUser;
 

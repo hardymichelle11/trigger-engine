@@ -84,7 +84,8 @@
     "test:market-intelligence-context": "node scripts/test-market-intelligence-context.js",
     "test:universe-workspace-ux": "node scripts/test-universe-workspace-ux.js",
     "test:universe-workspace-ux-phase-2": "node scripts/test-universe-workspace-ux-phase-2.js",
-    "test:agent-research-settings": "node scripts/test-agent-research-settings.js"
+    "test:agent-research-settings": "node scripts/test-agent-research-settings.js",
+    "test:research-runner": "node scripts/test-research-runner.js"
   },
   "dependencies": {
     "@google/genai": "^1.49.0",

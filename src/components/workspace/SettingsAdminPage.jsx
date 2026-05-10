@@ -30,6 +30,7 @@ import AIHealthDiagnosticsPanel from "../portfolioCio/AIHealthDiagnosticsPanel.j
 import MarketIntelligenceInbox from "../portfolioCio/MarketIntelligenceInbox.jsx";
 import ThesisHealthPanel from "../portfolioCio/ThesisHealthPanel.jsx";
 import AgentResearchSettings from "../portfolioCio/AgentResearchSettings.jsx";
+import ProposedIntelligenceQueue from "../portfolioCio/ProposedIntelligenceQueue.jsx";
 
 import {
   getBasketMemory,
@@ -83,10 +84,7 @@ export default function SettingsAdminPage(props = {}) {
         </div>
       </header>
 
-      <CollapsiblePanel title="Research Automation"
-        hint="Configure what each agent monitors and where findings go">
-        <AgentResearchSettings />
-      </CollapsiblePanel>
+      <ResearchAutomationBlock />
 
       <CollapsiblePanel title="Ticker search · catalog · history"
         hint="Ad-hoc ticker tooling and dynamic basket admin">
@@ -145,6 +143,28 @@ export default function SettingsAdminPage(props = {}) {
 // ---------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------
+
+// Research Automation + Proposed Intelligence Queue. Both surfaces
+// share a refresh tick so a manual research run from the configurator
+// re-renders the queue immediately.
+function ResearchAutomationBlock() {
+  const [refreshTick, setRefreshTick] = useState(0);
+  const handleResearchRun = useCallback(() => {
+    setRefreshTick((n) => n + 1);
+  }, []);
+  return (
+    <>
+      <CollapsiblePanel title="Research Automation"
+        hint="Configure what each agent monitors and where findings go">
+        <AgentResearchSettings onResearchRun={handleResearchRun} />
+      </CollapsiblePanel>
+      <CollapsiblePanel title="Proposed Intelligence Queue"
+        hint="Review draft intelligence from the latest research check">
+        <ProposedIntelligenceQueue refreshTick={refreshTick} />
+      </CollapsiblePanel>
+    </>
+  );
+}
 
 function CollapsiblePanel({ title, hint, children }) {
   const [open, setOpen] = useState(false);
