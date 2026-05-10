@@ -117,6 +117,15 @@ export default function UniverseWorkspace({
   const [section, setSection] = useState(SECTION_ID.DASHBOARD);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [tick, setTick] = useState(0);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readSidebarCollapsedPref());
+
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      writeSidebarCollapsedPref(next);
+      return next;
+    });
+  }, []);
 
   const handleSelectSymbol = useCallback((sym) => {
     if (!sym) return;
@@ -184,16 +193,22 @@ export default function UniverseWorkspace({
     [activeTickers, tick],
   );
 
+  const sidebarCol = sidebarCollapsed ? "48px" : "220px";
+
   return (
     <div style={{
       background: PALETTE.bg,
       borderTop: `1px solid ${PALETTE.borderSoft}`,
       borderBottom: `1px solid ${PALETTE.borderSoft}`,
       display: "grid",
-      gridTemplateColumns: drawerPayload ? "220px minmax(0, 1fr) minmax(320px, 420px)" : "220px minmax(0, 1fr)",
+      gridTemplateColumns: drawerPayload
+        ? `${sidebarCol} minmax(0, 1fr) minmax(320px, 420px)`
+        : `${sidebarCol} minmax(0, 1fr)`,
       minHeight: 600,
     }}>
-      <UniverseSidebar selected={section} onSelect={setSection} />
+      <UniverseSidebar selected={section} onSelect={setSection}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={handleToggleSidebar} />
 
       <main aria-label="Workspace main"
         style={{
@@ -922,6 +937,29 @@ function emptyHelpStyle() {
     borderRadius: 8, padding: "12px 14px",
     fontSize: 11, color: PALETTE.textFaint, lineHeight: 1.55, fontStyle: "italic",
   };
+}
+
+// ---------------------------------------------------------------------
+// Sidebar-collapsed pref (localStorage, SSR-safe)
+// ---------------------------------------------------------------------
+
+const SIDEBAR_PREF_KEY = "te.workspace.sidebarCollapsed.v1";
+
+function readSidebarCollapsedPref() {
+  try {
+    if (typeof globalThis.localStorage === "undefined") return false;
+    const v = globalThis.localStorage.getItem(SIDEBAR_PREF_KEY);
+    return v === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeSidebarCollapsedPref(value) {
+  try {
+    if (typeof globalThis.localStorage === "undefined") return;
+    globalThis.localStorage.setItem(SIDEBAR_PREF_KEY, value ? "1" : "0");
+  } catch { /* tolerate quota / disabled storage */ }
 }
 
 // Re-export UNIVERSE_OPTIONS so callers that pulled it from the old

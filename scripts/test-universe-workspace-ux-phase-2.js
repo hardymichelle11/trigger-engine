@@ -361,6 +361,57 @@ assert("[15] listDemoIntelligenceSymbols includes AMD",
   listDemoIntelligenceSymbols().includes("AMD"));
 
 // ============================================================
+group("[16] sidebar can collapse + expand");
+// ============================================================
+
+const { default: UniverseSidebar, SIDEBAR_SECTIONS, SECTION_ID } =
+  await import("../src/components/workspace/UniverseSidebar.jsx");
+
+const sidebarExpanded = renderSafe(UniverseSidebar, {
+  selected: SECTION_ID.DASHBOARD,
+  onSelect: () => {},
+  collapsed: false,
+  onToggleCollapsed: () => {},
+});
+assert("[16] expanded sidebar renders WORKSPACE header",
+  sidebarExpanded.ok && /WORKSPACE/.test(sidebarExpanded.html));
+assert("[16] expanded sidebar renders section labels",
+  sidebarExpanded.ok &&
+  /Dashboard/.test(sidebarExpanded.html) &&
+  /Settings . Admin/.test(sidebarExpanded.html));
+assert("[16] expanded sidebar shows section hints",
+  sidebarExpanded.ok && /Overview . top opportunities/.test(sidebarExpanded.html));
+assert("[16] expanded sidebar carries 'Collapse sidebar' aria-label",
+  sidebarExpanded.ok && /aria-label="Collapse sidebar"/.test(sidebarExpanded.html));
+
+const sidebarCollapsed = renderSafe(UniverseSidebar, {
+  selected: SECTION_ID.DASHBOARD,
+  onSelect: () => {},
+  collapsed: true,
+  onToggleCollapsed: () => {},
+});
+assert("[16] collapsed sidebar renders without throwing",
+  sidebarCollapsed.ok, sidebarCollapsed.err?.message);
+assert("[16] collapsed sidebar HIDES the WORKSPACE header text",
+  sidebarCollapsed.ok && !/>WORKSPACE</.test(sidebarCollapsed.html));
+assert("[16] collapsed sidebar HIDES the visible hint span (kept only in title tooltip)",
+  sidebarCollapsed.ok && !/>Overview . top opportunities</.test(sidebarCollapsed.html));
+assert("[16] collapsed sidebar carries 'Expand sidebar' aria-label",
+  sidebarCollapsed.ok && /aria-label="Expand sidebar"/.test(sidebarCollapsed.html));
+// Section data still rendered (each button keeps its aria-label so
+// keyboard / screen-reader users still see the section identity, and
+// the SIDEBAR_SECTIONS export is unchanged).
+assert("[16] collapsed sidebar still has 10 section buttons (aria-label preserved)",
+  sidebarCollapsed.ok &&
+  SIDEBAR_SECTIONS.every((s) => new RegExp(`aria-label="${s.label}"`).test(sidebarCollapsed.html)));
+// Compact abbreviations surface so the operator can identify sections
+// at a glance.
+for (const abbrev of ["DB", "HX", "WL", "ST"]) {
+  assert(`[16] collapsed sidebar shows '${abbrev}' abbreviation`,
+    sidebarCollapsed.ok && new RegExp(`>${abbrev}<`).test(sidebarCollapsed.html));
+}
+
+// ============================================================
 console.log(`\n  ${passed} passed, ${failed} failed`);
 resetActiveResearchBackend();
 resetMemoryBackend();
