@@ -29,6 +29,7 @@ import CioReviewDashboard from "../portfolioCio/CioReviewDashboard.jsx";
 import AIHealthDiagnosticsPanel from "../portfolioCio/AIHealthDiagnosticsPanel.jsx";
 import MarketIntelligenceInbox from "../portfolioCio/MarketIntelligenceInbox.jsx";
 import ThesisHealthPanel from "../portfolioCio/ThesisHealthPanel.jsx";
+import AgentResearchSettings from "../portfolioCio/AgentResearchSettings.jsx";
 
 import {
   getBasketMemory,
@@ -83,15 +84,8 @@ export default function SettingsAdminPage(props = {}) {
       </header>
 
       <CollapsiblePanel title="Research Automation"
-        hint="Scheduled research configurator (placeholder — pending wiring)">
-        <div style={{
-          background: PALETTE.panelBg,
-          border: `1px dashed ${PALETTE.borderSoft}`,
-          borderRadius: 8, padding: "12px 14px",
-          fontSize: 11, color: PALETTE.textFaint, fontStyle: "italic", lineHeight: 1.55,
-        }}>
-          Research Automation is in design. The configurator will let you schedule per-basket scans and choose which sources the agent monitors. For now this section is a placeholder — manual intelligence input via the Market Intelligence Inbox below remains the supported path.
-        </div>
+        hint="Configure what each agent monitors and where findings go">
+        <AgentResearchSettings />
       </CollapsiblePanel>
 
       <CollapsiblePanel title="Ticker search · catalog · history"

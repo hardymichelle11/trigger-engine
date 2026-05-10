@@ -475,10 +475,10 @@ assert("[17] admin renders 'Settings / Admin' aria-label",
   /aria-label="Settings . Admin"/.test(adminHtml));
 assert("[17] admin renders 'SETTINGS / ADMIN' header text",
   /SETTINGS . ADMIN/.test(adminHtml));
-assert("[17] admin renders the new 'RESEARCH AUTOMATION' accordion",
+assert("[17] admin renders the 'RESEARCH AUTOMATION' accordion",
   /RESEARCH AUTOMATION/.test(adminHtml));
-assert("[17] Research Automation accordion shows hint copy when collapsed",
-  /Scheduled research configurator/i.test(adminHtml));
+assert("[17] Research Automation accordion surfaces a configurator hint when collapsed",
+  /Configure what each agent monitors/i.test(adminHtml));
 // All legacy accordions still present (their headers are flattened
 // upper-case strings).
 for (const heading of [
