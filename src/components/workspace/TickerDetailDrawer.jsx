@@ -80,6 +80,11 @@ const NO_OVERRIDE = "Context only — does not override engine verdict.";
  * @param {string} [props.recommendedAction]
  * @param {string[]} [props.risks]
  * @param {() => void} [props.onClose]
+ * @param {(symbol: string) => void} [props.onAddIntelligence]
+ * @param {(symbol: string) => void} [props.onSetAlert]
+ * @param {(symbol: string) => void} [props.onMarkReviewed]
+ * @param {(symbol: string) => void} [props.onMoveToWatchlist]
+ * @param {(symbol: string) => void} [props.onOpenAdminDetails]
  */
 export default function TickerDetailDrawer({
   symbol,
@@ -95,8 +100,26 @@ export default function TickerDetailDrawer({
   recommendedAction,
   risks,
   onClose,
+  onAddIntelligence,
+  onSetAlert,
+  onMarkReviewed,
+  onMoveToWatchlist,
+  onOpenAdminDetails,
 }) {
-  if (!symbol) return null;
+  if (!symbol) {
+    return (
+      <aside aria-label="Detail drawer empty"
+        style={{
+          background: PALETTE.bg,
+          borderLeft: `1px solid ${PALETTE.border}`,
+          padding: 16,
+          fontSize: 11, color: PALETTE.textFaint, fontStyle: "italic", lineHeight: 1.6,
+          minWidth: 320, maxWidth: 480,
+        }}>
+        Select a ticker card or search a symbol to open research details.
+      </aside>
+    );
+  }
   const tone = POSTURE_TONES[posture] || PALETTE.slate;
 
   return (
@@ -139,7 +162,34 @@ export default function TickerDetailDrawer({
         )}
       </header>
 
-      {/* 2. Chart area */}
+      {/* 2. Recommended action — promoted to the top of the drawer
+             so the operator's first read is "what should I do?". */}
+      <section aria-label="Recommended action"
+        style={{
+          background: `${PALETTE.cyan}10`,
+          border: `1px solid ${PALETTE.cyan}55`,
+          borderLeft: `3px solid ${PALETTE.cyan}`,
+          borderRadius: 8, padding: "8px 10px",
+        }}>
+        <div style={{
+          fontSize: 9, letterSpacing: "0.10em", color: PALETTE.cyan, fontWeight: 700, marginBottom: 4,
+        }}>
+          RECOMMENDED ACTION
+        </div>
+        <div style={{ fontSize: 12, color: PALETTE.text, fontStyle: "italic", lineHeight: 1.55 }}>
+          → {recommendedAction || "Monitor for additional manager evidence."}
+        </div>
+      </section>
+
+      {/* 3. What changed */}
+      <Section title="What changed?">
+        <div style={{ fontSize: 11, color: PALETTE.text, lineHeight: 1.55 }}>
+          {whatChanged || "No major change since last scan."}
+        </div>
+      </Section>
+
+      {/* 4. Chart area — kept after the action so the operator can
+             reach for the chart while the trade plan is fresh. */}
       <Section title="Chart">
         <div aria-label="Chart placeholder"
           style={{
@@ -151,13 +201,6 @@ export default function TickerDetailDrawer({
             fontSize: 11, color: PALETTE.textFaint, fontStyle: "italic", textAlign: "center",
           }}>
           Chart integration pending — use TradingView or your charting tool of choice in another tab.
-        </div>
-      </Section>
-
-      {/* 3. What changed */}
-      <Section title="What changed?">
-        <div style={{ fontSize: 11, color: PALETTE.text, lineHeight: 1.55 }}>
-          {whatChanged || "No major change since last scan."}
         </div>
       </Section>
 
@@ -289,36 +332,17 @@ export default function TickerDetailDrawer({
         {Array.isArray(intelligenceFeed) && intelligenceFeed.length > 0 ? (
           <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
             {intelligenceFeed.slice(0, 6).map((it) => (
-              <li key={it.id} style={{
-                background: PALETTE.cardBg,
-                border: `1px solid ${PALETTE.borderSoft}`,
-                borderRadius: 6, padding: "6px 8px",
-                fontSize: 10, color: PALETTE.text, lineHeight: 1.5,
-              }}>
-                <div style={{ fontWeight: 700, color: PALETTE.text }}>
-                  {it.title || "Intelligence note"}
-                </div>
-                {it.thesis && it.thesis.coreClaim && (
-                  <div style={{ color: PALETTE.textDim }}>
-                    {truncate(it.thesis.coreClaim, 180)}
-                  </div>
-                )}
-              </li>
+              <IntelligenceFeedItem key={it.id} item={it} />
             ))}
           </ul>
         ) : (
-          <PlaceholderLine>No intelligence on file for this symbol. Use the Intelligence Feed (Settings / Admin) to add a note.</PlaceholderLine>
+          <PlaceholderLine>
+            No approved intelligence yet. Add a thesis note, article, or risk observation.
+          </PlaceholderLine>
         )}
       </Section>
 
-      {/* 9. Recommended action */}
-      <Section title="Recommended action">
-        <div style={{ fontSize: 11, color: PALETTE.cyan, fontStyle: "italic", lineHeight: 1.55 }}>
-          {recommendedAction || "Monitor for additional manager evidence."}
-        </div>
-      </Section>
-
-      {/* 10. Risk / invalidation notes */}
+      {/* 9. Risk / invalidation notes */}
       <Section title="Risk / invalidation notes">
         {Array.isArray(risks) && risks.length > 0 ? (
           <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
@@ -332,7 +356,117 @@ export default function TickerDetailDrawer({
           <PlaceholderLine>No specific risk flags on file.</PlaceholderLine>
         )}
       </Section>
+
+      {/* 10. Operator actions — non-destructive callbacks. Each
+             button invokes the parent's handler if supplied; otherwise
+             the button stays disabled so the operator never triggers
+             phantom actions. */}
+      <Section title="Operator actions">
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <ActionButton label="Add intelligence" tone={PALETTE.purple}
+            disabled={!onAddIntelligence}
+            onClick={() => onAddIntelligence && onAddIntelligence(symbol)} />
+          <ActionButton label="Set alert" tone={PALETTE.amber}
+            disabled={!onSetAlert}
+            onClick={() => onSetAlert && onSetAlert(symbol)} />
+          <ActionButton label="Mark reviewed" tone={PALETTE.cyan}
+            disabled={!onMarkReviewed}
+            onClick={() => onMarkReviewed && onMarkReviewed(symbol)} />
+          <ActionButton label="Move to watchlist" tone={PALETTE.green}
+            disabled={!onMoveToWatchlist}
+            onClick={() => onMoveToWatchlist && onMoveToWatchlist(symbol)} />
+          <ActionButton label="Open admin details" tone={PALETTE.textFaint}
+            disabled={!onOpenAdminDetails}
+            onClick={() => onOpenAdminDetails && onOpenAdminDetails(symbol)} />
+        </div>
+      </Section>
     </aside>
+  );
+}
+
+function IntelligenceFeedItem({ item }) {
+  if (!item) return null;
+  const isDemo = !!item.isDemo;
+  return (
+    <li style={{
+      background: PALETTE.cardBg,
+      border: `1px solid ${PALETTE.borderSoft}`,
+      borderRadius: 6, padding: "6px 8px",
+      fontSize: 10, color: PALETTE.text, lineHeight: 1.5,
+      display: "flex", flexDirection: "column", gap: 3,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700, color: PALETTE.text }}>
+          {item.title || "Intelligence note"}
+        </span>
+        {isDemo && (
+          <span style={{
+            fontSize: 8, fontWeight: 700, letterSpacing: "0.10em",
+            color: PALETTE.amber, background: `${PALETTE.amber}1a`,
+            border: `1px solid ${PALETTE.amber}55`, borderRadius: 3, padding: "1px 5px",
+          }}>
+            SAMPLE / DEMO
+          </span>
+        )}
+      </div>
+      {item.sourceLabel && (
+        <div style={{ fontSize: 9, color: PALETTE.textFaint }}>
+          Source: {item.sourceLabel}
+          {item.bias && (
+            <span style={{ marginLeft: 6, color: PALETTE.textFaint }}>
+              · Bias: {item.bias}
+            </span>
+          )}
+          {item.confidence && (
+            <span style={{ marginLeft: 6, color: PALETTE.textFaint }}>
+              · Confidence: {item.confidence}
+            </span>
+          )}
+        </div>
+      )}
+      {item.thesis && item.thesis.coreClaim && (
+        <div style={{ color: PALETTE.textDim }}>
+          {truncate(item.thesis.coreClaim, 180)}
+        </div>
+      )}
+      {Array.isArray(item.confirms) && item.confirms.length > 0 && (
+        <div style={{ fontSize: 10, color: PALETTE.textDim }}>
+          <strong style={{ color: PALETTE.green, marginRight: 4 }}>Confirms:</strong>
+          {item.confirms.join(" · ")}
+        </div>
+      )}
+      {Array.isArray(item.challenges) && item.challenges.length > 0 && (
+        <div style={{ fontSize: 10, color: PALETTE.textDim }}>
+          <strong style={{ color: PALETTE.red, marginRight: 4 }}>Challenges:</strong>
+          {item.challenges.join(" · ")}
+        </div>
+      )}
+      {item.engineImpact && (
+        <div style={{ fontSize: 10, color: PALETTE.textFaint, fontStyle: "italic" }}>
+          Engine impact: {item.engineImpact}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function ActionButton({ label, tone, onClick, disabled }) {
+  return (
+    <button type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: `${tone}1a`,
+        border: `1px solid ${tone}88`,
+        color: tone,
+        borderRadius: 5, padding: "4px 10px",
+        fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+        cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit",
+        opacity: disabled ? 0.6 : 1,
+      }}>
+      {label}
+    </button>
   );
 }
 

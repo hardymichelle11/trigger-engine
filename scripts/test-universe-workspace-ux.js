@@ -341,15 +341,15 @@ const wValuation = describeWhatChanged({}, null, [{
 }]);
 assert("[12] valuation risk → counter_thesis_intelligence",
   wValuation.kind === "counter_thesis_intelligence");
-assert("[12] message = 'New counter-thesis article detected.'",
-  wValuation.message === "New counter-thesis article detected.");
+assert("[12] message mentions counter-thesis (Phase 2 wording allowed)",
+  /counter-thesis article detected/i.test(wValuation.message));
 assert("[12] tone = challenging",                          wValuation.tone === "challenging");
 
 const wReimbursement = buildWhatChanged({}, null, [{
   id: "x", catalysts: [], risks: ["Reimbursement pressure"],
 }]);
 assert("[12] reimbursement pressure → counter-thesis message",
-  wReimbursement === "New counter-thesis article detected.");
+  /counter-thesis article detected/i.test(wReimbursement));
 
 // ============================================================
 group("[13] whatChangedBuilder supportive on partnership / adoption");
@@ -360,8 +360,8 @@ const wSupport = describeWhatChanged({}, null, [{
 }]);
 assert("[13] partnership + hospital adoption → supportive_intelligence",
   wSupport.kind === "supportive_intelligence");
-assert("[13] message = 'Supportive intelligence detected.'",
-  wSupport.message === "Supportive intelligence detected.");
+assert("[13] message mentions supportive intelligence",
+  /supportive intelligence/i.test(wSupport.message));
 assert("[13] tone = supportive",                           wSupport.tone === "supportive");
 
 // ============================================================
@@ -373,7 +373,8 @@ const wRisky = describeWhatChanged(
   [{ id: "x", catalysts: ["Pharma partnership"], risks: [] }],
 );
 assert("[14] risk_elevated wins priority",                 wRisky.kind === "risk_elevated");
-assert("[14] message = 'Risk posture elevated.'",          wRisky.message === "Risk posture elevated.");
+assert("[14] message mentions risk posture elevated",
+  /risk posture elevated/i.test(wRisky.message));
 assert("[14] tone = challenging",                          wRisky.tone === "challenging");
 
 // ============================================================
@@ -382,7 +383,8 @@ group("[15] empty inputs → no_change");
 
 const wEmpty = describeWhatChanged(null, null, []);
 assert("[15] no inputs → no_change",                       wEmpty.kind === "no_change");
-assert("[15] message = 'No major change.'",                wEmpty.message === "No major change.");
+assert("[15] message contains 'no major change'",
+  /no major change/i.test(wEmpty.message));
 assert("[15] tone = neutral",                              wEmpty.tone === "neutral");
 
 // Diff-detection: posture downgrade

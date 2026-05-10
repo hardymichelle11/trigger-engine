@@ -50,7 +50,8 @@ const CHANGE_TONES = {
  *     whyHere: string,
  *     whatChanged: string,
  *     whatChangedTone: "supportive" | "challenging" | "neutral",
- *     actionHint: string,
+ *     nextStep: string,
+ *     watchRisk: string,
  *   }
  * @param {boolean} [props.isSelected]
  * @param {(symbol: string) => void} [props.onSelect]
@@ -122,9 +123,21 @@ export default function ActiveTickerCard({ ticker, isSelected, onSelect, onRemov
           {ticker.intelligenceHeadline}
         </div>
       )}
-      {ticker.actionHint && (
+      {(ticker.nextStep || ticker.actionHint) && (
         <div style={{ fontSize: 11, color: PALETTE.cyan, fontStyle: "italic", lineHeight: 1.5 }}>
-          → {ticker.actionHint}
+          <strong style={{ color: PALETTE.cyan, marginRight: 4 }}>Next step:</strong>
+          {ticker.nextStep || ticker.actionHint}
+        </div>
+      )}
+      {ticker.watchRisk && (
+        <div style={{
+          fontSize: 10, color: PALETTE.amber, lineHeight: 1.5,
+          background: `${PALETTE.amber}10`,
+          border: `1px solid ${PALETTE.amber}33`,
+          borderRadius: 6, padding: "4px 8px",
+        }}>
+          <strong style={{ color: PALETTE.amber, marginRight: 4 }}>Watch risk:</strong>
+          {ticker.watchRisk}
         </div>
       )}
     </article>

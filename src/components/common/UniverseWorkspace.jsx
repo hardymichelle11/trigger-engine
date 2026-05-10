@@ -57,9 +57,13 @@ import {
   runTickerSearch,
   listActiveResearchTickers,
   removeActiveResearchTicker,
+  markTickerReviewed,
+  getTickerReviewedAt,
 } from "../../lib/workspace/tickerSearchWorkflow.js";
 import { describeWhatChanged }
   from "../../lib/ui/whatChangedBuilder.js";
+import { getDemoIntelligenceFor }
+  from "../../lib/workspace/demoIntelligenceLibrary.js";
 
 const PALETTE = {
   bg:        "#06090e",
@@ -133,6 +137,29 @@ export default function UniverseWorkspace({
     setTick((n) => n + 1);
     if (sym === selectedSymbol) setSelectedSymbol(null);
   }, [selectedSymbol]);
+
+  // Operator action callbacks for the drawer. These are non-destructive
+  // — Add intelligence + Open admin details route the operator into
+  // Settings / Admin where the Market Intelligence Inbox lives. Mark
+  // reviewed stamps a timestamp on the symbol via the workspace store.
+  // Set alert is a Phase 2 placeholder (alerts surface not built yet).
+  const handleAddIntelligence = useCallback(() => {
+    setSection(SECTION_ID.SETTINGS_ADMIN);
+  }, []);
+  const handleSetAlert = useCallback(() => {
+    // Placeholder: future commit will surface an alert configurator.
+  }, []);
+  const handleMarkReviewed = useCallback((sym) => {
+    if (!sym) return;
+    markTickerReviewed(sym);
+    setTick((n) => n + 1);
+  }, []);
+  const handleMoveToWatchlist = useCallback(() => {
+    setSection(SECTION_ID.WATCHLIST);
+  }, []);
+  const handleOpenAdminDetails = useCallback(() => {
+    setSection(SECTION_ID.SETTINGS_ADMIN);
+  }, []);
 
   // Active research list — drives the cards in Dashboard / Watchlist.
   const activeTickers = useMemo(
@@ -230,7 +257,12 @@ export default function UniverseWorkspace({
       {drawerPayload && (
         <TickerDetailDrawer
           {...drawerPayload}
-          onClose={handleCloseDrawer} />
+          onClose={handleCloseDrawer}
+          onAddIntelligence={handleAddIntelligence}
+          onSetAlert={handleSetAlert}
+          onMarkReviewed={handleMarkReviewed}
+          onMoveToWatchlist={handleMoveToWatchlist}
+          onOpenAdminDetails={handleOpenAdminDetails} />
       )}
     </div>
   );
@@ -275,7 +307,7 @@ function DashboardSection({
         <div style={titleRow()}>ACTIVE RESEARCH · {activeCards.length}</div>
         {activeCards.length === 0 ? (
           <div style={emptyHelpStyle()}>
-            Search a ticker above to start active research. Tickers persist across sessions.
+            Search a ticker to start research. Example: AMD, TEM, GH, NBIS.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -585,12 +617,23 @@ function buildDrawerPayload(symbol) {
             it.status === INTELLIGENCE_STATUS.DRAFT &&
             isItemRelevantToSymbol(it, symbol),
   ) : [];
-  const intelligenceFeed = basketId
+  const realIntelligenceFeed = basketId
     ? listIntelligenceItems().filter((it) =>
         it.basketId === basketId &&
         it.status !== INTELLIGENCE_STATUS.ARCHIVED &&
         isItemRelevantToSymbol(it, symbol))
     : [];
+  // When no real intelligence is on file, surface the demo library
+  // entry (if any) so the operator sees seed context. Demo items are
+  // tagged with isDemo = true in the library so the UI renders a
+  // "SAMPLE / DEMO" badge — never confused with operator-approved
+  // memory.
+  const intelligenceFeed = realIntelligenceFeed.length > 0
+    ? realIntelligenceFeed
+    : (() => {
+        const demo = getDemoIntelligenceFor(symbol);
+        return demo ? [demo] : [];
+      })();
 
   // Thesis check using the same evaluator + agent insight.
   const thesisCheck = basketId
@@ -619,7 +662,10 @@ function buildDrawerPayload(symbol) {
   const posture = friendlyPosture(insight);
   const theme   = profile?.role || (inBasket ? "AI Health / Diagnostics" : "Outside specialty baskets");
 
-  // What changed — uses the deterministic builder.
+  // What changed — uses the deterministic builder. Demo intelligence
+  // contributes to the calculation as context only (it's deterministic
+  // keyword matching against catalysts/risks; demo never changes
+  // posture / verdict / allowedActions).
   const change = describeWhatChanged(
     {
       posture: insight?.posture,
@@ -708,12 +754,20 @@ function buildActiveCard(symbol) {
   }
 
   const basketId = inBasket ? "ai_health_diagnostics" : null;
-  const intelligenceItems = basketId
+  const realIntelligenceItems = basketId
     ? listIntelligenceItems().filter((it) =>
         it.basketId === basketId &&
         it.status !== INTELLIGENCE_STATUS.ARCHIVED &&
         isItemRelevantToSymbol(it, symbol))
     : [];
+  // Same demo fallback the drawer uses, so the active card and the
+  // drawer agree on what the operator is being shown.
+  const intelligenceItems = realIntelligenceItems.length > 0
+    ? realIntelligenceItems
+    : (() => {
+        const demo = getDemoIntelligenceFor(symbol);
+        return demo ? [demo] : [];
+      })();
 
   // Thesis check status for the chip.
   const thesis = basketId ? evaluateThesisHealth({
@@ -721,7 +775,7 @@ function buildActiveCard(symbol) {
     agentId: "aiHealthDiagnosticsAgent",
     symbol,
     approvedMemory: getBasketMemory(basketId),
-    proposedIntelligence: intelligenceItems.filter((it) => it.status === INTELLIGENCE_STATUS.DRAFT),
+    proposedIntelligence: realIntelligenceItems.filter((it) => it.status === INTELLIGENCE_STATUS.DRAFT),
     agentInsight: insight,
   }) : null;
 
@@ -735,6 +789,10 @@ function buildActiveCard(symbol) {
     intelligenceItems,
   );
 
+  // Watch-risk line — derived from engine + memory. Demo intelligence
+  // contributes as a "Watch:" hint when it lists challenges.
+  const watchRisk = pickWatchRisk(insight, intelligenceItems);
+
   return {
     symbol,
     theme: profile ? profile.thesis : "Outside specialty baskets",
@@ -745,8 +803,26 @@ function buildActiveCard(symbol) {
     whyHere: composeWhyHere(insight, profile),
     whatChanged: change.message,
     whatChangedTone: change.tone,
-    actionHint: insight?.suggestedAction || "Monitor for additional manager evidence.",
+    nextStep: insight?.suggestedAction || "Monitor for additional manager evidence.",
+    watchRisk,
   };
+}
+
+function pickWatchRisk(insight, intelligenceItems) {
+  // Engine-driven primary risk wins.
+  if (insight?.risksToVerify && insight.risksToVerify.length > 0) {
+    return insight.risksToVerify[0];
+  }
+  // Demo / draft items: surface the first challenge if they have one.
+  for (const it of intelligenceItems) {
+    if (Array.isArray(it.challenges) && it.challenges.length > 0) {
+      return it.challenges[0];
+    }
+    if (Array.isArray(it.risks) && it.risks.length > 0) {
+      return it.risks[0];
+    }
+  }
+  return null;
 }
 
 function pickHeadline(items) {

@@ -33,22 +33,25 @@ const RESULT_PRIORITIES = Object.freeze([
 
 const PRIORITY_INDEX = Object.fromEntries(RESULT_PRIORITIES.map((k, i) => [k, i]));
 
+// Operator-facing copy. Phase 2 sharpening — every message ends with
+// either context that helps decision-making or guidance the operator
+// can act on. Generic "X happened" lines are avoided.
 const MESSAGES = Object.freeze({
-  risk_elevated:                "Risk posture elevated.",
-  thesis_challenged:            "Thesis challenged by latest intelligence.",
+  risk_elevated:                "Risk posture elevated; avoid forcing a trade.",
+  thesis_challenged:            "Thesis intact, but entry risk increased.",
   stale_data:                   "Data may be stale — confirm before acting.",
-  posture_downgrade:            "Engine posture downgraded.",
+  posture_downgrade:            "Engine posture downgraded; reassess setup before sizing.",
   credit_view_downgrade:        "Credit View shifted toward caution.",
-  counter_thesis_intelligence:  "New counter-thesis article detected.",
-  support_break:                "Support level broke — re-evaluate.",
-  premium_quality_drop:         "Premium quality has dropped.",
+  counter_thesis_intelligence:  "New counter-thesis article detected; chase risk increased.",
+  support_break:                "Support level broke — re-evaluate setup.",
+  premium_quality_drop:         "Premium quality dropped; review entry plan.",
   thesis_confirmed:             "Thesis confirmed by latest intelligence.",
-  posture_upgrade:              "Engine posture upgraded.",
+  posture_upgrade:              "Engine posture upgraded; review for staged-entry.",
   credit_view_upgrade:          "Credit View shifted constructive.",
-  premium_quality_improved:     "Premium quality improved.",
+  premium_quality_improved:     "Premium quality improved, but entry still requires confirmation.",
   supportive_intelligence:      "Supportive intelligence detected.",
-  near_resistance:              "Price moved near resistance.",
-  near_support:                 "Price moved near support.",
+  near_resistance:              "Price moved near resistance — wait for confirmation.",
+  near_support:                 "Price moved near support — watch reaction.",
   no_change:                    "No major change.",
 });
 
